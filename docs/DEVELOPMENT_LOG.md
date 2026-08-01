@@ -301,3 +301,46 @@ scrolling, and layout components contain no literal colors or z-index values.
 
 **Current status:** Implementation complete; awaiting review before the next
 milestone.
+
+---
+
+## Phase 0 — Milestone 5: Design System Foundation
+
+**Date:** 2026-08-01
+
+**Objective:** Formalize the design-token system and document a canonical
+specification without implementing application features or theme switching.
+
+**Decisions made:**
+
+- Create `DESIGN_TOKENS.md` as the canonical token specification and require
+  `tokens.css` to follow it.
+- Keep dark theme as the only supported theme. Do not introduce `theme.ts`, a
+  typed theme model, a switcher, or a Zustand store until multiple themes
+  exist.
+- Preserve current component usage and only update primitives where a newly
+  introduced semantic token directly replaces an existing generic token.
+- Add semantic typography, focus, elevation, blur, icon-size, full-radius,
+  opacity, and future motion-transition tokens.
+- Keep current shadow usage unchanged while reserving a large shadow tier for
+  future high-elevation surfaces.
+
+**Files created or modified:**
+
+- Created `docs/architecture/DESIGN_TOKENS.md`
+- Modified `apps/desktop/src/styles/tokens.css`
+- Modified `apps/desktop/src/styles/globals.css`
+- Modified `apps/desktop/src/components/ui/buttonStyles.ts`
+- Modified `apps/desktop/src/components/ui/Input.tsx`
+- Modified `apps/desktop/src/test/App.test.tsx`
+
+**Outcome:** JARVIS now has a documented, semantic design-token contract for
+dark-theme colors, typography, spacing, radii, borders, shadows, blur, glow,
+icons, motion, opacity, focus, and layering. No feature UI, dynamic theme
+model, state, or new component was introduced.
+
+**Validation:** Tests, lint, and production build passed. Every documented
+token is defined in `tokens.css`, and every token reference in `src` resolves.
+
+**Current status:** Implementation complete; awaiting review before the next
+milestone.

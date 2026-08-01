@@ -11,14 +11,13 @@ user-interface features begin.
 
 ## Current milestone
 
-**Milestone 4 — Application shell**
+**Milestone 5 — Design System Foundation**
 
 Status: **Implementation complete; awaiting review.**
 
-The application now uses the approved structural composition: `App` →
-`LayoutProvider` → `AppShell` → `AppHeader`, `AppMain`, and `OverlayLayer`.
-The header and overlay remain intentionally empty. `AppMain` is the sole default
-vertical scroll region; no AppDock or feature UI has been implemented.
+The canonical design-token specification is now
+`docs/architecture/DESIGN_TOKENS.md`. The application supports only the dark
+theme; no runtime theme model, theme switcher, or store has been introduced.
 
 ## Completed milestones
 
@@ -28,11 +27,12 @@ vertical scroll region; no AppDock or feature UI has been implemented.
 | Phase 0 — Milestone 2: Design foundation | Complete | Added semantic token and global-style foundations. |
 | Phase 0 — Milestone 3: Reusable UI primitives | Complete | Added Button, IconButton, Input, Card, StatusIndicator, and the shared `cn` utility. |
 | Phase 0 — Milestone 3 refinement | Complete | Added documented input focus and button interaction states using semantic tokens. |
-| Phase 0 — Milestone 4: Application shell | Complete; awaiting review | Added static layout structure, semantic layering, and single-main-scroll ownership without feature UI. |
+| Phase 0 — Milestone 4: Application shell | Complete | Added static layout structure, semantic layering, and single-main-scroll ownership without feature UI. |
+| Phase 0 — Milestone 5: Design System Foundation | Complete; awaiting review | Added the canonical semantic design-token specification and expanded the token implementation. |
 
 ## Pending milestone
 
-**Milestone 4 review**
+**Milestone 5 review**
 
 Awaiting review. No next implementation milestone should begin until this
 milestone is accepted.

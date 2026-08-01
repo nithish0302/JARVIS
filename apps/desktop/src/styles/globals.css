@@ -4,7 +4,10 @@
 @layer base {
   :root {
     color-scheme: dark;
-    font-family: var(--font-sans);
+    font-family: var(--font-family-sans);
+    font-size: var(--font-size-body);
+    font-weight: var(--font-weight-regular);
+    line-height: var(--line-height-body);
   }
 
   *,
@@ -29,8 +32,8 @@
   }
 
   :focus-visible {
-    outline: 2px solid var(--color-accent);
-    outline-offset: 2px;
+    outline: var(--focus-ring-width) solid var(--focus-ring-color);
+    outline-offset: var(--focus-ring-offset);
   }
 
   ::selection {

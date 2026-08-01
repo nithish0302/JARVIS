@@ -35,7 +35,7 @@ export const Input = forwardRef<ComponentRef<"input">, InputProps>(function Inpu
       </label>
       <div
         className={cn(
-          "flex items-center gap-[var(--space-2)] rounded-[var(--radius-sm)] border-solid [border-width:var(--border-width)] bg-[var(--color-surface)] px-[var(--space-3)] py-[var(--space-2)] transition-[border-color,box-shadow] duration-[var(--duration-fast)] focus-within:border-[var(--color-accent)]",
+          "flex items-center gap-[var(--space-2)] rounded-[var(--radius-sm)] border-solid [border-width:var(--border-width)] bg-[var(--color-surface)] px-[var(--space-3)] py-[var(--space-2)] transition-[border-color,box-shadow] duration-[var(--duration-fast)] focus-within:border-[var(--color-border-focus)]",
           error ? "border-[var(--color-error)]" : "border-[var(--color-border)]",
         )}
       >
