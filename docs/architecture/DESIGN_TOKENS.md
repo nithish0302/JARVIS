@@ -135,7 +135,9 @@ These tokens are reserved for future Lucide React outline icons.
 | `--scale-active` | `0.98` | Active control feedback. |
 
 Tokens do not authorize animation by themselves. Continuous animation remains
-reserved for the AI Core as defined by the design system.
+reserved for the AI Core, except for the base Spinner's subtle loading rotation
+as defined by the design system. The Spinner must respect reduced-motion
+preferences and use semantic motion tokens.
 
 ## Focus and layering
 

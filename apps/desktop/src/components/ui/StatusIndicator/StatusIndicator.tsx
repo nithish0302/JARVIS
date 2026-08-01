@@ -1,5 +1,5 @@
 import type { ComponentPropsWithoutRef } from "react";
-import { cn } from "../../lib/cn";
+import { cn } from "../../../lib/cn";
 
 type StatusTone = "accent" | "success" | "warning" | "error";
 
@@ -35,7 +35,7 @@ export function StatusIndicator({
     >
       <span
         aria-hidden="true"
-        className={cn("size-[var(--space-2)] rounded-[var(--radius-sm)]", toneClasses[tone])}
+        className={cn("size-[var(--space-2)] rounded-[var(--radius-full)]", toneClasses[tone])}
       />
       {label}
     </span>

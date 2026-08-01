@@ -42,6 +42,18 @@
   }
 }
 
+@keyframes jarvis-spinner {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .jarvis-spinner {
+    animation: jarvis-spinner var(--duration-slow) var(--ease-standard) infinite;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

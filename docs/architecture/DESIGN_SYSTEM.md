@@ -328,7 +328,9 @@ Offline
 
 Dim
 
-Only the AI Core should have continuous animation.
+Only the AI Core should have continuous animation, except for the base Spinner's
+subtle loading rotation. The Spinner must respect reduced-motion preferences,
+use semantic motion tokens, and never be used as decorative animation.
 
 ---
 

@@ -304,6 +304,177 @@ milestone.
 
 ---
 
+## Phase 0 - Milestone 6A: Base UI Component Library - Core Primitives
+
+**Date:** 2026-08-01
+
+**Objective:** Establish the first half of the permanent JARVIS base UI
+component library without adding feature-specific UI, business logic, or
+animation framework usage.
+
+**Decisions made:**
+
+- Split the previously approved UI-library scope into two implementation
+  milestones. Milestone 6A contains Button, IconButton, Card, Panel, Badge,
+  Divider, Field, and Input; the remaining components are deferred to
+  Milestone 6B.
+- Give every reusable component its own folder and `README.md` so its purpose,
+  public API, accessibility expectations, and usage are maintained beside its
+  implementation.
+- Preserve the accepted Button, IconButton, Card, and Input public APIs while
+  relocating them into the permanent component structure.
+- Add `Panel` as a distinct semantic section surface while retaining Card's
+  existing `panel` variant for backward compatibility.
+- Centralize common action and surface style recipes to avoid duplicated
+  Tailwind class combinations.
+- Introduce `Field` and `useFieldIds` as the shared accessible field
+  composition foundation; refactor Input internally to consume it without
+  changing Input's public API.
+- Use only existing semantic design tokens. No Framer Motion, feature-specific
+  UI, stores, Tauri commands, or product business logic were introduced.
+
+**Files created or modified:**
+
+- Relocated and modified `apps/desktop/src/components/ui/Button/Button.tsx`
+- Relocated and modified `apps/desktop/src/components/ui/IconButton/IconButton.tsx`
+- Relocated and modified `apps/desktop/src/components/ui/Card/Card.tsx`
+- Relocated and modified `apps/desktop/src/components/ui/Input/Input.tsx`
+- Created `apps/desktop/src/components/ui/Panel/Panel.tsx`
+- Created `apps/desktop/src/components/ui/Badge/Badge.tsx`
+- Created `apps/desktop/src/components/ui/Divider/Divider.tsx`
+- Created `apps/desktop/src/components/ui/Field/Field.tsx`
+- Created `apps/desktop/src/components/ui/Field/useFieldIds.ts`
+- Created `apps/desktop/src/components/ui/shared/buttonStyles.ts`
+- Created `apps/desktop/src/components/ui/shared/surfaceStyles.ts`
+- Created component README and test files for every Milestone 6A component.
+- Updated `docs/CURRENT_STATUS.md`
+- Appended this entry to `docs/DEVELOPMENT_LOG.md`
+
+**Outcome:** The project now has a documented, token-driven, accessible core
+component foundation. Native interactive controls preserve keyboard behavior,
+Input composes the shared field contract, and all components remain independent
+of application features.
+
+**Validation:** Pending execution after implementation.
+
+**Current status:** Implementation complete; awaiting review before Milestone
+6B.
+
+---
+
+## Phase 0 - Milestone 6A: Validation
+
+**Date:** 2026-08-01
+
+**Objective:** Verify the completed Milestone 6A component-library foundation.
+
+**Decisions made:**
+
+- Validate the library with focused component tests, linting, a TypeScript
+  production build, and static source checks.
+- Retain the initial implementation after validation; no corrective production
+  code changes were required.
+
+**Files created or modified:**
+
+- Modified `apps/desktop/src/components/ui/Button/Button.test.tsx`
+- Modified `apps/desktop/src/components/ui/Field/Field.test.tsx`
+- Modified `docs/CURRENT_STATUS.md`
+- Appended this validation entry to `docs/DEVELOPMENT_LOG.md`
+
+**Outcome:** All nine test files and all nine tests passed. ESLint and the
+production TypeScript/Vite build passed. No literal hexadecimal colors exist in
+the UI component source, common action and surface class recipes are shared,
+and every component source file remains below 150 lines.
+
+**Current status:** Milestone 6A is verified and awaiting review before
+Milestone 6B.
+
+---
+
+## Phase 0 - Milestone 6B: Base UI Component Library - Extended Primitives
+
+**Date:** 2026-08-01
+
+**Objective:** Complete the approved remaining foundational UI component
+library without implementing application features.
+
+**Decisions made:**
+
+- Implement only Textarea, Select, Checkbox, Switch, Spinner, Skeleton, and
+  StatusIndicator; EmptyState, ProgressBar, layouts, overlays, and product
+  features remain out of scope.
+- Reuse the existing Field and useFieldIds composition for all new form
+  controls, and centralize shared direct-control styles for Input, Textarea,
+  and Select.
+- Retain native controls and forward refs for Textarea, Select, Checkbox, and
+  Switch so keyboard, focus, and form integration remain native.
+- Add a minimal token-driven Spinner rotation. It is enabled only when the
+  user does not request reduced motion and uses the existing slow-duration and
+  standard-easing tokens.
+- Keep Skeleton static and hidden from assistive technology. It does not add a
+  continuous loading animation.
+- Relocate StatusIndicator into its own component folder, preserve its public
+  API, and use the semantic full-radius token for its marker.
+- Add a README and focused test for every Milestone 6B component, including
+  expected future consumers in each README's Used By section.
+
+**Files created or modified:**
+
+- Created `apps/desktop/src/components/ui/shared/fieldControlStyles.ts`
+- Modified `apps/desktop/src/components/ui/Input/Input.tsx`
+- Created Textarea, Select, Checkbox, Switch, Spinner, Skeleton, and
+  StatusIndicator component folders, each containing implementation, test, and
+  README files.
+- Deleted the former `apps/desktop/src/components/ui/StatusIndicator.tsx`
+  after relocating it to its self-contained component folder.
+- Modified `apps/desktop/src/styles/globals.css`
+- Updated `docs/CURRENT_STATUS.md`
+- Appended this entry to `docs/DEVELOPMENT_LOG.md`
+
+**Outcome:** The base UI component library now provides the approved
+foundational form, loading, and status primitives. Components remain reusable,
+independent of product behavior, token-driven, and accessible through native
+semantics and shared field composition.
+
+**Validation:** All 16 test files and all 16 tests passed. ESLint and the
+production TypeScript/Vite build passed. Static checks confirmed that every
+Milestone 6B component has its README and test file, that component source has
+no literal hexadecimal colors, spacing, radii, shadows, typography, or timing
+values, and that all component files remain below 150 lines.
+
+**Current status:** Implementation complete; awaiting review before any next
+milestone.
+
+---
+
+## Phase 0 - Milestone 6B: Documentation consistency
+
+**Date:** 2026-08-01
+
+**Objective:** Keep the canonical visual documentation aligned with the
+approved Spinner implementation.
+
+**Decisions made:**
+
+- Record the narrow Spinner exception to the AI Core-only continuous-animation
+  rule. The Spinner rotation is limited to loading feedback, uses semantic
+  motion tokens, and respects reduced-motion preferences.
+
+**Files created or modified:**
+
+- Modified `docs/architecture/DESIGN_SYSTEM.md`
+- Modified `docs/architecture/DESIGN_TOKENS.md`
+- Modified `docs/CURRENT_STATUS.md`
+- Appended this entry to `docs/DEVELOPMENT_LOG.md`
+
+**Outcome:** The canonical documentation now matches the approved Spinner
+behavior.
+
+**Current status:** Milestone 6B remains complete and awaiting review.
+
+---
+
 ## Phase 0 — Milestone 5: Design System Foundation
 
 **Date:** 2026-08-01

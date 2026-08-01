@@ -1,31 +1,29 @@
 import { forwardRef, type ComponentPropsWithoutRef, type ComponentRef, type ReactNode } from "react";
-import { cn } from "../../lib/cn";
+import { cn } from "../../../lib/cn";
 import {
   buttonBaseClasses,
-  buttonSizeClasses,
   buttonVariantClasses,
+  iconButtonSizeClasses,
   type ButtonSize,
   type ButtonVariant,
-} from "./buttonStyles";
+} from "../shared/buttonStyles";
 
-export interface ButtonProps extends ComponentPropsWithoutRef<"button"> {
-  leftIcon?: ReactNode;
-  rightIcon?: ReactNode;
+export interface IconButtonProps
+  extends Omit<ComponentPropsWithoutRef<"button">, "aria-label"> {
+  "aria-label": string;
+  children: ReactNode;
   loading?: boolean;
   variant?: ButtonVariant;
   size?: ButtonSize;
-  fullWidth?: boolean;
 }
 
-export const Button = forwardRef<ComponentRef<"button">, ButtonProps>(function Button(
+export const IconButton = forwardRef<ComponentRef<"button">, IconButtonProps>(function IconButton(
   {
+    "aria-label": ariaLabel,
     children,
     className,
     disabled,
-    fullWidth = false,
-    leftIcon,
     loading = false,
-    rightIcon,
     size = "md",
     type = "button",
     variant = "primary",
@@ -38,20 +36,17 @@ export const Button = forwardRef<ComponentRef<"button">, ButtonProps>(function B
       {...props}
       ref={ref}
       aria-busy={loading || undefined}
+      aria-label={ariaLabel}
       className={cn(
         buttonBaseClasses,
         buttonVariantClasses[variant],
-        buttonSizeClasses[size],
-        fullWidth && "w-full",
+        iconButtonSizeClasses[size],
         className,
       )}
       disabled={disabled || loading}
       type={type}
     >
-      {leftIcon ? <span aria-hidden="true">{leftIcon}</span> : null}
-      <span>{children}</span>
-      {loading ? <span aria-hidden="true">…</span> : null}
-      {rightIcon ? <span aria-hidden="true">{rightIcon}</span> : null}
+      <span aria-hidden="true">{children}</span>
       {loading ? <span className="sr-only">Loading</span> : null}
     </button>
   );
