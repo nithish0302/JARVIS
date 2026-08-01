@@ -1,0 +1,127 @@
+/*
+ * JARVIS design tokens.
+ *
+ * These semantic values are the single source of truth for future UI work.
+ * Glow tokens are reserved for the AI Core, active microphone, and important
+ * highlights as defined by the design system.
+ */
+
+:root {
+  /* Colors */
+  --color-background: #05080f;
+  --color-background-secondary: #0b1220;
+  --color-surface: #111827;
+  --color-accent: #00d4ff;
+  --color-accent-hover: #38bdf8;
+  --color-highlight: #4fe6ff;
+  --color-success: #22c55e;
+  --color-warning: #facc15;
+  --color-error: #ef4444;
+  --color-text-primary: CanvasText;
+  --color-text-secondary: color-mix(in srgb, CanvasText 70%, transparent);
+  --color-border: color-mix(in srgb, var(--color-surface) 70%, var(--color-accent) 30%);
+  --color-border-subtle: color-mix(in srgb, var(--color-surface) 85%, var(--color-background) 15%);
+
+  /* Typography */
+  --font-sans: Inter, system-ui, sans-serif;
+
+  /* Spacing */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+
+  /* Radius */
+  --radius-sm: 0.75rem;
+  --radius-md: 1rem;
+  --radius-lg: 1.25rem;
+
+  /* Borders */
+  --border-width: 1px;
+
+  /* Shadows */
+  --shadow-sm: 0 4px 12px rgb(5 8 15 / 25%);
+  --shadow-md: 0 12px 24px rgb(5 8 15 / 35%);
+
+  /* Glow */
+  --glow-sm: 0 0 16px rgb(79 230 255 / 25%);
+  --glow-md: 0 0 32px rgb(79 230 255 / 35%);
+
+  /* Motion */
+  --duration-fast: 150ms;
+  --duration-normal: 250ms;
+  --duration-slow: 400ms;
+  --opacity-disabled: 0.5;
+  --scale-active: 0.98;
+
+  /* Layering */
+  --z-base: 0;
+  --z-header: 10;
+  --z-overlay: 20;
+  --z-modal: 30;
+  --z-toast: 40;
+}
+
+[data-theme="dark"] {
+  /* Colors */
+  --color-background: #05080f;
+  --color-background-secondary: #0b1220;
+  --color-surface: #111827;
+  --color-accent: #00d4ff;
+  --color-accent-hover: #38bdf8;
+  --color-highlight: #4fe6ff;
+  --color-success: #22c55e;
+  --color-warning: #facc15;
+  --color-error: #ef4444;
+  --color-text-primary: CanvasText;
+  --color-text-secondary: color-mix(in srgb, CanvasText 70%, transparent);
+  --color-border: color-mix(in srgb, var(--color-surface) 70%, var(--color-accent) 30%);
+  --color-border-subtle: color-mix(in srgb, var(--color-surface) 85%, var(--color-background) 15%);
+
+  /* Typography */
+  --font-sans: Inter, system-ui, sans-serif;
+
+  /* Spacing */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+
+  /* Radius */
+  --radius-sm: 0.75rem;
+  --radius-md: 1rem;
+  --radius-lg: 1.25rem;
+
+  /* Borders */
+  --border-width: 1px;
+
+  /* Shadows */
+  --shadow-sm: 0 4px 12px rgb(5 8 15 / 25%);
+  --shadow-md: 0 12px 24px rgb(5 8 15 / 35%);
+
+  /* Glow */
+  --glow-sm: 0 0 16px rgb(79 230 255 / 25%);
+  --glow-md: 0 0 32px rgb(79 230 255 / 35%);
+
+  /* Motion */
+  --duration-fast: 150ms;
+  --duration-normal: 250ms;
+  --duration-slow: 400ms;
+  --opacity-disabled: 0.5;
+  --scale-active: 0.98;
+
+  /* Layering */
+  --z-base: 0;
+  --z-header: 10;
+  --z-overlay: 20;
+  --z-modal: 30;
+  --z-toast: 40;
+}

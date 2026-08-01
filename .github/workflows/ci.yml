@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Install Node dependencies
+        run: pnpm install
+
+      - name: Run Frontend Lint
+        run: pnpm --filter desktop lint
+
+      - name: Run Frontend Tests
+        run: pnpm --filter desktop test:run
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+
+      - name: Run Python Lint & Format Check
+        run: |
+          uv run ruff check services/jarvis-engine
+          uv run black --check services/jarvis-engine
+
+      - name: Run Python Tests
+        run: uv run pytest services/jarvis-engine
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Rust Check (clippy & fmt)
+        run: |
+          cd apps/desktop/src-tauri
+          cargo fmt --check
+          cargo clippy -- -D warnings
