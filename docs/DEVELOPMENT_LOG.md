@@ -691,3 +691,53 @@ build successful.
 **Current status:** Complete and approved.
 
 ---
+
+
+## Phase 1 - Milestone 5: Settings UI
+
+**Date:** 2026-08-02
+
+**Objective:** Implement the presentational Settings UI for JARVIS.
+
+**Decisions made:**
+
+- Utilize `App.tsx` local state to toggle between `"chat"` and `"settings"` views.
+- Extend `AppShell` and `AppHeader` to support `onSettingsOpen` and `onClose` callbacks, rendering a Settings icon in Chat mode and a Back arrow in Settings mode.
+- Introduce `SettingsView` as a new page-level orchestrator for settings.
+- Introduce a two-column `SettingsLayout` and a vertical `SettingsSidebar`.
+- Implement `AIProviderSection`, `AppearanceSection`, and `AboutSection` using existing UI primitives like `Select`, `Input`, and `Switch`.
+- Enforce design system tokens for spacing, typography, and layout. No hardcoded styles were used.
+- All new components include tests and `README.md` files, keeping each file under 150 lines.
+
+**Files created or modified:**
+
+- Modified `apps/desktop/src/App.tsx`
+- Modified `apps/desktop/src/components/layout/AppShell.tsx`
+- Modified `apps/desktop/src/components/layout/AppHeader.tsx`
+- Created `apps/desktop/src/components/settings/*` (SettingsView, SettingsLayout, SettingsSidebar, SettingsSection, AIProviderSection, AppearanceSection, AboutSection)
+- Updated `docs/CURRENT_STATUS.md`
+- Appended this entry to `docs/DEVELOPMENT_LOG.md`
+
+**Outcome:** The user can now seamlessly toggle between the Chat View and the newly built Settings View using the AppHeader icons. Settings view features a functional left sidebar that switches out the main content sections. Everything is presentational but well-structured for future integrations.
+
+**Validation:** Tests passing, lint clean, production build successful.
+
+**Current status:** Complete and approved.
+
+---
+
+## Architecture Clarification: jarvis-engine Python Service
+Date: 2026-08-02
+Context: Repository contains scaffolded Python service at services/jarvis-engine/ with stubbed core modules.
+Decision: jarvis-engine is the intended AI brain of JARVIS. It will house Provider Manager, Conversation Manager, Prompt Pipeline, Memory Interface, and Tool Calling. Currently empty scaffold only. No implementation until Phase 2 (AI Integration). Leave untouched during Phase 1.
+Status: Noted and deferred to Phase 2.
+
+## Architecture Clarification: packages/ui vs desktop ui
+Date: 2026-08-02
+Decision: apps/desktop/src/components/ui/ is the current local UI library. packages/ui/ is reserved for future shared cross-app library (Desktop + Android + Web). Do not migrate components during Phase 1. Migration happens when Android development begins. Never duplicate components in both locations.
+Status: Migration deferred to Phase 8 or later.
+
+## Architecture Clarification: packages/shared-types
+Date: 2026-08-02
+Decision: apps/desktop/src/types/ holds app-local types. packages/shared-types/ is reserved for cross-application TypeScript contracts. Keep chat.types.ts in desktop app. Rule: Only migrate a type when consumed by 2+ apps. Types shared with Python need language-neutral contracts such as OpenAPI or JSON Schema.
+Status: Migration deferred until second consumer exists.

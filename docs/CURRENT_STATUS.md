@@ -10,11 +10,11 @@ The project is now implementing the desktop user-interface features within the e
 
 ## Current milestone
 
-**Milestone 4 - Chat Composer (Input Area)**
+**Milestone 5 - Settings UI**
 
 Status: **Complete; awaiting review.**
 
-The fourth milestone of Phase 1 is complete. The application now includes a ChatComposer at the bottom of the shell. It features an auto-growing plain textarea for semantic token-based styling, character count constraints, and responsive action components. `lucide-react` is now integrated into the project for iconography.
+The fifth milestone of Phase 1 is complete. The application now includes a presentational Settings UI accessible from the AppHeader. It features a two-column layout (`SettingsLayout`) with vertical sidebar navigation and specific sections for AI Provider, Appearance, and About. The state for view switching (`chat` vs `settings`) is managed locally in `App.tsx`.
 
 Validation passed: unit tests, lint, and the production build. 
 
@@ -33,18 +33,19 @@ Validation passed: unit tests, lint, and the production build.
 | Phase 1 - Milestone 1: Header and Status Bar | Complete | Added persistent application navigation and a presentation-only status bar to the application shell. |
 | Phase 1 - Milestone 2: AI Core (Idle Experience) | Complete | Added the centralized IdleView including the animated AI Core, typography, and placeholder suggestion grid. |
 | Phase 1 - Milestone 3: Chat Conversation Area | Complete | Added the scrollable ConversationArea, MessageList, MessageBubble, MessageAvatar, and TypingIndicator components with static layout toggling. |
-| Phase 1 - Milestone 4: Chat Composer (Input Area) | Complete; awaiting review | Added ChatComposer, ComposerToolbar, and SendButton components with auto-grow and character constraint presentation. |
+| Phase 1 - Milestone 4: Chat Composer (Input Area) | Complete | Added ChatComposer, ComposerToolbar, and SendButton components with auto-grow and character constraint presentation. |
+| Phase 1 - Milestone 5: Settings UI | Complete; awaiting review | Added SettingsView, SettingsLayout, SettingsSidebar, AIProviderSection, AppearanceSection, and AboutSection. |
 
 ## Pending milestone
 
-**Phase 1 - Milestone 4 review**
+**Phase 1 - Milestone 5 review**
 
 Awaiting review. No further implementation milestone should begin until this
 milestone is accepted.
 
 ## Next planned milestone
 
-The next milestone for Phase 1 - Desktop UI will be Milestone 5, which continues to enrich the desktop user experience.
+The next milestone for Phase 1 - Desktop UI will be Milestone 6, which continues to enrich the desktop user experience.
 
 ## Current technology stack
 
