@@ -4,27 +4,19 @@ Last updated: 2026-08-01
 
 ## Current phase
 
-**Phase 0 - Foundation**
+**Phase 1 - Desktop UI**
 
-The project is establishing the desktop application foundation before Phase 1
-user-interface features begin.
+The project is now implementing the desktop user-interface features within the established shell.
 
 ## Current milestone
 
-**Milestone 6B - Base UI Component Library: Extended Primitives**
+**Milestone 4 - Chat Composer (Input Area)**
 
-Status: **Implementation complete; awaiting review.**
+Status: **Complete; awaiting review.**
 
-The second implementation half of the permanent base UI component library is
-complete. It adds the remaining approved form, loading, and status primitives
-without application features or business logic.
+The fourth milestone of Phase 1 is complete. The application now includes a ChatComposer at the bottom of the shell. It features an auto-growing plain textarea for semantic token-based styling, character count constraints, and responsive action components. `lucide-react` is now integrated into the project for iconography.
 
-Validation passed: unit tests, lint, and the production build. Static review
-found no literal visual values in Milestone 6B component source, and each
-approved component has its required README and test file.
-
-The canonical design and token specifications document the approved narrow
-Spinner exception to the AI Core-only continuous-animation rule.
+Validation passed: unit tests, lint, and the production build. 
 
 ## Completed milestones
 
@@ -37,21 +29,22 @@ Spinner exception to the AI Core-only continuous-animation rule.
 | Phase 0 - Milestone 4: Application shell | Complete | Added static layout structure, semantic layering, and single-main-scroll ownership without feature UI. |
 | Phase 0 - Milestone 5: Design System Foundation | Complete | Added the canonical semantic design-token specification and expanded the token implementation. |
 | Phase 0 - Milestone 6A: Base UI Component Library - Core Primitives | Complete | Added Button, IconButton, Card, Panel, Badge, Divider, Field, and Input in self-contained component folders. |
-| Phase 0 - Milestone 6B: Base UI Component Library - Extended Primitives | Complete; awaiting review | Added Textarea, Select, Checkbox, Switch, Spinner, Skeleton, and StatusIndicator in self-contained component folders. |
+| Phase 0 - Milestone 6B: Base UI Component Library - Extended Primitives | Complete | Added Textarea, Select, Checkbox, Switch, Spinner, Skeleton, and StatusIndicator in self-contained component folders. |
+| Phase 1 - Milestone 1: Header and Status Bar | Complete | Added persistent application navigation and a presentation-only status bar to the application shell. |
+| Phase 1 - Milestone 2: AI Core (Idle Experience) | Complete | Added the centralized IdleView including the animated AI Core, typography, and placeholder suggestion grid. |
+| Phase 1 - Milestone 3: Chat Conversation Area | Complete | Added the scrollable ConversationArea, MessageList, MessageBubble, MessageAvatar, and TypingIndicator components with static layout toggling. |
+| Phase 1 - Milestone 4: Chat Composer (Input Area) | Complete; awaiting review | Added ChatComposer, ComposerToolbar, and SendButton components with auto-grow and character constraint presentation. |
 
 ## Pending milestone
 
-**Milestone 6B review**
+**Phase 1 - Milestone 4 review**
 
 Awaiting review. No further implementation milestone should begin until this
 milestone is accepted.
 
 ## Next planned milestone
 
-The next implementation milestone has not yet been formally defined. The
-roadmap places Phase 1 - User Interface next, but its milestone breakdown has
-not been reconstructed from the available project documentation.
-
+The next milestone for Phase 1 - Desktop UI will be Milestone 5, which continues to enrich the desktop user experience.
 
 ## Current technology stack
 
@@ -64,14 +57,13 @@ not been reconstructed from the available project documentation.
 - Tailwind CSS v4 with PostCSS
 - Framer Motion
 - clsx
+- lucide-react
 - Vitest, Testing Library, ESLint, and Prettier development tooling
 
 ### Documented stack not currently used by the canonical desktop manifest
 
 - Zustand is an accepted architecture decision for future global state, but it
   is not currently listed in `apps/desktop/package.json` and no store exists.
-- Lucide React is specified by the design system, but it is not currently
-  listed in `apps/desktop/package.json` and no icon component is rendered.
 
 ### Present but not yet documented as active product usage
 

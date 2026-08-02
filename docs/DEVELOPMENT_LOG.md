@@ -515,3 +515,179 @@ token is defined in `tokens.css`, and every token reference in `src` resolves.
 
 **Current status:** Implementation complete; awaiting review before the next
 milestone.
+
+---
+
+## Phase 1 - Milestone 1: Header and Status Bar
+
+**Date:** 2026-08-01
+
+**Objective:** Implement the persistent top navigation (Header) and bottom global status reporting (Status Bar) areas within the desktop application shell.
+
+**Decisions made:**
+
+- Maintain the `AppShell` grid layout structure, updating it to include a third row for the `StatusBar`.
+- Expose a reusable brand area in `AppHeader` rather than hardcoding branding. Use styled typography ("JARVIS") as a temporary placeholder.
+- Create `StatusBar` as a presentation-only layout component with placeholder slots for future status injection. It does not hardcode application state (e.g., "System Ready") or integrate loading indicators like `Spinner`, which belong to future feature modules.
+
+**Files created or modified:**
+
+- Modified `apps/desktop/src/components/layout/AppHeader.tsx`
+- Created `apps/desktop/src/components/layout/StatusBar.tsx`
+- Modified `apps/desktop/src/components/layout/AppShell.tsx`
+- Updated `docs/CURRENT_STATUS.md`
+- Appended this entry to `docs/DEVELOPMENT_LOG.md`
+
+**Outcome:** The application shell now establishes the full vertical bounds defined in the design system, with a persistent header and status bar. The layout is prepared to accept the AI Core and Chat Interface in the main content area.
+
+**Validation:** Desktop tests, lint, and production build passed.
+
+**Current status:** Implementation complete; awaiting review before the next milestone.
+
+---
+
+## Phase 1 - Milestone 2: AI Core (Idle Experience)
+
+**Date:** 2026-08-01
+
+**Objective:** Establish the permanent central presentation of JARVIS before any conversation begins, including the glowing AI Core orb, identity typography, welcome greeting, and placeholder suggestion cards.
+
+**Decisions made:**
+
+- Render the IdleView directly through `AppMain` to preserve the application shell boundaries without modifying `App.tsx`.
+- Create a modular `components/ai-core/` directory containing individual components for `AiCore`, `AiCoreIdle`, `AiIdentity`, `IdleView`, `SuggestionCard`, `SuggestionGrid`, and `WelcomeMessage`.
+- Size the AI Core orb and its glow strictly using semantic design tokens (`var(--space-16)`, `var(--glow-md)`, `var(--color-highlight)`).
+- Implement a subtle continuous animation using `framer-motion` in `AiCoreIdle`, with a fallback for `useReducedMotion`.
+- Limit components to a strict 150-line boundary, providing individual tests and README documentation.
+
+**Files created or modified:**
+
+- Created `apps/desktop/src/components/ai-core/*` (AiCore, AiCoreIdle, AiIdentity, IdleView, SuggestionCard, SuggestionGrid, WelcomeMessage)
+- Modified `apps/desktop/src/components/layout/AppMain.tsx`
+- Updated `docs/CURRENT_STATUS.md`
+- Appended this entry to `docs/DEVELOPMENT_LOG.md`
+
+**Outcome:** The application shell now displays the central visual identity of JARVIS when idle, maintaining semantic styling and responsive alignment without introducing business logic or active state management.
+
+**Validation:** Desktop tests, lint, and production build passed.
+
+**Current status:** Implementation complete; awaiting review before the next milestone.
+
+---
+
+## Phase 1 - Milestone 3: Chat Conversation Area
+
+**Date:** 2026-08-01
+
+**Objective:** Implement the permanent scrollable conversation region that displays AI and user messages, swapping with the IdleView appropriately, without business logic.
+
+**Decisions made:**
+- Kept `AppMain` purely generic, stripping its awareness of chat messages or `IdleView`.
+- Created a `ChatView` component at the page composition layer to dictate the display of either `IdleView` or `ConversationArea` based on mock static messages.
+- Centralized `Message` types in `apps/desktop/src/types/chat.types.ts`.
+- Used semantic flex layouts and design tokens (`--color-surface`, `--color-accent`) for message bubbles, avoiding arbitrary dimensions.
+- Managed automatic scrolling behavior entirely within `ConversationArea` using `scrollIntoView()` on a dummy anchor element.
+- Added a `TypingIndicator` utilizing `framer-motion` that supports reduced-motion via a subtle opacity fade.
+
+**Files created or modified:**
+- Created `apps/desktop/src/types/chat.types.ts`
+- Created `apps/desktop/src/components/chat/*` (ConversationArea, MessageList, MessageBubble, MessageAvatar, TypingIndicator, ChatView)
+- Modified `apps/desktop/src/components/layout/AppMain.tsx` (Reverted to generic layout)
+- Modified `apps/desktop/src/App.tsx` (Rendered `ChatView`)
+- Updated `docs/CURRENT_STATUS.md`
+- Appended this entry to `docs/DEVELOPMENT_LOG.md`
+
+**Outcome:** The application successfully renders the layout of a conversation, defaulting to mock placeholder data injected at the page level. Visual styling strictly follows the token design system without introducing hardcoded states.
+
+**Validation:** Desktop tests, lint, and production build passed.
+
+**Current status:** Refinements complete; awaiting final review.
+
+---
+
+### Architectural Refinements (Phase 1 - Milestone 3)
+
+**Date:** 2026-08-01
+
+**Refinements:**
+- Restored `App.tsx` as the permanent application composition root without feature-specific logic.
+- Composed the chat experience through the layout layer via `AppShell.tsx`, which now acts as the permanent page-level controller.
+- Maintained `AppMain` as a purely generic layout container.
+
+**Validation:** Tests, linting, and build passed successfully following refinements.
+
+---
+
+### Architectural Refinements (Phase 1 - Milestone 3 - Final)
+
+**Date:** 2026-08-02
+
+**Refinements:**
+- Removed `ChatView` from `AppShell`. `AppShell` returned to being a pure layout component accepting `children` and passing them to `AppMain`.
+- Updated `App.tsx` to render `<ChatView />` by passing it as a child of `<AppShell>`.
+- Verified the compositional flow: `App.tsx` (Decides Feature) -> `AppShell` (Handles Layout) -> `AppMain` (Renders Children) -> `ChatView` (Owns Chat).
+
+**Validation:** Desktop tests, lint, and production build passed.
+
+
+## Phase 1 - Milestone 4: Chat Composer (Input Area)
+
+**Date:** 2026-08-02
+
+**Objective:** Implement the permanent chat input area where 
+the user types and sends messages, with keyboard accessibility 
+and auto-growing textarea behavior.
+
+**Decisions made:**
+
+- Use a plain <textarea> element directly inside ChatComposer 
+  rather than the existing Textarea UI component. Chat composers 
+  have no visible label — this is a documented legitimate 
+  exception. aria-label="Message" provides screen reader access.
+- Auto-grow the textarea dynamically up to 5 lines using 
+  scrollHeight, then scroll internally.
+- Handle Enter to send and Shift+Enter for newline at the 
+  keyboard event level inside ChatComposer.
+- Show a character count warning styled with --color-text-muted 
+  and --font-size-caption tokens when the message exceeds 500 
+  characters, formatted as "523 / 500".
+- Create ComposerToolbar as an empty placeholder for future 
+  actions (voice input, file attach, etc).
+- Wire ChatComposer into ChatView using React useState so 
+  sending a message appends it to the local messages array, 
+  giving the illusion of a working chat for layout validation.
+- Install lucide-react (previously accepted in design system 
+  ADR but not in package.json) and 
+  @testing-library/user-event (needed for keyboard simulation 
+  in tests).
+
+**Files created or modified:**
+
+- Created apps/desktop/src/components/chat/ChatComposer/ChatComposer.tsx
+- Created apps/desktop/src/components/chat/ChatComposer/ChatComposer.test.tsx
+- Created apps/desktop/src/components/chat/ChatComposer/README.md
+- Created apps/desktop/src/components/chat/SendButton/SendButton.tsx
+- Created apps/desktop/src/components/chat/SendButton/SendButton.test.tsx
+- Created apps/desktop/src/components/chat/SendButton/README.md
+- Created apps/desktop/src/components/chat/ComposerToolbar/ComposerToolbar.tsx
+- Created apps/desktop/src/components/chat/ComposerToolbar/ComposerToolbar.test.tsx
+- Created apps/desktop/src/components/chat/ComposerToolbar/README.md
+- Modified apps/desktop/src/components/chat/ChatView/ChatView.tsx
+- Modified apps/desktop/src/components/chat/ChatView/ChatView.test.tsx
+- Modified apps/desktop/package.json
+- Regenerated pnpm-lock.yaml
+- Updated docs/CURRENT_STATUS.md
+
+**Outcome:** The application now has a fully functional-looking 
+chat interface. The user can type a message, press Enter or 
+click Send, and see their message appear in the conversation 
+area. The IdleView disappears on the first message. 
+Auto-scroll works. The composer stays fixed at the bottom 
+while ConversationArea scrolls above it.
+
+**Validation:** 35 tests passing, lint clean, production 
+build successful.
+
+**Current status:** Complete and approved.
+
+---
