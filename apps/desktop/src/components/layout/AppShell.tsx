@@ -6,9 +6,11 @@ import { StatusBar } from "./StatusBar";
 
 export interface AppShellProps {
   children?: ReactNode;
+  onClose?: () => void;
+  onSettingsOpen?: () => void;
 }
 
-export function AppShell({ children }: AppShellProps) {
+export function AppShell({ children, onClose, onSettingsOpen }: AppShellProps) {
   return (
     <div className="relative grid h-dvh min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden bg-[var(--color-background)]">
       <a
@@ -17,7 +19,7 @@ export function AppShell({ children }: AppShellProps) {
       >
         Skip to main content
       </a>
-      <AppHeader />
+      <AppHeader onClose={onClose} onSettingsOpen={onSettingsOpen} />
       <AppMain>{children}</AppMain>
       <StatusBar />
       <OverlayLayer />
