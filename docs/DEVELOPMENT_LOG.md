@@ -756,17 +756,18 @@ AI integration begins.
 
 Changes:
 
-- App.tsx: AnimatePresence view transitions
-- ChatView.tsx: IdleView to ConversationArea crossfade,
+- App.tsx: AnimatePresence view transitions added
+- ChatView.tsx: IdleView/ConversationArea crossfade,
   fixed Easing type import
-- SuggestionCard.tsx: hover state
-- ChatComposer.tsx: top border separator
-- MessageBubble.tsx: max-w-70% cap
-- AppHeader.tsx: accent brand text + padding
+- SuggestionCard.tsx: hover state added
+- ChatComposer.tsx: top border separator added
+- MessageBubble.tsx: max-w-70% cap added
+- AppHeader.tsx: accent brand text + padding refined
 - AppShell.tsx: StatusBar slots wired
 - buttonStyles.ts + fieldControlStyles.ts: focus audit
-- globals.css: webkit scrollbar styling
-- ci.yml: Node version updated to 22
+- globals.css: webkit scrollbar styling added
+- ci.yml: Node 22, uv path fix, user-event dependency
+- package.json: @testing-library/user-event added
 
 Validation: 51/51 tests, lint clean, build clean.
 Status: Complete and approved.

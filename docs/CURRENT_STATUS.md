@@ -4,6 +4,10 @@ Last updated: 2026-08-01
 
 ## Current phase
 
+Current Phase: Phase 1 — Complete
+Next Phase: Phase 2 — AI Integration
+Current Milestone: None — awaiting Phase 2 planning
+
 **Phase 1 - Desktop UI**
 
 The project is now implementing the desktop user-interface features within the established shell.
@@ -35,10 +39,6 @@ Validation passed: unit tests, lint, and the production build.
 | Phase 1 - Milestone 3: Chat Conversation Area                           | Complete                  | Added the scrollable ConversationArea, MessageList, MessageBubble, MessageAvatar, and TypingIndicator components with static layout toggling. |
 | Phase 1 - Milestone 4: Chat Composer (Input Area)                       | Complete                  | Added ChatComposer, ComposerToolbar, and SendButton components with auto-grow and character constraint presentation.                          |
 | Phase 1 - Milestone 5: Settings UI                                      | Complete; awaiting review | Added SettingsView, SettingsLayout, SettingsSidebar, AIProviderSection, AppearanceSection, and AboutSection.                                  |
-
-Current Phase: Phase 1 — Complete
-Next Phase: Phase 2 — AI Integration
-Current Milestone: None — awaiting Phase 2 planning
 
 ## Pending milestone
 
