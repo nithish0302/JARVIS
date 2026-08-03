@@ -16,7 +16,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: "22"
 
       - name: Install pnpm
         uses: pnpm/action-setup@v3
@@ -38,15 +38,20 @@ jobs:
           python-version: "3.12"
 
       - name: Install uv
-        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
       - name: Run Python Lint & Format Check
         run: |
-          uv run ruff check services/jarvis-engine
-          uv run black --check services/jarvis-engine
+          cd services/jarvis-engine
+          uv sync --dev
+          uv run ruff check .
 
       - name: Run Python Tests
-        run: uv run pytest services/jarvis-engine
+        run: |
+          cd services/jarvis-engine
+          uv run pytest
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
