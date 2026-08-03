@@ -582,6 +582,7 @@ milestone.
 **Objective:** Implement the permanent scrollable conversation region that displays AI and user messages, swapping with the IdleView appropriately, without business logic.
 
 **Decisions made:**
+
 - Kept `AppMain` purely generic, stripping its awareness of chat messages or `IdleView`.
 - Created a `ChatView` component at the page composition layer to dictate the display of either `IdleView` or `ConversationArea` based on mock static messages.
 - Centralized `Message` types in `apps/desktop/src/types/chat.types.ts`.
@@ -590,6 +591,7 @@ milestone.
 - Added a `TypingIndicator` utilizing `framer-motion` that supports reduced-motion via a subtle opacity fade.
 
 **Files created or modified:**
+
 - Created `apps/desktop/src/types/chat.types.ts`
 - Created `apps/desktop/src/components/chat/*` (ConversationArea, MessageList, MessageBubble, MessageAvatar, TypingIndicator, ChatView)
 - Modified `apps/desktop/src/components/layout/AppMain.tsx` (Reverted to generic layout)
@@ -610,6 +612,7 @@ milestone.
 **Date:** 2026-08-01
 
 **Refinements:**
+
 - Restored `App.tsx` as the permanent application composition root without feature-specific logic.
 - Composed the chat experience through the layout layer via `AppShell.tsx`, which now acts as the permanent page-level controller.
 - Maintained `AppMain` as a purely generic layout container.
@@ -623,42 +626,42 @@ milestone.
 **Date:** 2026-08-02
 
 **Refinements:**
+
 - Removed `ChatView` from `AppShell`. `AppShell` returned to being a pure layout component accepting `children` and passing them to `AppMain`.
 - Updated `App.tsx` to render `<ChatView />` by passing it as a child of `<AppShell>`.
 - Verified the compositional flow: `App.tsx` (Decides Feature) -> `AppShell` (Handles Layout) -> `AppMain` (Renders Children) -> `ChatView` (Owns Chat).
 
 **Validation:** Desktop tests, lint, and production build passed.
 
-
 ## Phase 1 - Milestone 4: Chat Composer (Input Area)
 
 **Date:** 2026-08-02
 
-**Objective:** Implement the permanent chat input area where 
-the user types and sends messages, with keyboard accessibility 
+**Objective:** Implement the permanent chat input area where
+the user types and sends messages, with keyboard accessibility
 and auto-growing textarea behavior.
 
 **Decisions made:**
 
-- Use a plain <textarea> element directly inside ChatComposer 
-  rather than the existing Textarea UI component. Chat composers 
-  have no visible label — this is a documented legitimate 
+- Use a plain <textarea> element directly inside ChatComposer
+  rather than the existing Textarea UI component. Chat composers
+  have no visible label — this is a documented legitimate
   exception. aria-label="Message" provides screen reader access.
-- Auto-grow the textarea dynamically up to 5 lines using 
+- Auto-grow the textarea dynamically up to 5 lines using
   scrollHeight, then scroll internally.
-- Handle Enter to send and Shift+Enter for newline at the 
+- Handle Enter to send and Shift+Enter for newline at the
   keyboard event level inside ChatComposer.
-- Show a character count warning styled with --color-text-muted 
-  and --font-size-caption tokens when the message exceeds 500 
+- Show a character count warning styled with --color-text-muted
+  and --font-size-caption tokens when the message exceeds 500
   characters, formatted as "523 / 500".
-- Create ComposerToolbar as an empty placeholder for future 
+- Create ComposerToolbar as an empty placeholder for future
   actions (voice input, file attach, etc).
-- Wire ChatComposer into ChatView using React useState so 
-  sending a message appends it to the local messages array, 
+- Wire ChatComposer into ChatView using React useState so
+  sending a message appends it to the local messages array,
   giving the illusion of a working chat for layout validation.
-- Install lucide-react (previously accepted in design system 
-  ADR but not in package.json) and 
-  @testing-library/user-event (needed for keyboard simulation 
+- Install lucide-react (previously accepted in design system
+  ADR but not in package.json) and
+  @testing-library/user-event (needed for keyboard simulation
   in tests).
 
 **Files created or modified:**
@@ -678,20 +681,19 @@ and auto-growing textarea behavior.
 - Regenerated pnpm-lock.yaml
 - Updated docs/CURRENT_STATUS.md
 
-**Outcome:** The application now has a fully functional-looking 
-chat interface. The user can type a message, press Enter or 
-click Send, and see their message appear in the conversation 
-area. The IdleView disappears on the first message. 
-Auto-scroll works. The composer stays fixed at the bottom 
+**Outcome:** The application now has a fully functional-looking
+chat interface. The user can type a message, press Enter or
+click Send, and see their message appear in the conversation
+area. The IdleView disappears on the first message.
+Auto-scroll works. The composer stays fixed at the bottom
 while ConversationArea scrolls above it.
 
-**Validation:** 35 tests passing, lint clean, production 
+**Validation:** 35 tests passing, lint clean, production
 build successful.
 
 **Current status:** Complete and approved.
 
 ---
-
 
 ## Phase 1 - Milestone 5: Settings UI
 
@@ -727,17 +729,44 @@ build successful.
 ---
 
 ## Architecture Clarification: jarvis-engine Python Service
+
 Date: 2026-08-02
 Context: Repository contains scaffolded Python service at services/jarvis-engine/ with stubbed core modules.
 Decision: jarvis-engine is the intended AI brain of JARVIS. It will house Provider Manager, Conversation Manager, Prompt Pipeline, Memory Interface, and Tool Calling. Currently empty scaffold only. No implementation until Phase 2 (AI Integration). Leave untouched during Phase 1.
 Status: Noted and deferred to Phase 2.
 
 ## Architecture Clarification: packages/ui vs desktop ui
+
 Date: 2026-08-02
 Decision: apps/desktop/src/components/ui/ is the current local UI library. packages/ui/ is reserved for future shared cross-app library (Desktop + Android + Web). Do not migrate components during Phase 1. Migration happens when Android development begins. Never duplicate components in both locations.
 Status: Migration deferred to Phase 8 or later.
 
 ## Architecture Clarification: packages/shared-types
+
 Date: 2026-08-02
 Decision: apps/desktop/src/types/ holds app-local types. packages/shared-types/ is reserved for cross-application TypeScript contracts. Keep chat.types.ts in desktop app. Rule: Only migrate a type when consumed by 2+ apps. Types shared with Python need language-neutral contracts such as OpenAPI or JSON Schema.
 Status: Migration deferred until second consumer exists.
+
+## Phase 1 - Milestone 6: Desktop Polish
+
+Date: 2026-08-02
+
+Objective: Final visual and interaction polish before
+AI integration begins.
+
+Changes:
+
+- App.tsx: AnimatePresence view transitions
+- ChatView.tsx: IdleView to ConversationArea crossfade,
+  fixed Easing type import
+- SuggestionCard.tsx: hover state
+- ChatComposer.tsx: top border separator
+- MessageBubble.tsx: max-w-70% cap
+- AppHeader.tsx: accent brand text + padding
+- AppShell.tsx: StatusBar slots wired
+- buttonStyles.ts + fieldControlStyles.ts: focus audit
+- globals.css: webkit scrollbar styling
+- ci.yml: Node version updated to 22
+
+Validation: 51/51 tests, lint clean, build clean.
+Status: Complete and approved.

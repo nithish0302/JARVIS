@@ -2,7 +2,7 @@ export type ButtonVariant = "primary" | "secondary" | "ghost";
 export type ButtonSize = "sm" | "md" | "lg";
 
 export const buttonBaseClasses =
-  "inline-flex items-center justify-center gap-[var(--space-2)] rounded-[var(--radius-sm)] border-solid [border-width:var(--border-width)] transition-[background-color,border-color,color,box-shadow,transform] duration-[var(--duration-fast)] ease-[var(--ease-standard)] hover:shadow-[var(--shadow-sm)] active:[transform:scale(var(--scale-active))] focus-visible:outline-none disabled:cursor-not-allowed disabled:[opacity:var(--opacity-disabled)] disabled:border-[var(--color-border-subtle)] disabled:bg-[var(--color-background-secondary)] disabled:text-[var(--color-text-secondary)]";
+  "inline-flex items-center justify-center gap-[var(--space-2)] rounded-[var(--radius-sm)] border-solid [border-width:var(--border-width)] transition-[background-color,border-color,color,box-shadow,transform] duration-[var(--duration-fast)] ease-[var(--ease-standard)] hover:shadow-[var(--shadow-sm)] active:[transform:scale(var(--scale-active))] disabled:cursor-not-allowed disabled:[opacity:var(--opacity-disabled)] disabled:border-[var(--color-border-subtle)] disabled:bg-[var(--color-background-secondary)] disabled:text-[var(--color-text-secondary)]";
 
 export const buttonVariantClasses: Record<ButtonVariant, string> = {
   primary:

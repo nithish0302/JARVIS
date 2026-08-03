@@ -24,6 +24,8 @@ export function MessageBubble({ className, content, role, timestamp }: MessageBu
       <div
         className={cn(
           "flex flex-col gap-[var(--space-1)]",
+          /* Exception: no semantic max-width token exists for chat bubbles. 70% is the documented design constraint. */
+          "max-w-[70%]",
           isUser ? "items-end" : "items-start",
         )}
       >

@@ -53,7 +53,7 @@ export function ChatComposer({
   const isSendDisabled = disabled || inputText.trim().length === 0;
 
   return (
-    <div className="flex w-full flex-col gap-[var(--space-2)] rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] p-[var(--space-2)] focus-within:border-[var(--color-accent)] focus-within:ring-1 focus-within:ring-[var(--color-accent)] transition-all">
+    <div className="flex w-full flex-col gap-[var(--space-2)] rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] p-[var(--space-2)] focus-within:border-[var(--color-accent)] has-[:focus-visible]:outline has-[:focus-visible]:outline-[length:var(--focus-ring-width)] has-[:focus-visible]:outline-[var(--focus-ring-color)] has-[:focus-visible]:outline-offset-[var(--focus-ring-offset)] transition-all">
       <textarea
         ref={textareaRef}
         aria-label="Message"

@@ -2,7 +2,7 @@ export const fieldControlBaseClasses =
   "w-full rounded-[var(--radius-sm)] border-solid [border-width:var(--border-width)] bg-[var(--color-surface)] px-[var(--space-3)] py-[var(--space-2)] text-[length:var(--font-size-body)] leading-[var(--line-height-body)] text-[var(--color-text-primary)] transition-[border-color,box-shadow] duration-[var(--duration-fast)] ease-[var(--ease-standard)] focus:border-[var(--color-border-focus)] placeholder:text-[var(--color-text-secondary)]";
 
 export const fieldControlContainerClasses =
-  "flex items-center gap-[var(--space-2)] rounded-[var(--radius-sm)] border-solid [border-width:var(--border-width)] bg-[var(--color-surface)] px-[var(--space-3)] py-[var(--space-2)] transition-[border-color,box-shadow] duration-[var(--duration-fast)] ease-[var(--ease-standard)] focus-within:border-[var(--color-border-focus)]";
+  "flex items-center gap-[var(--space-2)] rounded-[var(--radius-sm)] border-solid [border-width:var(--border-width)] bg-[var(--color-surface)] px-[var(--space-3)] py-[var(--space-2)] transition-[border-color,box-shadow] duration-[var(--duration-fast)] ease-[var(--ease-standard)] focus-within:border-[var(--color-border-focus)] has-[:focus-visible]:outline has-[:focus-visible]:outline-[length:var(--focus-ring-width)] has-[:focus-visible]:outline-[var(--focus-ring-color)] has-[:focus-visible]:outline-offset-[var(--focus-ring-offset)]";
 
 export const fieldControlBorderClasses = {
   default: "border-[var(--color-border)]",

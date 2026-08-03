@@ -42,6 +42,21 @@
   }
 }
 
+/* Custom scrollbar: webkit only. Tauri on Windows uses WebView2 which supports these rules. */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-surface);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-text-muted);
+  border-radius: var(--radius-full);
+}
+
 @keyframes jarvis-spinner {
   to {
     transform: rotate(1turn);

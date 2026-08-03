@@ -21,7 +21,18 @@ export function AppShell({ children, onClose, onSettingsOpen }: AppShellProps) {
       </a>
       <AppHeader onClose={onClose} onSettingsOpen={onSettingsOpen} />
       <AppMain>{children}</AppMain>
-      <StatusBar />
+      <StatusBar
+        leftSlot={
+          <span className="text-[length:var(--font-size-caption)] text-[var(--color-text-muted)]">
+            Ready
+          </span>
+        }
+        rightSlot={
+          <span className="text-[length:var(--font-size-caption)] text-[var(--color-text-muted)]">
+            v0.1.0
+          </span>
+        }
+      />
       <OverlayLayer />
     </div>
   );

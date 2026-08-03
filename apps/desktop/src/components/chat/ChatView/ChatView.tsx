@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import type { Easing } from "framer-motion";
 import type { Message } from "../../../types/chat.types";
 import { cn } from "../../../lib/cn";
 import { IdleView } from "../../ai-core/IdleView/IdleView";
@@ -20,7 +22,8 @@ const INITIAL_MOCK_MESSAGES: Message[] = [
   {
     id: "2",
     role: "assistant",
-    content: "System diagnostics initialized. All core parameters are operating within normal ranges. Memory modules are online and available. What would you like to investigate first?",
+    content:
+      "System diagnostics initialized. All core parameters are operating within normal ranges. Memory modules are online and available. What would you like to investigate first?",
     timestamp: "10:00 AM",
   },
   {
@@ -34,13 +37,15 @@ const INITIAL_MOCK_MESSAGES: Message[] = [
 export function ChatView({ className }: ChatViewProps) {
   const [messages, setMessages] = useState<Message[]>(INITIAL_MOCK_MESSAGES);
   const hasMessages = messages.length > 0;
+  const shouldReduceMotion = useReducedMotion();
+  const transition = { duration: shouldReduceMotion ? 0 : 0.25, ease: "easeOut" as Easing };
 
   const handleSend = (text: string) => {
     const newMessage: Message = {
       id: Date.now().toString(),
       role: "user",
       content: text,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     };
     setMessages((prev) => [...prev, newMessage]);
   };
@@ -48,13 +53,20 @@ export function ChatView({ className }: ChatViewProps) {
   return (
     <div className={cn("flex h-full w-full flex-col", className)}>
       <div className="flex-1 min-h-0 overflow-hidden relative">
-        {hasMessages ? (
-          <ConversationArea isTyping={false} messages={messages} />
-        ) : (
-          <IdleView />
-        )}
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={hasMessages ? "chat" : "idle"}
+            animate={{ opacity: 1 }}
+            className="absolute inset-0 flex flex-col"
+            exit={{ opacity: 0 }}
+            initial={{ opacity: 0 }}
+            transition={transition}
+          >
+            {hasMessages ? <ConversationArea isTyping={false} messages={messages} /> : <IdleView />}
+          </motion.div>
+        </AnimatePresence>
       </div>
-      <div className="shrink-0 p-[var(--space-4)] pt-0">
+      <div className="shrink-0 border-t border-solid border-t-[var(--color-border-subtle)] [border-width:var(--border-width)] p-[var(--space-4)]">
         <ChatComposer onSend={handleSend} />
       </div>
     </div>
