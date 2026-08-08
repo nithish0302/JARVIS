@@ -4,23 +4,23 @@ Last updated: 2026-08-01
 
 ## Current phase
 
-Current Phase: Phase 1 — Complete
-Next Phase: Phase 2 — AI Integration
-Current Milestone: None — awaiting Phase 2 planning
+Current Phase: Phase 2 — AI Integration
+Next Phase: TBD
+Current Milestone: Milestone 2 - jarvis-engine FastAPI Server
 
-**Phase 1 - Desktop UI**
+**Phase 2 - AI Integration**
 
-The project is now implementing the desktop user-interface features within the established shell.
+The project is now implementing state management and the AI brain backend logic.
 
 ## Current milestone
 
-**Milestone 5 - Settings UI**
+**Milestone 2 - jarvis-engine FastAPI Server**
 
 Status: **Complete; awaiting review.**
 
-The fifth milestone of Phase 1 is complete. The application now includes a presentational Settings UI accessible from the AppHeader. It features a two-column layout (`SettingsLayout`) with vertical sidebar navigation and specific sections for AI Provider, Appearance, and About. The state for view switching (`chat` vs `settings`) is managed locally in `App.tsx`.
+The second milestone of Phase 2 is complete. The jarvis-engine FastAPI server foundation was built with provider abstraction layer and SQLite conversation storage.
 
-Validation passed: unit tests, lint, and the production build.
+Validation passed: API endpoints responded successfully.
 
 ## Completed milestones
 
@@ -38,18 +38,20 @@ Validation passed: unit tests, lint, and the production build.
 | Phase 1 - Milestone 2: AI Core (Idle Experience)                        | Complete                  | Added the centralized IdleView including the animated AI Core, typography, and placeholder suggestion grid.                                   |
 | Phase 1 - Milestone 3: Chat Conversation Area                           | Complete                  | Added the scrollable ConversationArea, MessageList, MessageBubble, MessageAvatar, and TypingIndicator components with static layout toggling. |
 | Phase 1 - Milestone 4: Chat Composer (Input Area)                       | Complete                  | Added ChatComposer, ComposerToolbar, and SendButton components with auto-grow and character constraint presentation.                          |
-| Phase 1 - Milestone 5: Settings UI                                      | Complete; awaiting review | Added SettingsView, SettingsLayout, SettingsSidebar, AIProviderSection, AppearanceSection, and AboutSection.                                  |
+| Phase 1 - Milestone 5: Settings UI                                      | Complete                  | Added SettingsView, SettingsLayout, SettingsSidebar, AIProviderSection, AppearanceSection, and AboutSection.                                  |
+| Phase 1 - Milestone 6: Desktop Polish                                   | Complete                  | Refined UI with Framer Motion transitions, strict adherence to max-width and scrollbar styles, added focus rings, updated brand header.     |
+| Phase 2 - Milestone 1: Zustand Stores + Remove Mock Data                | Complete                  | Introduced useConversationStore, useAIStore, usePersonalityStore, useAppStore. Refactored App and ChatView to rely on global state.           |
+| Phase 2 - Milestone 2: jarvis-engine FastAPI Server                     | Complete; awaiting review | Built FastAPI server foundation, SQLite storage, and provider abstraction.                                                                    |
 
 ## Pending milestone
 
-**Phase 1 - Milestone 5 review**
+**Phase 2 - Milestone 2 review**
 
-Awaiting review. No further implementation milestone should begin until this
-milestone is accepted.
+Awaiting review. No further implementation milestone should begin until this milestone is accepted.
 
 ## Next planned milestone
 
-The next milestone for Phase 1 - Desktop UI will be Milestone 6, which continues to enrich the desktop user experience.
+The next milestone for Phase 2 - AI Integration will be Milestone 3, which focuses on Ollama connection.
 
 ## Current technology stack
 

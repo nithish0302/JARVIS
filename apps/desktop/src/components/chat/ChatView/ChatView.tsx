@@ -7,35 +7,17 @@ import { IdleView } from "../../ai-core/IdleView/IdleView";
 import { ConversationArea } from "../ConversationArea/ConversationArea";
 import { ChatComposer } from "../ChatComposer/ChatComposer";
 
+import { useConversationStore } from "../../../stores/useConversationStore";
+
 export interface ChatViewProps {
   className?: string;
 }
 
-// Temporary static data for Milestone 3 presentation validation, now used as initial state
-const INITIAL_MOCK_MESSAGES: Message[] = [
-  {
-    id: "1",
-    role: "user",
-    content: "Initialize system diagnostics.",
-    timestamp: "10:00 AM",
-  },
-  {
-    id: "2",
-    role: "assistant",
-    content:
-      "System diagnostics initialized. All core parameters are operating within normal ranges. Memory modules are online and available. What would you like to investigate first?",
-    timestamp: "10:00 AM",
-  },
-  {
-    id: "3",
-    role: "user",
-    content: "Check the visual interface latency.",
-    timestamp: "10:01 AM",
-  },
-];
-
 export function ChatView({ className }: ChatViewProps) {
-  const [messages, setMessages] = useState<Message[]>(INITIAL_MOCK_MESSAGES);
+  const messages = useConversationStore((state) => state.messages);
+  const isTyping = useConversationStore((state) => state.isTyping);
+  const addMessage = useConversationStore((state) => state.addMessage);
+
   const hasMessages = messages.length > 0;
   const shouldReduceMotion = useReducedMotion();
   const transition = { duration: shouldReduceMotion ? 0 : 0.25, ease: "easeOut" as Easing };
@@ -47,7 +29,7 @@ export function ChatView({ className }: ChatViewProps) {
       content: text,
       timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     };
-    setMessages((prev) => [...prev, newMessage]);
+    addMessage(newMessage);
   };
 
   return (
@@ -62,7 +44,7 @@ export function ChatView({ className }: ChatViewProps) {
             initial={{ opacity: 0 }}
             transition={transition}
           >
-            {hasMessages ? <ConversationArea isTyping={false} messages={messages} /> : <IdleView />}
+            {hasMessages ? <ConversationArea isTyping={isTyping} messages={messages} /> : <IdleView />}
           </motion.div>
         </AnimatePresence>
       </div>

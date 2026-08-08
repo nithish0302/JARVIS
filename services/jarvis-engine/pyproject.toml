@@ -7,7 +7,17 @@ authors = [
     { name = "nithish0302", email = "nithish2005palani@gmail.com" }
 ]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "aiosqlite>=0.22.1",
+    "chromadb>=1.5.9",
+    "fastapi>=0.141.1",
+    "httpx>=0.28.1",
+    "ollama>=0.6.2",
+    "pydantic-settings>=2.14.2",
+    "python-dotenv>=1.2.2",
+    "sentence-transformers>=5.7.0",
+    "uvicorn>=0.52.1",
+]
 
 [build-system]
 requires = ["uv_build>=0.12.0,<0.13.0"]

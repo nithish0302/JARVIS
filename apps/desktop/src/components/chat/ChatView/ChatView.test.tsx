@@ -1,14 +1,19 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { ChatView } from "./ChatView";
+import { useConversationStore } from "../../../stores/useConversationStore";
 
 describe("ChatView", () => {
-  it("renders the ConversationArea and ChatComposer", () => {
+  beforeEach(() => {
+    useConversationStore.getState().clearConversation();
+  });
+
+  it("renders the IdleView and ChatComposer by default", () => {
     window.HTMLElement.prototype.scrollIntoView = function() {};
     render(<ChatView />);
     
-    expect(screen.getByText("Initialize system diagnostics.")).toBeInTheDocument();
+    expect(screen.getByText("JARVIS")).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Message" })).toBeInTheDocument();
   });
 
@@ -19,6 +24,8 @@ describe("ChatView", () => {
     const textarea = screen.getByRole("textbox", { name: "Message" });
     await userEvent.type(textarea, "Testing new message{Enter}");
 
-    expect(screen.getByText("Testing new message")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText("Testing new message")).toBeInTheDocument();
+    });
   });
 });

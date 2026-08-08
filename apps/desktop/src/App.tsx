@@ -4,9 +4,11 @@ import { SettingsView } from "./components/settings/SettingsView/SettingsView";
 import { AppShell } from "./components/layout/AppShell";
 import { LayoutProvider } from "./components/layout/LayoutProvider";
 import { AnimatePresence, motion, useReducedMotion, easeInOut } from "framer-motion";
+import { useAppStore } from "./stores/useAppStore";
 
 function App() {
-  const [view, setView] = useState<"chat" | "settings">("chat");
+  const view = useAppStore((state) => state.view);
+  const setView = useAppStore((state) => state.setView);
   const shouldReduceMotion = useReducedMotion();
   const transition = { duration: shouldReduceMotion ? 0 : 0.25, ease: easeInOut };
 
