@@ -4,10 +4,9 @@ Last updated: 2026-08-01
 
 ## Current phase
 
-Current Phase: Phase 2 — AI Integration
-Next Phase: TBD
-Current Milestone: Milestone 2 - jarvis-engine FastAPI Server
-
+Phase 2 - Milestone 3: Ollama Real AI Connection
+Status: Complete and approved
+Next: Phase 2 - Milestone 4 — Connect UI to jarvis-engine
 **Phase 2 - AI Integration**
 
 The project is now implementing state management and the AI brain backend logic.
