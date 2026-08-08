@@ -9,6 +9,12 @@ from .core.config import settings
 async def lifespan(app: FastAPI):
     # Startup
     await init_db()
+    
+    from .providers.manager import provider_manager
+    for provider in provider_manager.providers:
+        available = await provider.is_available()
+        print(f"Provider {provider.name}: {'available' if available else 'unavailable'}")
+        
     yield
     # Shutdown
     pass

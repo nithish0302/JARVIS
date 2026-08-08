@@ -13,13 +13,20 @@ class ProviderManager:
 
     async def chat(self, messages: List[Message]) -> tuple[str, str, str]:
         for provider in self.providers:
-            if await provider.is_available():
-                response = await provider.chat(messages)
-                return response, provider.name, provider.model
+            try:
+                if await provider.is_available():
+                    response = await provider.chat(messages)
+                    return response, provider.name, provider.model
+            except Exception as e:
+                print(f"Provider {provider.name} failed: {e}")
+                continue
         
-        # If no providers are available, return mock for Milestone 2
         fallback = self.providers[0]
-        return "JARVIS engine connected. AI coming in Milestone 3.", fallback.name, fallback.model
+        return (
+            "I apologize, I am currently offline. "
+            "Please ensure Ollama is running with "
+            "'ollama serve' and try again."
+        ), fallback.name, fallback.model
 
     async def get_status(self) -> List[ProviderStatus]:
         statuses = []

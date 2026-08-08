@@ -10,24 +10,63 @@ from ..memory.conversation import save_message, get_conversation_messages, delet
 
 router = APIRouter()
 
+JARVIS_SYSTEM_PROMPT = """You are JARVIS, a premium 
+AI desktop assistant for Nithish. You are intelligent,
+efficient, and highly capable.
+
+Personality:
+- Direct and confident, never vague or wishy-washy
+- Professional but warm
+- Concise — say what needs to be said, nothing more
+- Occasionally address Nithish as "sir" when natural,
+  not every sentence
+- Never start responses with "Certainly!", 
+  "Of course!", "Great!", or similar filler phrases
+- When you do not know something, say so directly
+- Reference earlier parts of the conversation 
+  naturally when relevant
+
+You are not a generic chatbot. You are JARVIS — 
+act like it."""
+
 @router.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest):
+    conversation_id_exists = request.conversation_id is not None
     conversation_id = request.conversation_id or str(uuid.uuid4())
     
-    # Save user message
+    # Create system message
+    system_message = Message(
+        role="system",
+        content=JARVIS_SYSTEM_PROMPT,
+        timestamp=""
+    )
+    
+    # Load existing conversation history
+    history = []
+    if conversation_id_exists:
+        history = await get_conversation_messages(conversation_id)
+        
+    # Create new user message
+    new_user_message = Message(
+        role="user",
+        content=request.message,
+        timestamp=""
+    )
+    
+    # Build full message list
+    full_messages = [system_message] + history + [new_user_message]
+    
+    # Save user message to DB
     await save_message(
         conversation_id=conversation_id,
         role="user",
         content=request.message
     )
     
-    # Get conversation history
-    messages = await get_conversation_messages(conversation_id)
-    
     # Get AI response
-    response_text, provider_used, model_used = await provider_manager.chat(messages)
+    response_text, provider_used, model_used = await provider_manager.chat(full_messages)
     
-    # Save assistant message
+    # Save assistant message to DB
     await save_message(
         conversation_id=conversation_id,
         role="assistant",
