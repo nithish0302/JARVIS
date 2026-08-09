@@ -23,10 +23,13 @@ class ProviderManager:
         
         fallback = self.providers[0]
         return (
-            "I apologize, I am currently offline. "
-            "Please ensure Ollama is running with "
-            "'ollama serve' and try again."
-        ), fallback.name, fallback.model
+            "I apologize, sir. All AI systems are "
+            "currently unreachable. Please ensure "
+            "Ollama is running locally or configure "
+            "an OpenRouter API key in the settings.",
+            "none",
+            "none"
+        )
 
     async def get_status(self) -> List[ProviderStatus]:
         statuses = []

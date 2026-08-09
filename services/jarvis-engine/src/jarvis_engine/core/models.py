@@ -27,3 +27,18 @@ class HealthResponse(BaseModel):
     status: str
     version: str
     providers: list[ProviderStatus]
+
+class Memory(BaseModel):
+    id: str
+    content: str
+    category: str = "general"
+    importance: int = 5
+    created_at: str
+    last_accessed: str
+    access_count: int = 0
+    source_conversation_id: str | None = None
+
+class CreateMemoryRequest(BaseModel):
+    content: str
+    category: str = "general"
+    importance: int = 5

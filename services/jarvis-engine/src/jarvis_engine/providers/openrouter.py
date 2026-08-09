@@ -1,19 +1,73 @@
+import httpx
 from typing import List
 from .base import BaseProvider
 from ..core.models import Message
-from ..core.config import settings
 
 class OpenRouterProvider(BaseProvider):
-    @property
-    def name(self) -> str:
-        return "openrouter"
 
-    @property
-    def model(self) -> str:
-        return settings.OPENROUTER_MODEL
+  @property
+  def name(self) -> str:
+    return "openrouter"
 
-    async def chat(self, messages: List[Message], stream: bool = False) -> str:
-        return "JARVIS engine connected. AI coming in Milestone 3."
+  @property
+  def model(self) -> str:
+    from ..core.config import settings
+    return settings.OPENROUTER_MODEL
 
-    async def is_available(self) -> bool:
-        return False
+  async def is_available(self) -> bool:
+    from ..core.config import settings
+    if not settings.OPENROUTER_API_KEY:
+      return False
+    try:
+      async with httpx.AsyncClient(timeout=5.0) as c:
+        r = await c.get(
+          "https://openrouter.ai/api/v1/models",
+          headers={
+            "Authorization": 
+              f"Bearer {settings.OPENROUTER_API_KEY}"
+          }
+        )
+        return r.status_code == 200
+    except Exception:
+      return False
+
+  async def chat(
+    self,
+    messages: list[Message],
+    stream: bool = False
+  ) -> str:
+    from ..core.config import settings
+    try:
+      payload = {
+        "model": settings.OPENROUTER_MODEL,
+        "messages": [
+          {"role": m.role, "content": m.content}
+          for m in messages
+          if m.role != "system" or 
+             m.content.strip() != ""
+        ],
+      }
+      async with httpx.AsyncClient(
+        timeout=60.0
+      ) as client:
+        response = await client.post(
+          "https://openrouter.ai/api/v1/chat/completions",
+          headers={
+            "Authorization": 
+              f"Bearer {settings.OPENROUTER_API_KEY}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "http://localhost:1420",
+            "X-Title": "JARVIS Desktop Assistant",
+          },
+          json=payload
+        )
+        response.raise_for_status()
+        data = response.json()
+        return data["choices"][0]["message"]["content"]
+    except httpx.TimeoutException:
+      return (
+        "OpenRouter request timed out. "
+        "Please try again."
+      )
+    except Exception as e:
+      return f"OpenRouter error: {str(e)}"

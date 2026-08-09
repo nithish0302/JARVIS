@@ -900,3 +900,227 @@ JARVIS personality active â€” responds as sir,
 maintains context, never uses filler phrases.
 
 Status: Complete and approved.
+
+ # #   P h a s e   2   -   M i l e s t o n e   4 :   C o n n e c t   D e s k t o p   U I   t o   j a r v i s - e n g i n e 
+ 
+ * * D a t e : * *   2 0 2 6 - 0 8 - 0 9 
+ 
+ * * O b j e c t i v e : * *   C o n n e c t   t h e   R e a c t   f r o n t e n d   t o   t h e   r e a l   j a r v i s - e n g i n e   F a s t A P I   s e r v e r . 
+ 
+ * * D e c i s i o n s   m a d e : * * 
+ 
+ -   C r e a t e d   A P I   c l i e n t   s e r v i c e   \ j a r v i s A p i . t s \   u s i n g   n a t i v e   \  e t c h \ . 
+ -   C r e a t e d   \ u s e J a r v i s C h a t . t s \   h o o k   t o   h a n d l e   c h a t   l o g i c ,   r e m o v i n g   l o c a l   s t a t e   f r o m   \ C h a t V i e w \ . 
+ -   C r e a t e d   \ u s e E n g i n e S t a t u s . t s \   h o o k   t o   p o l l   j a r v i s - e n g i n e   h e a l t h   a n d   u p d a t e   \ u s e A I S t o r e \ . 
+ -   U p d a t e d   \ u s e C o n v e r s a t i o n S t o r e \   t o   t r a c k   \ c u r r e n t C o n v e r s a t i o n I d \ . 
+ -   U p d a t e d   \ A p p S h e l l . t s x \   S t a t u s B a r   t o   d y n a m i c a l l y   d i s p l a y   c o n n e c t i o n   s t a t u s   ( e . g . ,   \  
+ Ï% 
+ R e a d y \ ,   \ Ï% 
+ O f f l i n e \ )   b a s e d   o n   r e a l   e n g i n e   h e a l t h . 
+ 
+ * * F i l e s   c r e a t e d   o r   m o d i f i e d : * * 
+ 
+ -   C r e a t e d   \  p p s / d e s k t o p / s r c / s e r v i c e s / j a r v i s A p i . t s \ 
+ -   C r e a t e d   \  p p s / d e s k t o p / s r c / h o o k s / u s e J a r v i s C h a t . t s \ 
+ -   C r e a t e d   \  p p s / d e s k t o p / s r c / h o o k s / u s e E n g i n e S t a t u s . t s \ 
+ -   M o d i f i e d   \  p p s / d e s k t o p / s r c / s t o r e s / u s e C o n v e r s a t i o n S t o r e . t s \ 
+ -   M o d i f i e d   \  p p s / d e s k t o p / s r c / c o m p o n e n t s / c h a t / C h a t V i e w / C h a t V i e w . t s x \ 
+ -   M o d i f i e d   \  p p s / d e s k t o p / s r c / A p p . t s x \ 
+ -   M o d i f i e d   \  p p s / d e s k t o p / s r c / c o m p o n e n t s / l a y o u t / A p p S h e l l . t s x \ 
+ -   M o d i f i e d   \  p p s / d e s k t o p / s r c / s t o r e s / u s e A I S t o r e . t s \   ( e s l i n t   f i x ) 
+ -   M o d i f i e d   \  p p s / d e s k t o p / s r c / s t o r e s / u s e A p p S t o r e . t s \   ( e s l i n t   f i x ) 
+ -   M o d i f i e d   \  p p s / d e s k t o p / s r c / s t o r e s / u s e P e r s o n a l i t y S t o r e . t s \   ( e s l i n t   f i x ) 
+ -   U p d a t e d   \ d o c s / C U R R E N T _ S T A T U S . m d \ 
+ 
+ * * O u t c o m e : * *   T h e   d e s k t o p   a p p l i c a t i o n   i s   n o w   s u c c e s s f u l l y   c o n n e c t e d   t o   t h e   \ j a r v i s - e n g i n e \   b a c k e n d .   C h a t   m e s s a g e s   f r o m   t h e   u s e r   a r e   f o r w a r d e d   t o   t h e   e n g i n e ,   a n d   r e a l   A I   r e s p o n s e s   a r e   d i s p l a y e d   i n   t h e   \ C o n v e r s a t i o n A r e a \ .   T h e   a p p l i c a t i o n   s e a m l e s s l y   u p d a t e s   i t s   c o n n e c t i o n   s t a t u s   b a s e d   o n   t h e   e n g i n e ' s   h e a l t h . 
+ 
+ * * V a l i d a t i o n : * *   T e s t s   p a s s i n g   ( 5 1 / 5 1 ) ,   l i n t   c l e a n ,   a n d   p r o d u c t i o n   b u i l d   s u c c e s s f u l . 
+ 
+ * * C u r r e n t   s t a t u s : * *   C o m p l e t e   a n d   a p p r o v e d . 
+  
+ 
+ # #   P h a s e   2   -   M i l e s t o n e   4   ( H o t f i x ) :   U I   R e f i n e m e n t s 
+ 
+ * * D a t e : * *   2 0 2 6 - 0 8 - 0 9 
+ 
+ * * O b j e c t i v e : * *   F i x   U I   b u g s   r e p o r t e d   d u r i n g   M i l e s t o n e   4   t e s t i n g   b e f o r e   p r o c e e d i n g   t o   M i l e s t o n e   5 . 
+ 
+ * * D e c i s i o n s   m a d e : * * 
+ 
+ -   F i x e d   c o n v e r s a t i o n   a r e a   s c r o l l i n g   b y   a p p l y i n g   \  l e x - 1   m i n - h - 0   o v e r f l o w - y - a u t o \   t o   t h e   \ C o n v e r s a t i o n A r e a \   c o n t a i n e r . 
+ -   C o n s t r a i n e d   u s e r   m e s s a g e   w i d t h   t o   \ m a x - w - [ 7 0 % ] \   a n d   a s s i s t a n t   m e s s a g e   w i d t h   t o   \ m a x - w - [ 8 5 % ] \   i n   \ M e s s a g e B u b b l e \ . 
+ -   E n f o r c e d   t e x t   w r a p p i n g   i n s i d e   m e s s a g e   b u b b l e s   u s i n g   \ w h i t e s p a c e - p r e - w r a p   b r e a k - w o r d s \   t o   p r e v e n t   o v e r f l o w   f r o m   l o n g   r e s p o n s e s . 
+ 
+ * * F i l e s   c r e a t e d   o r   m o d i f i e d : * * 
+ 
+ -   M o d i f i e d   \  p p s / d e s k t o p / s r c / c o m p o n e n t s / c h a t / C o n v e r s a t i o n A r e a / C o n v e r s a t i o n A r e a . t s x \ 
+ -   M o d i f i e d   \  p p s / d e s k t o p / s r c / c o m p o n e n t s / c h a t / M e s s a g e B u b b l e / M e s s a g e B u b b l e . t s x \ 
+ 
+ * * O u t c o m e : * *   T h e   c o n v e r s a t i o n   a r e a   n o w   s c r o l l s   c o r r e c t l y ,   a l l o w i n g   u s e r s   t o   s c r o l l   b a c k   u p   f r e e l y   w h i l e   n e w   m e s s a g e s   a u t o - s c r o l l   t o   t h e   b o t t o m .   M e s s a g e   b u b b l e s   c o r r e c t l y   c o n s t r a i n   t h e i r   w i d t h   b a s e d   o n   r o l e   a n d   e f f e c t i v e l y   w r a p   l o n g   r e s p o n s e   t e x t s . 
+ 
+ * * V a l i d a t i o n : * *   M a n u a l   t e s t i n g   c o n f i r m e d   s c r o l l i n g   a n d   r e s p o n s i v e n e s s .   A u t o m a t e d   t e s t s ,   l i n t i n g ,   a n d   b u i l d   p a s s e d   s u c c e s s f u l l y . 
+ 
+ * * C u r r e n t   s t a t u s : * *   C o m p l e t e   a n d   a p p r o v e d . 
+  
+ 
+ # #   P h a s e   2   -   M i l e s t o n e   5 :   O p e n R o u t e r   F a l l b a c k   P r o v i d e r 
+ 
+ * * D a t e : * *   2 0 2 6 - 0 8 - 0 9 
+ 
+ * * O b j e c t i v e : * *   I m p l e m e n t   t h e   O p e n R o u t e r   p r o v i d e r   a s   a   r e a l   f a l l b a c k   w h e n   O l l a m a   i s   o f f l i n e ,   e n s u r i n g   J A R V I S   a u t o m a t i c a l l y   f a l l s   b a c k   t o   f r e e   O p e n R o u t e r   m o d e l s . 
+ 
+ * * D e c i s i o n s   m a d e : * * 
+ 
+ -   R e p l a c e d   t h e   O p e n R o u t e r   s t u b   w i t h   a   r e a l   i m p l e m e n t a t i o n   u s i n g   \ h t t p x \   f o r   n e t w o r k   c a l l s . 
+ -   I n t e g r a t e d   O p e n R o u t e r   A P I   a u t h e n t i c a t i o n   a n d   m e s s a g e   f o r m a t t i n g   a d h e r i n g   t o   t h e   O p e n R o u t e r   c h a t   c o m p l e t i o n s   s c h e m a . 
+ -   A d d e d   \ 	 e s t _ p r o v i d e r s \   f u n c t i o n   t o   \ 	 e s t _ a p i . p y \   t o   t e s t   p r o v i d e r   s t a t u s e s . 
+ -   U p d a t e d   t h e   f a l l b a c k   m e s s a g e   i n   t h e   \ P r o v i d e r M a n a g e r \   t o   i n f o r m   t h e   u s e r   a b o u t   c o n f i g u r i n g   a n   O p e n R o u t e r   A P I   k e y   w h e n   n o   m o d e l s   a r e   a v a i l a b l e . 
+ -   C r e a t e d   \ S E T U P . m d \   w i t h   d e t a i l e d   i n s t r u c t i o n s   o n   s t a r t i n g   t h e   e n g i n e   a n d   c o n f i g u r i n g   O l l a m a / O p e n R o u t e r . 
+ -   U p d a t e d   \ . e n v . e x a m p l e \   w i t h   O p e n R o u t e r   p l a c e h o l d e r   a n d   d o c u m e n t a t i o n . 
+ 
+ * * F i l e s   c r e a t e d   o r   m o d i f i e d : * * 
+ 
+ -   M o d i f i e d   \ s e r v i c e s / j a r v i s - e n g i n e / s r c / j a r v i s _ e n g i n e / p r o v i d e r s / o p e n r o u t e r . p y \ 
+ -   M o d i f i e d   \ s e r v i c e s / j a r v i s - e n g i n e / . e n v . e x a m p l e \ 
+ -   M o d i f i e d   \ s e r v i c e s / j a r v i s - e n g i n e / t e s t _ a p i . p y \ 
+ -   M o d i f i e d   \ s e r v i c e s / j a r v i s - e n g i n e / s r c / j a r v i s _ e n g i n e / p r o v i d e r s / m a n a g e r . p y \ 
+ -   C r e a t e d   \ s e r v i c e s / j a r v i s - e n g i n e / S E T U P . m d \ 
+ -   U p d a t e d   \ d o c s / C U R R E N T _ S T A T U S . m d \ 
+ 
+ * * O u t c o m e : * *   J A R V I S   n o w   s e a m l e s s l y   u s e s   O l l a m a   w h e n   a v a i l a b l e ,   a n d   e l e g a n t l y   f a l l s   b a c k   t o   O p e n R o u t e r   ( i f   c o n f i g u r e d )   w h e n   O l l a m a   i s   u n r e a c h a b l e .   \ 	 e s t _ a p i . p y \   p r o p e r l y   t e s t s   a n d   l i s t s   p r o v i d e r   a v a i l a b i l i t i e s . 
+ 
+ * * V a l i d a t i o n : * *   A P I   t e s t s   p a s s   s u c c e s s f u l l y   i n d i c a t i n g   t h e   c o r r e c t   s t a t u s   f o r   b o t h   O l l a m a   a n d   O p e n R o u t e r   d e p e n d i n g   o n   \ . e n v \   c o n f i g u r a t i o n s . 
+ 
+ * * C u r r e n t   s t a t u s : * *   C o m p l e t e   a n d   a w a i t i n g   r e v i e w . 
+  
+ 
+ # #   P h a s e   2   -   M i l e s t o n e   6 :   S t r e a m i n g   R e s p o n s e s 
+ 
+ * * D a t e : * *   2 0 2 6 - 0 8 - 0 9 
+ 
+ * * O b j e c t i v e : * *   I m p l e m e n t   s t r e a m i n g   r e s p o n s e s   s o   w o r d s   a p p e a r   o n e   b y   o n e   a s   J A R V I S   t h i n k s ,   m a t c h i n g   m o d e r n   c h a t   U I   p a t t e r n s   l i k e   C h a t G P T . 
+ 
+ * * D e c i s i o n s   m a d e : * * 
+ 
+ -   E x t r a c t e d   a n   a s y n c   \ s t r e a m \   g e n e r a t o r   o n   t h e   \ O l l a m a P r o v i d e r \   u t i l i z i n g   \ h t t p x . A s y n c C l i e n t . s t r e a m \   t o   s t r e a m   n d j s o n   c h u n k s   l i n e - b y - l i n e . 
+ -   C r e a t e d   t h e   \ / c h a t / s t r e a m \   F a s t A P I   e n d p o i n t   u t i l i z i n g   \ S t r e a m i n g R e s p o n s e \ ,   r e t u r n i n g   \  p p l i c a t i o n / x - n d j s o n \   c h u n k s   ( m e t a ,   t o k e n ,   d o n e ) . 
+ -   D e v e l o p e d   t h e   f r o n t e n d   \ s e n d M e s s a g e S t r e a m \   i n   \ j a r v i s A p i . t s \   l e v e r a g i n g   \  e s p o n s e . b o d y . g e t R e a d e r ( ) \   t o   d e c o d e   t h e   c o n t i n u o u s   t e x t   s t r e a m   a n d   i n v o k e   c a l l b a c k s   ( \ o n T o k e n \ ,   \ o n D o n e \ ,   \ o n E r r o r \ ) . 
+ -   E x p a n d e d   \ u s e C o n v e r s a t i o n S t o r e . t s \   t o   m a i n t a i n   v o l a t i l e   \ s t r e a m i n g M e s s a g e I d \   a n d   \ s t r e a m i n g C o n t e n t \   s t a t e   d u r i n g   a c t i v e   s t r e a m i n g . 
+ -   D e v e l o p e d   t h e   \ S t r e a m i n g M e s s a g e \   c o m p o n e n t   w i t h   a   p u l s i n g   c u r s o r   t o   r e n d e r   t h e   l i v e   s t r e a m ,   e n s u r i n g   i t ' s   s e a m l e s s l y   i n t e g r a t e d   i n t o   \ C o n v e r s a t i o n A r e a \ . 
+ 
+ * * F i l e s   c r e a t e d   o r   m o d i f i e d : * * 
+ 
+ -   M o d i f i e d   \ s e r v i c e s / j a r v i s - e n g i n e / s r c / j a r v i s _ e n g i n e / p r o v i d e r s / o l l a m a . p y \ 
+ -   M o d i f i e d   \ s e r v i c e s / j a r v i s - e n g i n e / s r c / j a r v i s _ e n g i n e / a p i / r o u t e s . p y \ 
+ -   M o d i f i e d   \  p p s / d e s k t o p / s r c / s e r v i c e s / j a r v i s A p i . t s \ 
+ -   M o d i f i e d   \  p p s / d e s k t o p / s r c / s t o r e s / u s e C o n v e r s a t i o n S t o r e . t s \ 
+ -   M o d i f i e d   \  p p s / d e s k t o p / s r c / h o o k s / u s e J a r v i s C h a t . t s \ 
+ -   C r e a t e d   \  p p s / d e s k t o p / s r c / c o m p o n e n t s / c h a t / S t r e a m i n g M e s s a g e / S t r e a m i n g M e s s a g e . t s x \ 
+ -   C r e a t e d   \  p p s / d e s k t o p / s r c / c o m p o n e n t s / c h a t / S t r e a m i n g M e s s a g e / S t r e a m i n g M e s s a g e . t e s t . t s x \ 
+ -   C r e a t e d   \  p p s / d e s k t o p / s r c / c o m p o n e n t s / c h a t / S t r e a m i n g M e s s a g e / R E A D M E . m d \ 
+ -   M o d i f i e d   \  p p s / d e s k t o p / s r c / c o m p o n e n t s / c h a t / C o n v e r s a t i o n A r e a / C o n v e r s a t i o n A r e a . t s x \ 
+ 
+ * * O u t c o m e : * *   J A R V I S   a n s w e r s   n o w   s t r e a m   i n   b e a u t i f u l l y   w o r d - b y - w o r d   w i t h   a   b l i n k i n g   c u r s o r .   T h e   s c r o l l i n g   a n c h o r   a u t o m a t i c a l l y   a d v a n c e s   a s   t e x t   w r a p s ,   p r o v i d i n g   a   h i g h l y   p r e m i u m   e x p e r i e n c e . 
+ 
+ * * V a l i d a t i o n : * *   A u t o m a t e d   t e s t s ,   l i n t e r s ,   a n d   V i t e   b u i l d e r s   a l l   p a s s e d   w i t h o u t   e r r o r s . 
+ 
+ * * C u r r e n t   s t a t u s : * *   C o m p l e t e   a n d   a w a i t i n g   r e v i e w . 
+  
+ 
+ # #   P h a s e   2   -   M i l e s t o n e   7 :   L o n g   T e r m   M e m o r y   S y s t e m 
+ 
+ * * D a t e : * *   2 0 2 6 - 0 8 - 0 9 
+ 
+ * * O b j e c t i v e : * *   I m p l e m e n t   a   p e r s i s t e n t   m e m o r y   s y s t e m   s o   J A R V I S   c a n   l e a r n   f a c t s ,   p r e f e r e n c e s ,   a n d   d e t a i l s   a c r o s s   s e s s i o n s . 
+ 
+ * * D e c i s i o n s   m a d e : * * 
+ -   E x t e n d e d   S Q L i t e   d a t a b a s e   t o   i n c l u d e   a   \ m e m o r i e s \   t a b l e   w i t h   c a t e g o r i e s ,   i m p o r t a n c e ,   a n d   a c c e s s   t r a c k i n g . 
+ -   C r e a t e d   \ M e m o r y M a n a g e r \   t o   h a n d l e   k e y w o r d   s e a r c h ,   C R U D   o p e r a t i o n s ,   a n d   k e y w o r d - b a s e d   e x t r a c t i o n   ( e . g .   \  
+ I  
+ p r e f e r \ ,   \ I  
+ a m \ ,   \ m y  
+ g o a l  
+ i s \ ) . 
+ -   I n j e c t e d   r e t r i e v e d   m e m o r i e s   i n t o   t h e   \ J A R V I S _ S Y S T E M _ P R O M P T \   c o n t e x t   d y n a m i c a l l y   f o r   b o t h   \ / c h a t \   a n d   \ / c h a t / s t r e a m \   r o u t e s . 
+ -   C r e a t e d   R E S T   e n d p o i n t s   ( \ / m e m o r i e s \ ,   \ / m e m o r i e s / s e a r c h \ ,   \ / m e m o r i e s / { m e m o r y _ i d } \ )   t o   i n t e r a c t   w i t h   m e m o r i e s   d i r e c t l y . 
+ -   U p d a t e d   \ m o d e l s . p y \   w i t h   \ M e m o r y \   a n d   \ C r e a t e M e m o r y R e q u e s t \   P y d a n t i c   c l a s s e s . 
+ -   E n s u r e d   g r a c e f u l   f a i l i n g   i f   m e m o r y   e x t r a c t i o n   f a i l s ,   a n d   o p t i m i z e d   s e a r c h   u s i n g   S Q L i t e   \ L I K E \ . 
+ 
+ * * F i l e s   c r e a t e d   o r   m o d i f i e d : * * 
+ -   M o d i f i e d   \ s e r v i c e s / j a r v i s - e n g i n e / s r c / j a r v i s _ e n g i n e / c o r e / d a t a b a s e . p y \ 
+ -   C r e a t e d   \ s e r v i c e s / j a r v i s - e n g i n e / s r c / j a r v i s _ e n g i n e / m e m o r y / m e m o r y _ m a n a g e r . p y \ 
+ -   M o d i f i e d   \ s e r v i c e s / j a r v i s - e n g i n e / s r c / j a r v i s _ e n g i n e / a p i / r o u t e s . p y \ 
+ -   M o d i f i e d   \ s e r v i c e s / j a r v i s - e n g i n e / s r c / j a r v i s _ e n g i n e / c o r e / m o d e l s . p y \ 
+ -   M o d i f i e d   \ s e r v i c e s / j a r v i s - e n g i n e / t e s t _ a p i . p y \ 
+ 
+ * * O u t c o m e : * *   J A R V I S   c a n   n o w   e x t r a c t   p e r s i s t e n t   f a c t s   f r o m   u s e r   p r o m p t s ,   s t o r e   t h e m   f o r e v e r   i n   S Q L i t e ,   a n d   r e c a l l   t h e m   i n t o   c o n t e x t   a u t o m a t i c a l l y   o n   s u b s e q u e n t   r e q u e s t s . 
+ 
+ * * V a l i d a t i o n : * *   P a s s e d   5 / 5   b a c k e n d   t e s t s   v i a   \ 	 e s t _ a p i . p y \   i n c l u d i n g   c h e c k i n g   e x t r a c t i o n   a n d   m a n u a l   c r e a t i o n   e n d p o i n t s .   P a s s e d   a l l   5 3   f r o n t e n d   t e s t s   s u c c e s s f u l l y . 
+ 
+ * * C u r r e n t   s t a t u s : * *   C o m p l e t e   a n d   a w a i t i n g   r e v i e w . 
+  
+ 
+ # #   P h a s e   2   -   M i l e s t o n e   8 :   L i v e   S t a t u s B a r   +   S e t t i n g s   P e r s i s t e n c e 
+ 
+ * * D a t e : * *   2 0 2 6 - 0 8 - 0 9 
+ 
+ * * O b j e c t i v e : * *   E n h a n c e   t h e   A p p S h e l l   S t a t u s B a r   w i t h   r i c h   l i v e   t e l e m e t r y   a n d   m a k e   t h e   A I   P r o v i d e r   s e t t i n g s   f u l l y   p e r s i s t e n t   a n d   i n t e r a c t i v e . 
+ 
+ * * D e c i s i o n s   m a d e : * * 
+ -   E x t e n d e d   \ j a r v i s A p i . t s \   t o   i n c l u d e   \ g e t M e m o r y C o u n t \   a n d   \ s w i t c h P r o v i d e r \   f o r   q u e r y i n g   a n d   c o n f i g u r i n g   e n g i n e   s t a t e . 
+ -   E x p a n d e d   \ u s e A I S t o r e \   w i t h   \ m e m o r y C o u n t \   a n d   \ o p e n r o u t e r K e y \ . 
+ -   U p d a t e d   \ u s e E n g i n e S t a t u s \   t o   i n d e p e n d e n t l y   f e t c h   t h e   m e m o r y   c o u n t   e v e r y   6 0   s e c o n d s . 
+ -   R e f a c t o r e d   \ A p p S h e l l . t s x \   t o   d y n a m i c a l l y   r e n d e r   s t a t u s   l a b e l s   ( e . g . ,   \  
+ Ï% 
+ R e a d y  
+ ·  
+ o l l a m a  
+ ·  
+ l l a m a 3 . 2 : 3 b \ ,   \ Ï% 
+ T h i n k i n g . . . \ )   a n d   d y n a m i c a l l y   f e t c h   m e m o r y   c o u n t . 
+ -   I n t e g r a t e d   \ s w i t c h P r o v i d e r \   i n t o   \ A I P r o v i d e r S e c t i o n . t s x \   s o   c h a n g e s   t o   p r o v i d e r   d r o p d o w n   o r   m o d e l   i n p u t   d i r e c t l y   i n v o k e   t h e   F a s t A P I   b a c k e n d   t o   h o t - s w a p   m o d e l s . 
+ -   A d d e d   a n   O p e n R o u t e r   A P I   k e y   f i e l d   ( s t o r e d   l o c a l l y )   a n d   a   ' T e s t   C o n n e c t i o n '   U I   w i d g e t   i n   S e t t i n g s . 
+ 
+ * * F i l e s   c r e a t e d   o r   m o d i f i e d : * * 
+ -   M o d i f i e d   \  p p s / d e s k t o p / s r c / s e r v i c e s / j a r v i s A p i . t s \ 
+ -   M o d i f i e d   \  p p s / d e s k t o p / s r c / s t o r e s / u s e A I S t o r e . t s \ 
+ -   M o d i f i e d   \  p p s / d e s k t o p / s r c / h o o k s / u s e E n g i n e S t a t u s . t s \ 
+ -   M o d i f i e d   \  p p s / d e s k t o p / s r c / c o m p o n e n t s / l a y o u t / A p p S h e l l . t s x \ 
+ -   M o d i f i e d   \  p p s / d e s k t o p / s r c / c o m p o n e n t s / s e t t i n g s / A I P r o v i d e r S e c t i o n / A I P r o v i d e r S e c t i o n . t s x \ 
+ 
+ * * O u t c o m e : * *   T h e   d e s k t o p   i n t e r f a c e   n o w   c l e a r l y   d i s p l a y s   w h a t   t h e   e n g i n e   i s   d o i n g ,   h o w   m a n y   m e m o r i e s   i t   h a s   e x t r a c t e d ,   a n d   a l l o w s   u s e r s   t o   f r e e l y   s w a p   p r o v i d e r s   v i a   s e t t i n g s   w i t h   i m m e d i a t e   e f f e c t . 
+ 
+ * * V a l i d a t i o n : * *   P a s s e d   p n p m   t e s t ,   p n p m   l i n t ,   a n d   p n p m   b u i l d . 
+ 
+ * * C u r r e n t   s t a t u s : * *   C o m p l e t e   a n d   a w a i t i n g   r e v i e w . 
+  
+ 
+ # #   P h a s e   2   -   M i l e s t o n e   9 :   C o n v e r s a t i o n   P e r s i s t e n c e   o n   A p p   R e s t a r t 
+ 
+ * * D a t e : * *   2 0 2 6 - 0 8 - 0 9 
+ 
+ * * O b j e c t i v e : * *   A u t o m a t i c a l l y   r e l o a d   J A R V I S ' s   p r e v i o u s   c o n v e r s a t i o n   u p o n   a p p   r e s t a r t ,   a l l o w i n g   t h e   u s e r   t o   s e a m l e s s l y   c o n t i n u e   t h e i r   s e s s i o n ,   w h i l e   a l s o   o f f e r i n g   t h e   a b i l i t y   t o   s t a r t   a   f r e s h   c h a t . 
+ 
+ * * D e c i s i o n s   m a d e : * * 
+ -   E x t e n d e d   t h e   b a c k e n d   w i t h   \ / c o n v e r s a t i o n s \   t o   f e t c h   c o n v e r s a t i o n   s u m m a r i e s   g r o u p e d   w i t h   m e s s a g e   c o u n t s . 
+ -   B o u n d   \ s e t C o n v e r s a t i o n I d \   i n   t h e   Z u s t a n d   s t o r e   t o   l o c a l S t o r a g e . s e t I t e m   f o r   p e r s i s t e n c e . 
+ -   C r e a t e d   t h e   \ u s e C o n v e r s a t i o n L o a d e r \   h o o k ,   i n j e c t e d   a t   t h e   A p p   r o o t ,   w h i c h   p a r s e s   l o c a l   s t o r a g e   a n d   e a g e r l y   h y d r a t e s   t h e   z u s t a n d   m e s s a g e s   a r r a y   v i a   t h e   b a c k e n d   \ / c o n v e r s a t i o n / { i d } \   e n d p o i n t . 
+ -   P l a c e d   a   ' N e w   c o n v e r s a t i o n '   S q u a r e P e n   b u t t o n   f l o a t i n g   w i t h i n   t h e   \ C h a t V i e w \   w h e n   m e s s a g e s   a r e   p r e s e n t .   C l i c k i n g   i t   p u r g e s   t h e   l o c a l   s t a t e ,   e f f e c t i v e l y   r e t u r n i n g   t h e   U I   t o   t h e   \ I d l e V i e w \   a n d   r e s e t t i n g   t h e   b a c k e n d   c o n t e x t   t r a c k e r . 
+ 
+ * * F i l e s   c r e a t e d   o r   m o d i f i e d : * * 
+ -   M o d i f i e d   \ s e r v i c e s / j a r v i s - e n g i n e / s r c / j a r v i s _ e n g i n e / m e m o r y / c o n v e r s a t i o n . p y \ 
+ -   M o d i f i e d   \ s e r v i c e s / j a r v i s - e n g i n e / s r c / j a r v i s _ e n g i n e / a p i / r o u t e s . p y \ 
+ -   M o d i f i e d   \ s e r v i c e s / j a r v i s - e n g i n e / t e s t _ a p i . p y \ 
+ -   M o d i f i e d   \  p p s / d e s k t o p / s r c / s e r v i c e s / j a r v i s A p i . t s \ 
+ -   M o d i f i e d   \  p p s / d e s k t o p / s r c / s t o r e s / u s e C o n v e r s a t i o n S t o r e . t s \ 
+ -   C r e a t e d   \  p p s / d e s k t o p / s r c / h o o k s / u s e C o n v e r s a t i o n L o a d e r . t s \ 
+ -   M o d i f i e d   \  p p s / d e s k t o p / s r c / A p p . t s x \ 
+ -   M o d i f i e d   \  p p s / d e s k t o p / s r c / c o m p o n e n t s / c h a t / C h a t V i e w / C h a t V i e w . t s x \ 
+ 
+ * * O u t c o m e : * *   R e s t a r t i n g   t h e   a p p l i c a t i o n   n o w   p r o p e r l y   r e s t o r e s   t h e   p r e v i o u s   c o n v e r s a t i o n   a u t o m a t i c a l l y .   P h a s e   2   A I   I n t e g r a t i o n   i s   c o m p l e t e . 
+ 
+ * * V a l i d a t i o n : * *   P a s s e d   p n p m   t e s t ,   p n p m   l i n t ,   a n d   p n p m   b u i l d . 
+ 
+ * * C u r r e n t   s t a t u s : * *   C o m p l e t e   a n d   a w a i t i n g   r e v i e w . 
+  
+ 

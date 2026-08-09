@@ -15,6 +15,18 @@ async def init_db() -> None:
                 updated_at TEXT
             )
         """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS memories (
+                id TEXT PRIMARY KEY,
+                content TEXT NOT NULL,
+                category TEXT DEFAULT 'general',
+                importance INTEGER DEFAULT 5,
+                created_at TEXT NOT NULL,
+                last_accessed TEXT NOT NULL,
+                access_count INTEGER DEFAULT 0,
+                source_conversation_id TEXT
+            )
+        """)
         
         await db.execute("""
             CREATE TABLE IF NOT EXISTS messages (

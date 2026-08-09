@@ -52,3 +52,20 @@ async def delete_conversation(conversation_id: str) -> None:
         await db.execute("DELETE FROM messages WHERE conversation_id = ?", (conversation_id,))
         await db.execute("DELETE FROM conversations WHERE id = ?", (conversation_id,))
         await db.commit()
+
+async def get_conversations(limit: int = 10) -> List[dict]:
+    conversations = []
+    async with aiosqlite.connect(settings.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        sql = """
+            SELECT c.id, c.title, c.created_at, c.updated_at, COUNT(m.id) as message_count
+            FROM conversations c
+            LEFT JOIN messages m ON c.id = m.conversation_id
+            GROUP BY c.id
+            ORDER BY c.updated_at DESC
+            LIMIT ?
+        """
+        async with db.execute(sql, (limit,)) as cursor:
+            async for row in cursor:
+                conversations.append(dict(row))
+    return conversations

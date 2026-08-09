@@ -4,6 +4,8 @@ import type { Message } from "../../../types/chat.types";
 import { cn } from "../../../lib/cn";
 import { MessageList } from "../MessageList/MessageList";
 import { TypingIndicator } from "../TypingIndicator/TypingIndicator";
+import { StreamingMessage } from "../StreamingMessage/StreamingMessage";
+import { useConversationStore } from "../../../stores/useConversationStore";
 
 export interface ConversationAreaProps {
   className?: string;
@@ -14,20 +16,23 @@ export interface ConversationAreaProps {
 export function ConversationArea({ className, isTyping = false, messages }: ConversationAreaProps) {
   const bottomRef = useRef<ElementRef<"div">>(null);
 
+  const { streamingContent } = useConversationStore();
+
   useEffect(() => {
     if (typeof bottomRef.current?.scrollIntoView === "function") {
       bottomRef.current.scrollIntoView({ behavior: "smooth" });
     }
-  }, [messages, isTyping]);
+  }, [messages, isTyping, streamingContent]);
 
   return (
     <div
       className={cn(
-        "flex w-full flex-col px-[var(--space-6)] py-[var(--space-8)]",
+        "flex flex-1 min-h-0 overflow-y-auto w-full flex-col px-[var(--space-6)] py-[var(--space-8)]",
         className,
       )}
     >
       <MessageList messages={messages} />
+      <StreamingMessage />
       
       {isTyping && (
         <div className="mt-[var(--space-6)] self-start">

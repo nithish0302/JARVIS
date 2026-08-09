@@ -1,5 +1,5 @@
 import httpx
-from typing import List
+from typing import List, AsyncGenerator
 from .base import BaseProvider
 from ..core.models import Message
 from ..core.config import settings
@@ -46,3 +46,39 @@ class OllamaProvider(BaseProvider):
             )
         except Exception as e:
             return f"Ollama error: {str(e)}"
+
+    async def stream(
+      self,
+      messages: list[Message]
+    ) -> AsyncGenerator[str, None]:
+      from ..core.config import settings
+      payload = {
+        "model": settings.OLLAMA_MODEL,
+        "messages": [
+          {"role": m.role, "content": m.content}
+          for m in messages
+        ],
+        "stream": True
+      }
+      async with httpx.AsyncClient(
+        timeout=60.0
+      ) as client:
+        async with client.stream(
+          "POST",
+          f"{settings.OLLAMA_HOST}/api/chat",
+          json=payload
+        ) as response:
+          async for line in response.aiter_lines():
+            if line.strip():
+              try:
+                import json
+                data = json.loads(line)
+                token = data.get(
+                  "message", {}
+                ).get("content", "")
+                if token:
+                  yield token
+                if data.get("done"):
+                  break
+              except json.JSONDecodeError:
+                continue

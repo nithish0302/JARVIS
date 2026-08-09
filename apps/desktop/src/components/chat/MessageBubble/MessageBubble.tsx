@@ -24,9 +24,7 @@ export function MessageBubble({ className, content, role, timestamp }: MessageBu
       <div
         className={cn(
           "flex flex-col gap-[var(--space-1)]",
-          /* Exception: no semantic max-width token exists for chat bubbles. 70% is the documented design constraint. */
-          "max-w-[70%]",
-          isUser ? "items-end" : "items-start",
+          isUser ? "max-w-[70%] items-end" : "max-w-[85%] items-start",
         )}
       >
         <div className="flex items-center gap-[var(--space-2)] text-[var(--font-size-caption)] text-[var(--color-text-muted)]">
@@ -36,7 +34,7 @@ export function MessageBubble({ className, content, role, timestamp }: MessageBu
         </div>
         <Card
           className={cn(
-            "p-[var(--space-3)] text-[var(--font-size-body)]",
+            "p-[var(--space-3)] text-[var(--font-size-body)] whitespace-pre-wrap break-words",
             isUser
               ? "bg-[var(--color-accent)] text-[var(--color-background)]"
               : "bg-[var(--color-surface)] text-[var(--color-text-primary)]",

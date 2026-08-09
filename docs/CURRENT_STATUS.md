@@ -4,18 +4,19 @@ Last updated: 2026-08-01
 
 ## Current phase
 
-Phase 2 - Milestone 3: Ollama Real AI Connection
-Status: Complete and approved
-Next: Phase 2 - Milestone 4 — Connect UI to jarvis-engine
+Phase 2 - Milestone 9: Conversation Persistence on App Restart
+Status: Complete
+Next: Phase 3
+
 **Phase 2 - AI Integration**
 
-The project is now implementing state management and the AI brain backend logic.
+The project has integrated local SQLite-based conversation persistence to automatically restore context upon App restart. Phase 2 is complete.
 
 ## Current milestone
 
-**Milestone 2 - jarvis-engine FastAPI Server**
+**Milestone 9 - Conversation Persistence**
 
-Status: **Complete; awaiting review.**
+Status: **Complete**
 
 The second milestone of Phase 2 is complete. The jarvis-engine FastAPI server foundation was built with provider abstraction layer and SQLite conversation storage.
 
@@ -40,11 +41,18 @@ Validation passed: API endpoints responded successfully.
 | Phase 1 - Milestone 5: Settings UI                                      | Complete                  | Added SettingsView, SettingsLayout, SettingsSidebar, AIProviderSection, AppearanceSection, and AboutSection.                                  |
 | Phase 1 - Milestone 6: Desktop Polish                                   | Complete                  | Refined UI with Framer Motion transitions, strict adherence to max-width and scrollbar styles, added focus rings, updated brand header.     |
 | Phase 2 - Milestone 1: Zustand Stores + Remove Mock Data                | Complete                  | Introduced useConversationStore, useAIStore, usePersonalityStore, useAppStore. Refactored App and ChatView to rely on global state.           |
-| Phase 2 - Milestone 2: jarvis-engine FastAPI Server                     | Complete; awaiting review | Built FastAPI server foundation, SQLite storage, and provider abstraction.                                                                    |
+| Phase 2 - Milestone 2: jarvis-engine FastAPI Server                     | Complete                  | Built FastAPI server foundation, SQLite storage, and provider abstraction.                                                                    |
+| Phase 2 - Milestone 3: Ollama Real AI Connection                        | Complete                  | Connected Ollama to JARVIS Engine to provide real AI responses.                                                                               |
+| Phase 2 - Milestone 4: Connect Desktop UI to jarvis-engine              | Complete                  | Created jarvisApi client, useJarvisChat hook, useEngineStatus hook, and integrated into ChatView and AppShell StatusBar.                      |
+| Phase 2 - Milestone 5: OpenRouter Fallback Provider                     | Complete                  | Integrated OpenRouter as a fallback provider when Ollama is offline, updating provider configs and tests.                                     |
+| Phase 2 - Milestone 6: Streaming Responses                              | Complete                  | Integrated token streaming from Ollama backend via FastAPI to the React frontend UI for real-time chat.                                       |
+| Phase 2 - Milestone 7: Long Term Memory System                          | Complete                  | Integrated long-term memory system using SQLite, extracting facts, and injecting context into system prompts.                                 |
+| Phase 2 - Milestone 8: Live StatusBar & Settings                        | Complete                  | Enhanced AppShell StatusBar with live state tracking, memory count fetching, and AI Provider settings persistence.                            |
+| Phase 2 - Milestone 9: Conversation Persistence                         | Complete; awaiting review | Persisted conversation IDs in local storage, implemented automatic context reloading on startup, and added /conversations endpoint.           |
 
 ## Pending milestone
 
-**Phase 2 - Milestone 2 review**
+**Phase 2 - Milestone 9 review**
 
 Awaiting review. No further implementation milestone should begin until this milestone is accepted.
 
