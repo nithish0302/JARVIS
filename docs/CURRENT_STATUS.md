@@ -4,23 +4,23 @@ Last updated: 2026-08-01
 
 ## Current phase
 
-Phase 2 - Milestone 9: Conversation Persistence on App Restart
-Status: Complete
-Next: Phase 3
+Phase 3 - Milestone 1: Web Search
+Status: Complete; awaiting review
+Next: Phase 3 - Milestone 2
 
-**Phase 2 - AI Integration**
+**Phase 3 - External Integrations**
 
-The project has integrated local SQLite-based conversation persistence to automatically restore context upon App restart. Phase 2 is complete.
+The project has integrated DuckDuckGo web search capability.
 
 ## Current milestone
 
-**Milestone 9 - Conversation Persistence**
+**Milestone 1 - Web Search**
 
 Status: **Complete**
 
-The second milestone of Phase 2 is complete. The jarvis-engine FastAPI server foundation was built with provider abstraction layer and SQLite conversation storage.
+The first milestone of Phase 3 is complete. The jarvis-engine can detect search intent, query DuckDuckGo, and inject real-time web results into the AI context window.
 
-Validation passed: API endpoints responded successfully.
+Validation passed: API endpoints responded successfully and tests pass.
 
 ## Completed milestones
 
@@ -48,17 +48,18 @@ Validation passed: API endpoints responded successfully.
 | Phase 2 - Milestone 6: Streaming Responses                              | Complete                  | Integrated token streaming from Ollama backend via FastAPI to the React frontend UI for real-time chat.                                       |
 | Phase 2 - Milestone 7: Long Term Memory System                          | Complete                  | Integrated long-term memory system using SQLite, extracting facts, and injecting context into system prompts.                                 |
 | Phase 2 - Milestone 8: Live StatusBar & Settings                        | Complete                  | Enhanced AppShell StatusBar with live state tracking, memory count fetching, and AI Provider settings persistence.                            |
-| Phase 2 - Milestone 9: Conversation Persistence                         | Complete; awaiting review | Persisted conversation IDs in local storage, implemented automatic context reloading on startup, and added /conversations endpoint.           |
+| Phase 2 - Milestone 9: Conversation Persistence                         | Complete                  | Persisted conversation IDs in local storage, implemented automatic context reloading on startup, and added /conversations endpoint.           |
+| Phase 3 - Milestone 1: Web Search Capability                            | Complete; awaiting review | Integrated DuckDuckGo search for real-time information retrieval and injected search results into AI prompt context.                          |
 
 ## Pending milestone
 
-**Phase 2 - Milestone 9 review**
+**Phase 3 - Milestone 1 review**
 
 Awaiting review. No further implementation milestone should begin until this milestone is accepted.
 
 ## Next planned milestone
 
-The next milestone for Phase 2 - AI Integration will be Milestone 3, which focuses on Ollama connection.
+The next milestone for Phase 3 will be Milestone 2.
 
 ## Current technology stack
 

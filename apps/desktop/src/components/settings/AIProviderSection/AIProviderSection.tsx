@@ -6,7 +6,7 @@ import { Select } from "../../ui/Select/Select";
 import { Input } from "../../ui/Input/Input";
 import { Button } from "../../ui/Button/Button";
 import { useAIStore } from "../../../stores/useAIStore";
-import { switchProvider, checkHealth } from "../../../services/jarvisApi";
+import { switchProvider, checkHealth, setOpenRouterKey } from "../../../services/jarvisApi";
 
 export function AIProviderSection() {
   const { 
@@ -40,6 +40,18 @@ export function AIProviderSection() {
       setTestResult("✗ Offline");
     }
   };
+  
+  const suggestions = provider === "ollama" ? [
+    { id: "llama3.2:3b", desc: "current" },
+    { id: "qwen2.5-coder:3b", desc: "coding" },
+    { id: "mistral:7b", desc: "reasoning" },
+    { id: "phi3:mini", desc: "fast" }
+  ] : provider === "openrouter" ? [
+    { id: "google/gemma-4-27b-it:free", desc: "general" },
+    { id: "google/gemma-4-31b-it:free", desc: "reasoning" },
+    { id: "meta-llama/llama-3.3-70b-instruct:free", desc: "capable" },
+    { id: "qwen/qwen3-235b-a22b:free", desc: "coding" }
+  ] : [];
 
   return (
     <SettingsSection
@@ -58,13 +70,38 @@ export function AIProviderSection() {
           <option value="openai">OpenAI</option>
         </Select>
         
-        <Input 
-          label="Model name" 
-          placeholder="e.g. qwen2.5:7b" 
-          value={model}
-          onChange={(e) => setModel(e.target.value)}
-          onBlur={handleModelBlur}
-        />
+        <div>
+          <Input 
+            label="Model name" 
+            placeholder="e.g. qwen2.5:7b" 
+            value={model}
+            onChange={(e) => setModel(e.target.value)}
+            onBlur={handleModelBlur}
+          />
+          
+          {suggestions.length > 0 && (
+            <div className="mt-[var(--space-2)] flex flex-wrap gap-[var(--space-2)]">
+              {suggestions.map(s => (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => {
+                    setModel(s.id);
+                    switchProvider(provider, s.id);
+                  }}
+                  className="flex flex-col items-start rounded border border-[var(--color-border)] bg-[var(--color-surface-sunken)] p-[var(--space-2)] hover:border-[var(--color-primary)] transition-colors"
+                >
+                  <span className="text-[length:var(--font-size-sm)] font-medium text-[var(--color-text-primary)]">
+                    {s.id}
+                  </span>
+                  <span className="text-[length:var(--font-size-xs)] text-[var(--color-text-secondary)]">
+                    {s.desc}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         
         <Input
           label="OpenRouter API Key"
@@ -73,6 +110,7 @@ export function AIProviderSection() {
           description="Required for cloud fallback"
           value={openrouterKey}
           onChange={(e) => setOpenrouterKey(e.target.value)}
+          onBlur={() => setOpenRouterKey(openrouterKey)}
         />
         
         <div className="flex items-center gap-[var(--space-3)]">

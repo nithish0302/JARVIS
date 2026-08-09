@@ -42,3 +42,13 @@ class CreateMemoryRequest(BaseModel):
     content: str
     category: str = "general"
     importance: int = 5
+
+class SearchResult(BaseModel):
+    title: str
+    url: str
+    snippet: str
+
+class SearchResponse(BaseModel):
+    query: str
+    results: list[SearchResult]
+    formatted: str

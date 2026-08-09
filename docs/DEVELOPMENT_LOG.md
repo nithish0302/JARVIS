@@ -1124,3 +1124,59 @@ Status: Complete and approved.
  * * C u r r e n t   s t a t u s : * *   C o m p l e t e   a n d   a w a i t i n g   r e v i e w . 
   
  
+## Bug Fixes - Phase 3 Prep
+**Date:** 2026-08-09
+**Objective:** Fix conversation persistence and memory extraction bugs.
+**Decisions made:**
+- Added retry logic to useConversationLoader.ts to wait for backend.
+- Relaxed memory extraction triggers in memory_manager.py.
+- Improved get_relevant_memories with multi-word LIKE matching.
+**Current status:** Complete.
+
+
+## Phase 2 - Bug Fixes
+**Date:** 2026-08-09
+**Objective:** Fix conversation persistence and memory extraction bugs.
+**Decisions made:**
+- Added retry logic to useConversationLoader.ts to wait for backend.
+- Relaxed memory extraction triggers in memory_manager.py.
+- Improved get_relevant_memories with multi-word LIKE matching.
+**Current status:** Complete.
+
+## Phase 2 - Bug Fixes 2
+**Date:** 2026-08-09
+**Objective:** Fix duplicate memories and conversation loading bugs.
+**Decisions made:**
+- Added duplicate checking in save_memory().
+- Replaced useConversationLoader entirely with a useRef approach and 3 second initial wait.
+- Added and executed deduplication query to clean up existing duplicate memories.
+**Current status:** Complete.
+
+## Phase 2 - Bug Fixes 3
+**Date:** 2026-08-09
+**Objective:** Fix conversation loading on restart and OpenRouter API key submission.
+**Decisions made:**
+- Changed useConversationLoader to load conversation only when engine status === idle.
+- Added set_openrouter_key endpoint in backend and wired it to blur event in AIProviderSection.tsx.
+- Added suggestion chips for free models under AI Provider settings.
+**Current status:** Complete.
+
+## Phase 2 - Bug Fixes 4
+**Date:** 2026-08-09
+**Objective:** Fix localStorage issues in useConversationStore and ensure conversation ID is returned in stream.
+**Decisions made:**
+- Removed optional chaining from localStorage in `useConversationStore.ts`.
+- Added `conversation_id` to the `done` yield in `routes.py` `/chat/stream`.
+- Added fallback to `jarvisApi.ts` `onDone` callback.
+**Current status:** Complete.
+
+## Phase 3 - Milestone 1: Web Search
+**Date:** 2026-08-09
+**Objective:** Add DuckDuckGo web search capability to JARVIS.
+**Decisions made:**
+- Installed `duckduckgo-search` and `httpx`.
+- Created `web_search.py` for performing queries and formatting results.
+- Created `search_detector.py` to identify search intent using heuristics and keywords.
+- Added a new `/search` endpoint to the FastAPI app.
+- Injected search results directly into the `system` message prompt before calling the LLM in `/chat` and `/chat/stream` endpoints.
+**Current status:** Complete. Tests pass successfully.

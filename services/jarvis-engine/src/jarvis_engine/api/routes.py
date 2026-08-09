@@ -10,8 +10,32 @@ from ..core.config import settings
 from ..providers.manager import provider_manager
 from ..memory.conversation import save_message, get_conversation_messages, delete_conversation, get_conversations
 from ..memory.memory_manager import memory_manager
+from ..tools.web_search import (
+  search_web, format_search_results
+)
+from ..tools.search_detector import (
+  needs_web_search, extract_search_query
+)
 
 router = APIRouter()
+
+@router.post("/search")
+async def search_endpoint(request: dict):
+  query = request.get("query", "")
+  if not query:
+    raise HTTPException(
+      status_code=400,
+      detail="Query is required"
+    )
+  
+  results = await search_web(query)
+  formatted = format_search_results(results, query)
+  
+  return {
+    "query": query,
+    "results": results,
+    "formatted": formatted
+  }
 
 JARVIS_SYSTEM_PROMPT = """You are JARVIS, a premium 
 AI desktop assistant for Nithish. You are intelligent,
@@ -45,9 +69,19 @@ async def chat_endpoint(request: ChatRequest):
         memory_context = "\n\nRelevant memories about Nithish:\n" + "\n".join(memory_lines)
     
     # Create system message
+    search_context = ""
+    if needs_web_search(request.message):
+        search_query = extract_search_query(request.message)
+        search_results = await search_web(search_query, max_results=4)
+        if search_results:
+            search_context = f"\n\nReal-time web search results for '{search_query}':\n"
+            for i, r in enumerate(search_results, 1):
+                search_context += f"\n{i}. {r['title']}\n   {r['snippet']}\n   Source: {r['url']}\n"
+            search_context += "\nUse these results to answer accurately. Always cite your sources."
+            
     system_message = Message(
         role="system",
-        content=JARVIS_SYSTEM_PROMPT + memory_context,
+        content=JARVIS_SYSTEM_PROMPT + memory_context + search_context,
         timestamp=""
     )
     
@@ -113,9 +147,19 @@ async def chat_stream_endpoint(
       memory_lines = [f"- {m['content']}" for m in relevant_memories]
       memory_context = "\n\nRelevant memories about Nithish:\n" + "\n".join(memory_lines)
 
+  search_context = ""
+  if needs_web_search(request.message):
+      search_query = extract_search_query(request.message)
+      search_results = await search_web(search_query, max_results=4)
+      if search_results:
+          search_context = f"\n\nReal-time web search results for '{search_query}':\n"
+          for i, r in enumerate(search_results, 1):
+              search_context += f"\n{i}. {r['title']}\n   {r['snippet']}\n   Source: {r['url']}\n"
+          search_context += "\nUse these results to answer accurately. Always cite your sources."
+
   system_message = Message(
     role="system",
-    content=JARVIS_SYSTEM_PROMPT + memory_context,
+    content=JARVIS_SYSTEM_PROMPT + memory_context + search_context,
     timestamp=""
   )
   
@@ -181,6 +225,7 @@ async def chat_stream_endpoint(
     )
     yield json_module.dumps({
       "type": "done",
+      "conversation_id": conversation_id,
       "full_response": complete_response
     }) + "\n"
   
@@ -261,3 +306,42 @@ async def search_memories_endpoint(q: str):
 @router.get("/conversations")
 async def get_conversations_endpoint():
     return await get_conversations(limit=10)
+
+@router.post("/memories/deduplicate")
+async def deduplicate_memories():
+  async with aiosqlite.connect(
+    settings.DB_PATH
+  ) as db:
+    # Keep only the oldest memory per 
+    # content prefix, delete duplicates
+    await db.execute("""
+      DELETE FROM memories 
+      WHERE id NOT IN (
+        SELECT MIN(id) 
+        FROM memories 
+        GROUP BY LOWER(SUBSTR(content, 1, 100))
+      )
+    """)
+    await db.commit()
+    
+    cursor = await db.execute(
+      "SELECT COUNT(*) FROM memories"
+    )
+    count = await cursor.fetchone()
+    return {
+      "status": "deduplicated",
+      "memories_remaining": count[0]
+    }
+
+@router.post("/config/openrouter-key")
+async def set_openrouter_key(
+  request: dict
+):
+  key = request.get("api_key", "")
+  # Store in environment for this session
+  import os
+  os.environ["OPENROUTER_API_KEY"] = key
+  # Reload settings
+  from ..core.config import settings
+  settings.OPENROUTER_API_KEY = key
+  return {"status": "updated"}

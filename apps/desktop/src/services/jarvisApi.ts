@@ -109,7 +109,7 @@ export async function sendMessageStream(
           } else if (data.type === "done") {
             onDone(
               data.conversation_id || "",
-              data.full_response
+              data.full_response || ""
             )
           }
         } catch {
@@ -148,4 +148,23 @@ export async function switchProvider(provider: string, model: string): Promise<v
       body: JSON.stringify({ provider, model }),
     }
   )
+}
+
+export async function setOpenRouterKey(
+  apiKey: string
+): Promise<void> {
+  try {
+    await window.fetch(
+      `${JARVIS_ENGINE_URL}/config/openrouter-key`,
+      {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json" 
+        },
+        body: JSON.stringify({ api_key: apiKey }),
+      }
+    )
+  } catch {
+    console.error("Failed to set OpenRouter key")
+  }
 }

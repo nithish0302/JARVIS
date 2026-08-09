@@ -120,6 +120,36 @@ async def test_memories():
     results = r4.json()
     print(f"Memory search: {'PASS' if len(results) > 0 else 'FAIL'}")
 
+async def test_web_search():
+  async with httpx.AsyncClient(
+    timeout=30.0
+  ) as client:
+    
+    # Test direct search endpoint
+    r = await client.post(
+      f"{BASE_URL}/search",
+      json={"query": "Python programming language"}
+    )
+    data = r.json()
+    print(f"\nTest Search: {'PASS' if r.status_code == 200 else 'FAIL'}")
+    print(f"Results found: {len(data.get('results', []))}")
+    if data.get('results'):
+      print(f"First result: {data['results'][0]['title']}")
+    
+    # Test chat with search trigger
+    r2 = await client.post(
+      f"{BASE_URL}/chat",
+      json={
+        "message": "What is the latest news about Python?",
+        "conversation_id": None,
+        "provider": "ollama",
+        "model": "llama3.2:3b"
+      }
+    )
+    data2 = r2.json()
+    print(f"\nTest Chat+Search: {'PASS' if r2.status_code == 200 else 'FAIL'}")
+    print(f"Response preview: {data2.get('response', '')[:200]}")
+
 async def test_conversations():
   async with httpx.AsyncClient() as client:
     r = await client.get(
@@ -157,6 +187,9 @@ async def main():
     
     print("\n--- Test 6: Conversations List ---")
     await test_conversations()
+    
+    print("\n--- Test 7: Web Search ---")
+    await test_web_search()
     
     print("\n" + "=" * 50)
     print("Tests complete")
