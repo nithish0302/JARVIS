@@ -70,6 +70,7 @@ async def chat_endpoint(request: ChatRequest):
     
     # Create system message
     search_context = ""
+    search_query = None
     if needs_web_search(request.message):
         search_query = extract_search_query(request.message)
         search_results = await search_web(search_query, max_results=4)
@@ -129,7 +130,8 @@ async def chat_endpoint(request: ChatRequest):
         response=response_text,
         conversation_id=conversation_id,
         provider_used=provider_used,
-        model_used=model_used
+        model_used=model_used,
+        search_query=search_query
     )
 
 @router.post("/chat/stream")
@@ -148,6 +150,7 @@ async def chat_stream_endpoint(
       memory_context = "\n\nRelevant memories about Nithish:\n" + "\n".join(memory_lines)
 
   search_context = ""
+  search_query = None
   if needs_web_search(request.message):
       search_query = extract_search_query(request.message)
       search_results = await search_web(search_query, max_results=4)
@@ -193,7 +196,8 @@ async def chat_stream_endpoint(
     # Send conversation_id first as metadata
     yield json_module.dumps({
       "type": "meta",
-      "conversation_id": conversation_id
+      "conversation_id": conversation_id,
+      "search_query": search_query
     }) + "\n"
     
     # Stream tokens from Ollama
@@ -226,7 +230,8 @@ async def chat_stream_endpoint(
     yield json_module.dumps({
       "type": "done",
       "conversation_id": conversation_id,
-      "full_response": complete_response
+      "full_response": complete_response,
+      "search_query": search_query
     }) + "\n"
   
   return StreamingResponse(

@@ -54,18 +54,35 @@ async def delete_conversation(conversation_id: str) -> None:
         await db.commit()
 
 async def get_conversations(limit: int = 10) -> List[dict]:
-    conversations = []
     async with aiosqlite.connect(settings.DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        sql = """
-            SELECT c.id, c.title, c.created_at, c.updated_at, COUNT(m.id) as message_count
+        cursor = await db.execute("""
+            SELECT 
+                c.id, c.title, c.created_at, c.updated_at,
+                COUNT(m.id) as message_count,
+                MIN(CASE WHEN m.role='user' THEN m.content END) as first_message
             FROM conversations c
             LEFT JOIN messages m ON c.id = m.conversation_id
             GROUP BY c.id
             ORDER BY c.updated_at DESC
             LIMIT ?
-        """
-        async with db.execute(sql, (limit,)) as cursor:
-            async for row in cursor:
-                conversations.append(dict(row))
-    return conversations
+        """, (limit,))
+        rows = await cursor.fetchall()
+        result = []
+        for row in rows:
+            title = row["title"]
+            if not title or title == "New Conversation":
+                first_msg = row["first_message"] or ""
+                title = first_msg[:50]
+                if len(first_msg) > 50:
+                    title += "..."
+                if not title:
+                    title = "Untitled conversation"
+            result.append({
+                "id": row["id"],
+                "title": title,
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+                "message_count": row["message_count"]
+            })
+        return result

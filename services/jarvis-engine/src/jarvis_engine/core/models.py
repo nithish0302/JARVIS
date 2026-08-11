@@ -17,6 +17,7 @@ class ChatResponse(BaseModel):
     conversation_id: str
     provider_used: str
     model_used: str
+    search_query: str | None = None
 
 class ProviderStatus(BaseModel):
     name: str

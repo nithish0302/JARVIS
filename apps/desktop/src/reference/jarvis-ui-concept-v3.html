@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>J.A.R.V.I.S — HUD Layout Concept</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #04070a; --bg-deep: #010203;
+    --panel: rgba(11,20,27,0.68); --panel-solid: #0b141b;
+    --line: rgba(88,232,224,0.16); --line-strong: rgba(88,232,224,0.32);
+    --cyan: #52ece3; --amber: #ffb454; --red: #ff6a6a;
+    --text: #e7f6f4; --muted: #6f8d92; --muted-dim: #435357;
+    --font-display: 'Rajdhani', sans-serif; --font-body: 'Inter', sans-serif; --font-mono: 'JetBrains Mono', monospace;
+  }
+  *{ box-sizing:border-box; margin:0; padding:0; }
+  html,body{ height:100%; }
+  body{ background: radial-gradient(120% 100% at 50% 0%, #0a1620 0%, var(--bg) 45%, var(--bg-deep) 100%); color:var(--text); font-family:var(--font-body); overflow:hidden; height:100vh; }
+  body::before{ content:""; position:fixed; inset:0; background-image: linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px); background-size:42px 42px; opacity:0.05; pointer-events:none; }
+  .app{ display:flex; height:100vh; }
+
+  /* DOCK */
+  .dock{ width:68px; flex-shrink:0; display:flex; flex-direction:column; align-items:center; padding:20px 0; border-right:1px solid var(--line); background:linear-gradient(180deg, rgba(9,16,21,0.9), rgba(6,11,15,0.9)); gap:6px; z-index:8; }
+  .dock-mark{ width:34px; height:34px; border-radius:8px; border:1px solid var(--line-strong); display:flex; align-items:center; justify-content:center; font-family:var(--font-display); font-weight:700; font-size:13px; color:var(--cyan); margin-bottom:26px; box-shadow:0 0 14px rgba(82,236,227,0.25) inset; }
+  .dock-btn{ width:42px; height:42px; border-radius:10px; border:1px solid transparent; background:transparent; color:var(--muted); display:flex; align-items:center; justify-content:center; cursor:pointer; transition:all .2s ease; position:relative; }
+  .dock-btn svg{ width:19px; height:19px; }
+  .dock-btn:hover{ color:var(--text); background:rgba(82,236,227,0.06); }
+  .dock-btn.active{ color:var(--cyan); background:rgba(82,236,227,0.09); border-color:var(--line-strong); box-shadow:0 0 16px rgba(82,236,227,0.18); }
+  .dock-btn.active::before{ content:""; position:absolute; left:-13px; top:50%; transform:translateY(-50%); width:3px; height:16px; border-radius:2px; background:var(--cyan); box-shadow:0 0 8px var(--cyan); }
+  .dock-spacer{ flex:1; }
+  .dock-mic{ width:42px; height:42px; border-radius:50%; border:1px solid var(--line-strong); background:rgba(82,236,227,0.05); color:var(--cyan); display:flex; align-items:center; justify-content:center; cursor:pointer; }
+  .dock-mic svg{ width:17px; height:17px; }
+  .dock-mic.live{ background:rgba(82,236,227,0.16); animation:micpulse 1.8s infinite; }
+  @keyframes micpulse{ 0%{box-shadow:0 0 0 0 rgba(82,236,227,0.45);} 70%{box-shadow:0 0 0 10px rgba(82,236,227,0);} 100%{box-shadow:0 0 0 0 rgba(82,236,227,0);} }
+
+  /* MAIN */
+  .stage{ flex:1; display:flex; flex-direction:column; position:relative; min-width:0; }
+  .topbar{ height:56px; display:flex; align-items:center; justify-content:space-between; padding:0 22px; border-bottom:1px solid var(--line); background:rgba(6,11,15,0.55); backdrop-filter:blur(6px); z-index:6; }
+  .brand{ display:flex; align-items:center; gap:10px; font-family:var(--font-display); font-weight:700; letter-spacing:3px; font-size:18px; }
+  .brand .dot{ width:7px; height:7px; border-radius:50%; background:var(--cyan); box-shadow:0 0 8px var(--cyan); }
+  .pills{ display:flex; gap:8px; }
+  .pill{ font-family:var(--font-mono); font-size:10.5px; color:var(--muted); border:1px solid var(--line); padding:5px 10px; border-radius:20px; display:flex; align-items:center; gap:6px; }
+  .pill .pd{ width:5px; height:5px; border-radius:50%; background:var(--cyan); }
+  .pill.amber .pd{ background:var(--amber); }
+
+  /* SCENE: left col | center canvas | right col */
+  .scene{ flex:1; display:flex; gap:14px; padding:14px; position:relative; overflow:hidden; }
+  .side-col{ width:224px; flex-shrink:0; display:flex; flex-direction:column; gap:14px; z-index:5; }
+  .panel{ background:var(--panel); border:1px solid var(--line); border-radius:12px; backdrop-filter:blur(10px); padding:14px 16px; }
+  .panel h3{ font-family:var(--font-display); font-size:11px; letter-spacing:2px; color:var(--muted); font-weight:600; margin-bottom:12px; text-transform:uppercase; }
+
+  /* legend */
+  .legend-row{ display:flex; align-items:center; gap:8px; font-size:11.5px; color:var(--muted); padding:3px 0; font-family:var(--font-mono); }
+  .legend-row .sw{ width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+
+  /* orb card (moved into right sidebar) */
+  .orb-card{ display:flex; flex-direction:column; align-items:center; padding:22px 12px 18px; }
+  .orb-mini{ position:relative; width:160px; height:160px; margin-bottom:14px; }
+  .ring{ position:absolute; border-radius:50%; }
+  .ring-outer{ inset:0; background:repeating-conic-gradient(var(--cyan) 0deg 2.1deg, transparent 2.1deg 8deg); opacity:0.85; -webkit-mask:radial-gradient(farthest-side, transparent calc(100% - 12px), #000 calc(100% - 11px), #000 calc(100% - 1px), transparent 100%); mask:radial-gradient(farthest-side, transparent calc(100% - 12px), #000 calc(100% - 11px), #000 calc(100% - 1px), transparent 100%); }
+  .ring-sweep{ inset:0; background:conic-gradient(from -20deg, transparent 0deg, transparent 245deg, rgba(255,180,84,0.35) 270deg, rgba(255,180,84,0.98) 305deg, rgba(255,180,84,0.98) 330deg, transparent 345deg); -webkit-mask:radial-gradient(farthest-side, transparent calc(100% - 13px), #000 calc(100% - 12px), #000 calc(100% - 1px), transparent 100%); mask:radial-gradient(farthest-side, transparent calc(100% - 13px), #000 calc(100% - 12px), #000 calc(100% - 1px), transparent 100%); filter:drop-shadow(0 0 5px rgba(255,180,84,0.6)); animation:spin 7s linear infinite; }
+  .ring-ticks{ inset:26px; background:repeating-conic-gradient(var(--line-strong) 0deg 1deg, transparent 1deg 7deg); -webkit-mask:radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px)); mask:radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px)); animation:spin 70s linear infinite; }
+  .ring-sweep-inner{ inset:26px; animation:spin 4.2s linear infinite; }
+  .ring-sweep-inner::after{ content:""; position:absolute; top:-1px; left:50%; width:2px; height:8px; margin-left:-1px; background:var(--amber); box-shadow:0 0 6px var(--amber), 0 0 10px var(--amber); border-radius:2px; }
+  .ring-sweep-inner::before{ content:""; position:absolute; bottom:6px; left:14%; width:3px; height:3px; border-radius:50%; background:var(--amber); box-shadow:0 0 5px var(--amber); }
+  .core-glow{ position:absolute; inset:38px; border-radius:50%; background:radial-gradient(circle, rgba(82,236,227,0.35) 0%, rgba(82,236,227,0.08) 45%, transparent 72%); filter:blur(2px); animation:breathe 3.2s ease-in-out infinite; }
+  .core{ position:absolute; inset:46px; border-radius:50%; background:radial-gradient(circle at 35% 28%, #123734 0%, #0c2926 55%, #071916 100%); border:1px solid rgba(82,236,227,0.55); box-shadow:0 0 26px rgba(82,236,227,0.4), inset 0 0 20px rgba(0,0,0,0.5); animation:breathe 3.2s ease-in-out infinite; display:flex; align-items:center; justify-content:center; }
+  .core-text{ font-family:var(--font-display); font-weight:700; font-size:11px; letter-spacing:1.2px; color:#eafffb; text-shadow:0 0 8px rgba(82,236,227,0.7); text-align:center; }
+  @keyframes spin{ to{ transform:rotate(360deg); } }
+  @keyframes breathe{ 0%,100%{ transform:scale(1);} 50%{ transform:scale(1.05);} }
+  .orb-mini.active .ring-outer{ opacity:1; }
+  .core.audio-live, .core-glow.audio-live{ animation:none; }
+  .orb-status-row{ display:flex; align-items:center; gap:7px; }
+  .orb-status-row .dot{ width:6px; height:6px; border-radius:50%; background:var(--cyan); box-shadow:0 0 6px var(--cyan); }
+  .orb-status{ font-family:var(--font-display); font-weight:600; letter-spacing:3px; font-size:12px; color:var(--cyan); text-transform:uppercase; }
+  .orb-status-row.listening .dot{ background:#39e08a; box-shadow:0 0 6px #39e08a; }
+  .orb-status-row.listening .orb-status{ color:#39e08a; }
+  .orb-status-row.speaking .dot{ background:var(--amber); box-shadow:0 0 6px var(--amber); }
+  .orb-status-row.speaking .orb-status{ color:var(--amber); }
+  .orb-caption{ font-family:var(--font-mono); font-size:10px; color:var(--muted-dim); margin-top:5px; }
+  .orb-sub{ font-family:var(--font-mono); font-size:10px; color:var(--muted-dim); margin-top:3px; }
+
+
+  /* stats */
+  #stats{ display:flex; gap:16px; }
+  #stats .stat{ font-family:var(--font-mono); font-size:11px; color:var(--muted); }
+  #stats .stat b{ display:block; font-family:var(--font-display); font-size:18px; color:var(--text); font-weight:600; }
+
+  /* inspector */
+  #inspector .empty{ font-size:12px; color:var(--muted-dim); line-height:1.5; }
+  #inspector .node-title{ font-family:var(--font-display); font-size:16px; font-weight:600; margin-bottom:4px; }
+  #inspector .node-meta{ font-family:var(--font-mono); font-size:11px; color:var(--cyan); margin-bottom:8px; }
+  #inspector .node-desc{ font-size:12px; color:var(--muted); line-height:1.5; }
+
+  /* system resource gauges */
+  .sys-metric{ margin-bottom:14px; }
+  .sys-metric:last-child{ margin-bottom:0; }
+  .sys-row{ display:flex; justify-content:space-between; align-items:baseline; margin-bottom:5px; }
+  .sys-row .lbl{ font-family:var(--font-display); font-size:13px; font-weight:600; color:var(--text); letter-spacing:0.5px; }
+  .sys-row .pct{ font-family:var(--font-mono); font-size:12px; color:var(--cyan); }
+  .sys-row .pct.warn{ color:var(--amber); }
+  .sys-bar{ height:5px; border-radius:4px; background:rgba(255,255,255,0.05); border:1px solid var(--line); overflow:hidden; }
+  .sys-bar-fill{ height:100%; border-radius:4px; width:0%; background:var(--cyan); box-shadow:0 0 8px rgba(82,236,227,0.5); transition:width .7s ease, background .3s ease; }
+  .sys-detail{ font-family:var(--font-mono); font-size:9.5px; color:var(--muted-dim); margin-top:4px; }
+
+  /* CENTER canvas */
+  .canvas-wrap{ flex:1; position:relative; border-radius:12px; overflow:hidden; }
+  #graphCanvas{ position:absolute; inset:0; width:100%; height:100%; cursor:pointer; transition:opacity .4s ease; }
+  .canvas-wrap.chat-focused #graphCanvas{ opacity:0.14; }
+  .caption{ position:absolute; top:6px; left:50%; transform:translateX(-50%); font-family:var(--font-mono); font-size:11px; color:var(--muted-dim); text-align:center; z-index:3; }
+
+  /* CONVERSATIONS PANEL */
+  #convoPanel{ position:absolute; top:0; right:0; height:100%; width:320px; background:rgba(8,14,19,0.94); backdrop-filter:blur(14px); border-left:1px solid var(--line-strong); transform:translateX(100%); transition:transform .32s cubic-bezier(.2,.8,.2,1); z-index:9; display:flex; flex-direction:column; }
+  #convoPanel.open{ transform:translateX(0); }
+  .convo-head{ padding:18px 18px 12px; border-bottom:1px solid var(--line); display:flex; align-items:center; justify-content:space-between; }
+  .convo-head h3{ font-family:var(--font-display); font-size:14px; letter-spacing:1.5px; color:var(--amber); text-transform:uppercase; }
+  .convo-close{ background:none; border:none; color:var(--muted); cursor:pointer; font-size:18px; line-height:1; }
+  .convo-list{ overflow-y:auto; flex:1; padding:8px 10px; }
+  .convo-item{ padding:12px; border-radius:9px; cursor:pointer; margin-bottom:4px; border:1px solid transparent; }
+  .convo-item:hover{ background:rgba(255,180,84,0.07); border-color:rgba(255,180,84,0.2); }
+  .convo-item .t{ font-family:var(--font-display); font-size:14px; font-weight:600; color:var(--text); }
+  .convo-item .m{ font-family:var(--font-mono); font-size:10px; color:var(--muted-dim); margin:2px 0 5px; }
+  .convo-item .s{ font-size:12px; color:var(--muted); line-height:1.4; }
+  .archive-banner{ display:none; align-items:center; justify-content:space-between; background:rgba(255,180,84,0.09); border:1px solid rgba(255,180,84,0.28); border-radius:10px; padding:8px 12px; margin-bottom:8px; font-family:var(--font-mono); font-size:11px; color:var(--amber); }
+  .archive-banner button{ background:rgba(255,180,84,0.15); border:1px solid rgba(255,180,84,0.35); color:var(--amber); font-family:var(--font-mono); font-size:10px; padding:4px 9px; border-radius:6px; cursor:pointer; }
+  .archive-banner.show{ display:flex; }
+
+  /* CHAT DOCK */
+  .chat-shell{ position:absolute; left:50%; bottom:14px; transform:translateX(-50%); width:min(560px,92%); z-index:6; }
+  #log{ display:flex; flex-direction:column; gap:8px; max-height:180px; overflow-y:auto; margin-bottom:10px; padding-right:2px; transition:max-height .35s ease, opacity .3s ease, margin-bottom .3s ease; scrollbar-width:none; -ms-overflow-style:none; }
+  .chat-shell.nodes-focused #log{ max-height:0; opacity:0; margin-bottom:0; overflow:hidden; }
+  #log::-webkit-scrollbar{ display:none; }
+  .msg{ max-width:82%; padding:9px 13px; border-radius:12px; font-size:13px; line-height:1.5; background:var(--panel); border:1px solid var(--line); backdrop-filter:blur(8px); }
+  .msg.user{ align-self:flex-end; border-color:rgba(82,236,227,0.3); }
+  .msg.jarvis{ align-self:flex-start; }
+  .msg.jarvis b{ color:var(--cyan); font-family:var(--font-display); letter-spacing:1px; font-size:11px; display:block; margin-bottom:3px; }
+  .composer{ display:flex; align-items:center; gap:8px; background:var(--panel-solid); border:1px solid var(--line-strong); border-radius:14px; padding:6px 6px 6px 16px; box-shadow:0 8px 30px rgba(0,0,0,0.4); }
+  .composer input{ flex:1; background:transparent; border:none; outline:none; color:var(--text); font-family:var(--font-body); font-size:13.5px; }
+  .composer input::placeholder{ color:var(--muted-dim); }
+  .composer button{ width:36px; height:36px; border-radius:10px; border:none; background:rgba(82,236,227,0.12); color:var(--cyan); display:flex; align-items:center; justify-content:center; cursor:pointer; }
+  .composer button svg{ width:16px; height:16px; }
+
+  @media (max-width: 980px){
+    .side-col{ display:none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <div class="dock">
+    <div class="dock-mark">J</div>
+    <button class="dock-btn" id="expandBtn" title="Expand knowledge graph">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="6" cy="6" r="2.2"/><circle cx="18" cy="7" r="2.2"/><circle cx="7" cy="18" r="2.2"/><circle cx="17" cy="17" r="2.2"/><circle cx="12" cy="12" r="1.8"/><path d="M7.7 7.2 10.5 11M14 13 16.3 15.7M9.3 15.6 11 13.4M13.5 10.5 16 8"/></svg>
+    </button>
+    <button class="dock-btn" id="convoBtn" title="Previous conversations">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 5h16v11H8l-4 4V5Z"/><path d="M8 9h8M8 12h5"/></svg>
+    </button>
+    <button class="dock-btn" title="Automations">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="4" width="7" height="7" rx="1.4"/><rect x="13" y="4" width="7" height="7" rx="1.4"/><rect x="4" y="13" width="7" height="7" rx="1.4"/><rect x="13" y="13" width="7" height="7" rx="1.4"/></svg>
+    </button>
+    <button class="dock-btn" title="Settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="2.6"/><path d="M12 3v2.4M12 18.6V21M21 12h-2.4M5.4 12H3M18 6l-1.6 1.6M7.6 16.4 6 18M18 18l-1.6-1.6M7.6 7.6 6 6"/></svg>
+    </button>
+    <div class="dock-spacer"></div>
+    <div class="dock-mic" id="micBtn" title="Toggle listening">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+    </div>
+  </div>
+
+  <div class="stage">
+    <div class="topbar">
+      <div class="brand"><span class="dot"></span>J.A.R.V.I.S</div>
+      <div class="pills">
+        <div class="pill"><span class="pd"></span>LLAMA3.2 · LOCAL</div>
+        <div class="pill amber"><span class="pd"></span>6 MEMORIES</div>
+        <div class="pill" id="statusPill"><span class="pd"></span>IDLE</div>
+      </div>
+    </div>
+
+    <div class="scene">
+
+      <!-- LEFT: system resources + inspector -->
+      <div class="side-col">
+        <div class="panel" id="inspector">
+          <h3>Inspector</h3>
+          <div class="empty" id="inspectorBody">Click any node — the gold one is your conversation history. Everything else is your connected knowledge.</div>
+        </div>
+        <div class="panel">
+          <h3>System</h3>
+          <div id="sysMetrics"></div>
+        </div>
+      </div>
+
+      <!-- CENTER: graph -->
+      <div class="canvas-wrap">
+        <canvas id="graphCanvas"></canvas>
+        <div class="caption" id="caption">say "jarvis" — ask to see your brain, or open your last conversation</div>
+
+        <div id="convoPanel">
+          <div class="convo-head"><h3>Conversations</h3><button class="convo-close" id="convoClose">✕</button></div>
+          <div class="convo-list" id="convoList"></div>
+        </div>
+
+        <div class="chat-shell">
+          <div class="archive-banner" id="archiveBanner">
+            <span>Viewing archived conversation</span>
+            <button id="returnLive">Return to live</button>
+          </div>
+          <div id="log"></div>
+          <div class="composer">
+            <input id="input" type="text" placeholder='Message JARVIS…'>
+            <button id="sendBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 12h15M13 6l6 6-6 6"/></svg></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT: filter + orb + stats -->
+      <div class="side-col">
+        <div class="panel">
+          <h3>Filter</h3>
+          <div id="legendRows"></div>
+        </div>
+        <div class="panel orb-card">
+          <div class="orb-mini" id="orbMini">
+            <div class="ring ring-outer"></div>
+            <div class="ring ring-sweep"></div>
+            <div class="ring ring-ticks"></div>
+            <div class="ring ring-sweep-inner"></div>
+            <div class="core-glow" id="orbGlow"></div>
+            <div class="core" id="orbCore"><span class="core-text">J.A.R.V.I.S.</span></div>
+          </div>
+          <div class="orb-status-row" id="orbStatusRow"><span class="dot"></span><span class="orb-status" id="orbStatusLabel">IDLE</span></div>
+          <div class="orb-caption" id="orbCaption">say "jarvis"…</div>
+          <div class="orb-sub">llama3.2:3b · opus-5 fallback</div>
+        </div>
+        <div class="panel">
+          <h3>Graph</h3>
+          <div id="stats">
+            <div class="stat"><b id="statNodes">0</b>NODES</div>
+            <div class="stat"><b id="statLinks">0</b>LINKS</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+/* ===================== state ===================== */
+let expanded = false;
+let expandT = 0;
+let selected = null;
+let convoOpen = false;
+
+/* ===================== mic / status ===================== */
+const micBtn = document.getElementById('micBtn');
+const statusPill = document.getElementById('statusPill');
+const orbMini = document.getElementById('orbMini');
+const orbStatusRow = document.getElementById('orbStatusRow');
+const orbStatusLabel = document.getElementById('orbStatusLabel');
+const orbCaption = document.getElementById('orbCaption');
+let listening = false;
+let jarvisSpeaking = false;
+let audioLevel = 0; // 0..1, drives orb scale — swap this for a real Web Audio analyser later
+let speakTimer = null;
+
+const ORB_STATES = {
+  idle:      { label:'IDLE',      caption:'say "jarvis"…' },
+  listening: { label:'LISTENING', caption:'listening, sir…' },
+  speaking:  { label:'SPEAKING',  caption:'speaking…' },
+};
+function setOrbState(state){
+  const s = ORB_STATES[state];
+  orbStatusRow.className = 'orb-status-row' + (state !== 'idle' ? ' ' + state : '');
+  orbStatusLabel.textContent = s.label;
+  orbCaption.textContent = s.caption;
+  statusPill.innerHTML = '<span class="pd"></span>' + s.label;
+}
+setOrbState('idle');
+
+micBtn.addEventListener('click', () => {
+  listening = !listening;
+  micBtn.classList.toggle('live', listening);
+  if(!jarvisSpeaking) setOrbState(listening ? 'listening' : 'idle');
+});
+
+// call this whenever JARVIS actually starts talking (wire to your real TTS start/end events)
+function simulateSpeaking(text){
+  jarvisSpeaking = true;
+  setOrbState('speaking');
+  clearTimeout(speakTimer);
+  const durationMs = Math.min(4200, Math.max(900, text.length * 55));
+  speakTimer = setTimeout(() => {
+    jarvisSpeaking = false;
+    setOrbState(listening ? 'listening' : 'idle');
+  }, durationMs);
+}
+
+const orbCore = document.getElementById('orbCore');
+const orbGlow = document.getElementById('orbGlow');
+function updateAudioReactiveOrb(){
+  const active = listening || jarvisSpeaking;
+  // simulated amplitude — replace with real mic/TTS analyser data
+  const target = active ? (0.35 + Math.random() * 0.65) : 0;
+  audioLevel += (target - audioLevel) * (active ? 0.22 : 0.12);
+  orbCore.classList.toggle('audio-live', active);
+  orbGlow.classList.toggle('audio-live', active);
+  if(active){
+    const scale = 1 + audioLevel * 0.4;
+    orbCore.style.transform = `scale(${scale.toFixed(3)})`;
+    orbGlow.style.transform = `scale(${(scale*1.05).toFixed(3)})`;
+  } else {
+    orbCore.style.transform = '';
+    orbGlow.style.transform = '';
+  }
+}
+
+/* ===================== system resource gauges (mock/live-look data) ===================== */
+const SYS_METRICS = [
+  { key:'cpu', label:'CPU', value:34, detail:v => `6 cores · ${(v/10+2.6).toFixed(1)}GHz` },
+  { key:'ram', label:'RAM', value:52, detail:v => `${(v/100*16).toFixed(1)} / 16 GB` },
+  { key:'gpu', label:'GPU', value:21, detail:v => `RTX 3050 · ${(30+v/3).toFixed(0)}°C` },
+  { key:'ssd', label:'SSD', value:78, detail:v => `${(v/100*512).toFixed(0)} / 512 GB` },
+];
+const sysMetricsEl = document.getElementById('sysMetrics');
+SYS_METRICS.forEach(m => {
+  const row = document.createElement('div');
+  row.className = 'sys-metric';
+  row.innerHTML = `
+    <div class="sys-row"><span class="lbl">${m.label}</span><span class="pct" id="pct-${m.key}">${m.value}%</span></div>
+    <div class="sys-bar"><div class="sys-bar-fill" id="bar-${m.key}"></div></div>
+    <div class="sys-detail" id="detail-${m.key}">${m.detail(m.value)}</div>
+  `;
+  sysMetricsEl.appendChild(row);
+});
+function renderSys(){
+  SYS_METRICS.forEach(m => {
+    const bar = document.getElementById('bar-' + m.key);
+    const pct = document.getElementById('pct-' + m.key);
+    const detail = document.getElementById('detail-' + m.key);
+    bar.style.width = m.value + '%';
+    bar.style.background = m.value > 80 ? 'var(--amber)' : 'var(--cyan)';
+    pct.textContent = Math.round(m.value) + '%';
+    pct.classList.toggle('warn', m.value > 80);
+    detail.textContent = m.detail(m.value);
+  });
+}
+renderSys();
+setInterval(() => {
+  SYS_METRICS.forEach(m => {
+    const drift = (Math.random() - 0.5) * 10;
+    m.value = Math.max(4, Math.min(97, m.value + drift));
+  });
+  renderSys();
+}, 2200);
+
+/* ===================== chat ===================== */
+const log = document.getElementById('log');
+const input = document.getElementById('input');
+const sendBtn = document.getElementById('sendBtn');
+const archiveBanner = document.getElementById('archiveBanner');
+let liveMessages = [];
+let viewingArchive = false;
+
+let chatFocused = false; // false = graph visible & log collapsed, true = chat visible & graph dimmed
+const chatShellEl = document.querySelector('.chat-shell');
+const canvasWrapEl = document.querySelector('.canvas-wrap');
+function setChatFocused(v){
+  chatFocused = v;
+  chatShellEl.classList.toggle('nodes-focused', !v);
+  canvasWrapEl.classList.toggle('chat-focused', v);
+}
+
+function renderLog(messages){
+  log.innerHTML = '';
+  messages.forEach(m => {
+    const div = document.createElement('div');
+    div.className = 'msg ' + m.who;
+    div.innerHTML = m.who === 'jarvis' ? '<b>JARVIS</b>' + m.text : m.text;
+    log.appendChild(div);
+  });
+  log.scrollTop = log.scrollHeight;
+}
+log.addEventListener('scroll', () => {
+  if(log.scrollTop <= 4) setChatFocused(false);
+});
+function addLiveMsg(text, who){
+  liveMessages.push({ text, who });
+  if(!viewingArchive) renderLog(liveMessages);
+  if(who === 'jarvis') simulateSpeaking(text);
+}
+
+const BRAIN_TRIGGERS = ['brain', 'connected', 'knowledge graph', 'memory graph'];
+const OPEN_NODES_TRIGGERS = ['open the nodes', 'show the nodes', 'show nodes', 'open nodes'];
+const COLLAPSE_TRIGGERS = ['go back', 'collapse', 'close graph', 'hide brain', 'close that'];
+const CONVO_TRIGGERS = ['previous conversation', 'conversation history', 'show conversations', 'last chat', 'open last conversation', 'earlier conversation', 'past conversation'];
+const MODEL_TRIGGERS = ['what model', 'which model', 'show your model', 'show the model', 'connected model'];
+const TOOLS_TRIGGERS = ['plugin', 'plugins', 'show tools', 'show the tools', 'what tools', 'automations'];
+
+function focusHub(key, spokenLine){
+  const hub = hubNodes.find(h => h.key === key);
+  if(!hub) return;
+  setExpanded(true);
+  selected = hub;
+  setChatFocused(false);
+  document.getElementById('inspectorBody').innerHTML =
+    `<div class="node-title">${hub.label}</div><div class="node-meta">${hub.key.toUpperCase()}</div><div class="node-desc">Zoomed in on request — wire this to real data for that category.</div>`;
+  if(spokenLine) addLiveMsg(spokenLine, 'jarvis');
+}
+
+function handleSend(){
+  const val = input.value.trim();
+  if(!val) return;
+  if(viewingArchive) returnToLive();
+  setChatFocused(true); // chatting again — graph steps back until asked for
+  addLiveMsg(val, 'user');
+  input.value = '';
+  const lower = val.toLowerCase();
+  setTimeout(() => {
+    if(CONVO_TRIGGERS.some(t => lower.includes(t))){
+      addLiveMsg('Pulling up your conversation history, sir.', 'jarvis');
+      openConvoPanel();
+    } else if(MODEL_TRIGGERS.some(t => lower.includes(t))){
+      focusHub('models', 'Here\'s what I\'m running on — local llama3.2:3b, with Opus-5 as fallback.');
+    } else if(TOOLS_TRIGGERS.some(t => lower.includes(t))){
+      focusHub('tools', 'Here are your connected plugins — Gmail, calendar, and the rest of the automation stack.');
+    } else if(OPEN_NODES_TRIGGERS.some(t => lower.includes(t))){
+      setChatFocused(false);
+    } else if(BRAIN_TRIGGERS.some(t => lower.includes(t))){
+      addLiveMsg('Expanding the full graph now.', 'jarvis');
+      setExpanded(true);
+      setChatFocused(false);
+    } else if(COLLAPSE_TRIGGERS.some(t => lower.includes(t))){
+      addLiveMsg('Closing it up.', 'jarvis');
+      setExpanded(false);
+      closeConvoPanel();
+    } else {
+      addLiveMsg('Acknowledged. (Wire this input to your real model.)', 'jarvis');
+    }
+  }, 260);
+}
+sendBtn.addEventListener('click', handleSend);
+input.addEventListener('keydown', e => { if(e.key === 'Enter') handleSend(); });
+addLiveMsg('All systems operational. Six memories on file. Ask to see my brain, or reopen an old conversation.', 'jarvis');
+
+/* ===================== conversations panel ===================== */
+const CONVERSATIONS = [
+  { id:1, title:'StayEvents — Cloudinary bug', time:'2h ago', snippet:'Fixed the unsigned upload preset conflict with the auth interceptor.',
+    messages:[
+      {who:'user', text:'why is my hotel photo upload failing on vendor pages'},
+      {who:'jarvis', text:'<b>JARVIS</b>Your shared axios instance is attaching the auth header to the Cloudinary request — use a separate unsigned-upload call.'}
+    ]},
+  { id:2, title:'TCS NQT prep — Day 3', time:'1d ago', snippet:'JDBC PreparedStatement deep dive tied to the Hospital Management System project.',
+    messages:[
+      {who:'user', text:'quiz me on PreparedStatement vs Statement'},
+      {who:'jarvis', text:'<b>JARVIS</b>PreparedStatement precompiles the query and prevents SQL injection — exactly what your HMS project relies on.'}
+    ]},
+  { id:3, title:'Orb + brain UI concept', time:'just now', snippet:'Combined the idle orb and the knowledge graph into a single scene.',
+    messages:[
+      {who:'user', text:'combine the orb and the knowledge graph'},
+      {who:'jarvis', text:'<b>JARVIS</b>Done — the orb is now the permanent core node, and the graph blooms outward from it on command.'}
+    ]},
+];
+const convoList = document.getElementById('convoList');
+CONVERSATIONS.forEach(c => {
+  const item = document.createElement('div');
+  item.className = 'convo-item';
+  item.innerHTML = `<div class="t">${c.title}</div><div class="m">${c.time}</div><div class="s">${c.snippet}</div>`;
+  item.addEventListener('click', () => openArchive(c));
+  convoList.appendChild(item);
+});
+
+function openArchive(c){
+  viewingArchive = true;
+  archiveBanner.classList.add('show');
+  renderLog(c.messages);
+  closeConvoPanel();
+  setChatFocused(true);
+}
+function returnToLive(){
+  viewingArchive = false;
+  archiveBanner.classList.remove('show');
+  renderLog(liveMessages);
+}
+document.getElementById('returnLive').addEventListener('click', returnToLive);
+
+const convoPanel = document.getElementById('convoPanel');
+function openConvoPanel(){ convoOpen = true; convoPanel.classList.add('open'); pulseConvoNode(); }
+function closeConvoPanel(){ convoOpen = false; convoPanel.classList.remove('open'); }
+document.getElementById('convoBtn').addEventListener('click', () => convoOpen ? closeConvoPanel() : openConvoPanel());
+document.getElementById('convoClose').addEventListener('click', closeConvoPanel);
+
+/* ===================== expand / collapse ===================== */
+const expandBtn = document.getElementById('expandBtn');
+const caption = document.getElementById('caption');
+function setExpanded(v){
+  expanded = v;
+  expandBtn.classList.toggle('active', v);
+  orbMini.classList.toggle('active', v);
+  caption.textContent = v
+    ? 'full graph — click a node to inspect it, or say "go back"'
+    : 'say "jarvis" — ask to see your brain, or open your last conversation';
+}
+expandBtn.addEventListener('click', () => setExpanded(!expanded));
+
+/* ===================== hub + leaf graph (drawn in the CENTER column) ===================== */
+const HUBS = [
+  { key:'skills',       label:'Skills',        color:'#5aa9e6', leaves:9  },
+  { key:'tools',        label:'Tools',         color:'#e85aa0', leaves:6  },
+  { key:'files',        label:'Files',         color:'#7a8c93', leaves:8  },
+  { key:'notes',        label:'Notes',         color:'#52d68a', leaves:7  },
+  { key:'worlds',       label:'Worlds',        color:'#e8934b', leaves:5  },
+  { key:'models',       label:'Models',        color:'#b98be8', leaves:3  },
+  { key:'conversations',label:'Conversations', color:'#ffb454', leaves:0, special:true },
+];
+
+const legendRows = document.getElementById('legendRows');
+HUBS.forEach(h => {
+  const row = document.createElement('div');
+  row.className = 'legend-row';
+  row.innerHTML = `<span class="sw" style="background:${h.color}"></span>${h.label}`;
+  legendRows.appendChild(row);
+});
+
+const canvas = document.getElementById('graphCanvas');
+const ctx = canvas.getContext('2d');
+function sizeCanvas(){
+  const rect = canvas.parentElement.getBoundingClientRect();
+  canvas.width = rect.width * devicePixelRatio;
+  canvas.height = rect.height * devicePixelRatio;
+  canvas.style.width = rect.width + 'px';
+  canvas.style.height = rect.height + 'px';
+  ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);
+}
+window.addEventListener('resize', sizeCanvas);
+
+let angleBase = 0;
+const hubNodes = HUBS.map((h, i) => ({
+  ...h, id:'hub-' + h.key, angle:(i / HUBS.length) * Math.PI * 2, x:0, y:0, isHub:true, leaves:[],
+}));
+hubNodes.forEach(h => {
+  const count = HUBS.find(x => x.key === h.key).leaves;
+  for(let i=0;i<count;i++){
+    h.leaves.push({ id:h.key+'-leaf-'+i, label:h.label+' '+(i+1), color:h.color, angle:Math.random()*Math.PI*2, dist:30+Math.random()*26, x:0, y:0, vx:0, vy:0 });
+  }
+});
+function pulseConvoNode(){ hubNodes.find(h => h.key === 'conversations').pulse = 1; }
+
+function layout(){
+  const w = canvas.clientWidth || 800, h = canvas.clientHeight || 600;
+  const cx = w/2, cy = h/2;
+  const idleR = Math.min(w,h) * 0.085;
+  const expandR = Math.min(w,h) * 0.42;
+  const r = idleR + (expandR - idleR) * expandT;
+
+  hubNodes.forEach(hub => {
+    const a = hub.angle + angleBase * (hub.key === 'conversations' ? 0.6 : 1);
+    hub.x = cx + Math.cos(a) * r;
+    hub.y = cy + Math.sin(a) * r;
+    hub.leaves.forEach(leaf => {
+      const targetX = hub.x + Math.cos(leaf.angle) * leaf.dist * (0.4 + expandT*0.9);
+      const targetY = hub.y + Math.sin(leaf.angle) * leaf.dist * (0.4 + expandT*0.9);
+      leaf.vx += (targetX - leaf.x) * 0.06;
+      leaf.vy += (targetY - leaf.y) * 0.06;
+      leaf.vx *= 0.75; leaf.vy *= 0.75;
+      leaf.x += leaf.vx; leaf.y += leaf.vy;
+    });
+  });
+}
+
+function hexToRgb(hex){ const v = parseInt(hex.slice(1),16); return `${(v>>16)&255},${(v>>8)&255},${v&255}`; }
+
+function draw(){
+  const w = canvas.clientWidth || 800, h = canvas.clientHeight || 600;
+  const cx = w/2, cy = h/2;
+  ctx.clearRect(0,0,w,h);
+
+  // core anchor (clickable — toggles the whole graph open/closed)
+  ctx.beginPath(); ctx.arc(cx,cy, 12, 0, Math.PI*2);
+  ctx.strokeStyle = 'rgba(82,236,227,0.28)'; ctx.lineWidth = 1; ctx.stroke();
+  ctx.beginPath(); ctx.arc(cx,cy, 7, 0, Math.PI*2);
+  ctx.fillStyle = 'rgba(82,236,227,0.95)'; ctx.shadowColor = '#52ece3'; ctx.shadowBlur = 14;
+  ctx.fill(); ctx.shadowBlur = 0;
+
+  hubNodes.forEach(hub => {
+    ctx.strokeStyle = hub.key === 'conversations' ? `rgba(255,180,84,${0.25+expandT*0.25})` : `rgba(82,236,227,${0.1+expandT*0.22})`;
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(hub.x,hub.y); ctx.stroke();
+  });
+
+  if(expandT > 0.04){
+    hubNodes.forEach(hub => hub.leaves.forEach(leaf => {
+      const dim = selected && selected !== hub && selected !== leaf;
+      ctx.strokeStyle = `rgba(${hexToRgb(hub.color)},${(dim?0.05:0.22)*expandT})`;
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(hub.x,hub.y); ctx.lineTo(leaf.x,leaf.y); ctx.stroke();
+    }));
+    hubNodes.forEach(hub => hub.leaves.forEach(leaf => {
+      const dim = selected && selected !== leaf && selected !== hub;
+      ctx.globalAlpha = (dim?0.2:1) * expandT;
+      ctx.beginPath(); ctx.arc(leaf.x, leaf.y, 4, 0, Math.PI*2);
+      ctx.fillStyle = leaf.color; ctx.shadowColor = leaf.color; ctx.shadowBlur = 5;
+      ctx.fill(); ctx.shadowBlur = 0; ctx.globalAlpha = 1;
+    }));
+  }
+
+  hubNodes.forEach(hub => {
+    const dim = selected && selected !== hub;
+    const isConvo = hub.key === 'conversations';
+    const baseR = isConvo ? 8 : 7;
+    hub.pulse = Math.max(0, (hub.pulse||0) - 0.02);
+    const pulseR = baseR + (hub.pulse||0)*10;
+    if(isConvo && hub.pulse > 0){
+      ctx.beginPath(); ctx.arc(hub.x, hub.y, pulseR, 0, Math.PI*2);
+      ctx.strokeStyle = `rgba(255,180,84,${hub.pulse*0.6})`; ctx.lineWidth = 2; ctx.stroke();
+    }
+    ctx.globalAlpha = dim ? 0.3 : 1;
+    ctx.beginPath(); ctx.arc(hub.x, hub.y, baseR, 0, Math.PI*2);
+    ctx.fillStyle = hub.color; ctx.shadowColor = hub.color; ctx.shadowBlur = isConvo?16:10;
+    ctx.fill(); ctx.shadowBlur = 0; ctx.globalAlpha = 1;
+    if(isConvo){
+      ctx.font = '14px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillStyle = '#1a0f00'; ctx.fillText('\uD83D\uDCAC', hub.x, hub.y+0.5);
+      ctx.textAlign='start'; ctx.textBaseline='alphabetic';
+    }
+    if(isConvo || expandT > 0.5){
+      ctx.font = '600 11px Rajdhani, sans-serif';
+      ctx.fillStyle = isConvo ? 'rgba(255,180,84,0.9)' : 'rgba(231,246,244,0.75)';
+      ctx.globalAlpha = isConvo ? 1 : expandT;
+      ctx.fillText(hub.label, hub.x+12, hub.y+4);
+      ctx.globalAlpha = 1;
+    }
+  });
+
+  const leafCount = expandT > 0.3 ? hubNodes.reduce((a,h)=>a+h.leaves.length,0) : 0;
+  document.getElementById('statNodes').textContent = hubNodes.length + leafCount;
+  document.getElementById('statLinks').textContent = hubNodes.length + leafCount;
+}
+
+function loop(){
+  angleBase += 0.0018;
+  expandT += ((expanded?1:0) - expandT) * 0.08;
+  layout();
+  draw();
+  updateAudioReactiveOrb();
+  requestAnimationFrame(loop);
+}
+
+canvas.addEventListener('click', (e) => {
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+  const w = canvas.clientWidth || 800, h = canvas.clientHeight || 600;
+  const cx = w/2, cy = h/2;
+
+  if(Math.hypot(mx-cx, my-cy) < 13){
+    setExpanded(!expanded);
+    setChatFocused(false);
+    selected = null;
+    document.getElementById('inspectorBody').innerHTML = expanded
+      ? 'Full graph — click any node to inspect it, or click the center again to close.'
+      : 'Click any node — the gold one is your conversation history. Everything else is your connected knowledge.';
+    return;
+  }
+
+  let hit = null, best = 20;
+  hubNodes.forEach(hub => { const d = Math.hypot(hub.x-mx, hub.y-my); if(d < best){ hit = hub; best = d; } });
+  if(expandT > 0.3){
+    hubNodes.forEach(hub => hub.leaves.forEach(leaf => { const d = Math.hypot(leaf.x-mx, leaf.y-my); if(d < best){ hit = leaf; best = d; } }));
+  }
+  const body = document.getElementById('inspectorBody');
+  if(hit && hit.key === 'conversations'){
+    selected = hit; openConvoPanel();
+    body.innerHTML = `<div class="node-title">Conversations</div><div class="node-meta">HISTORY</div><div class="node-desc">Every past session lives here. Panel opened on the right — click any entry to reload that transcript.</div>`;
+    return;
+  }
+  if(hit){
+    if(!expanded) setExpanded(true);
+    setChatFocused(false);
+    selected = hit;
+    body.innerHTML = `<div class="node-title">${hit.label}</div><div class="node-meta">${(hit.key||'').toUpperCase()||'NODE'}</div><div class="node-desc">Wire this up to your real note/embedding store — summary, source file, last-updated time.</div>`;
+  } else {
+    selected = null;
+    body.innerHTML = 'Click any node — the gold one is your conversation history. Everything else is your connected knowledge.';
+  }
+});
+
+sizeCanvas();
+loop();
+</script>
+</body>
+</html>

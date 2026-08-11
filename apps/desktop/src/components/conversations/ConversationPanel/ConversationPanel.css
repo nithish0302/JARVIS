@@ -1,0 +1,112 @@
+#convoPanel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 100%;
+  width: 320px;
+  background: rgba(8, 14, 19, 0.94);
+  backdrop-filter: blur(14px);
+  border-left: 1px solid var(--color-line-strong);
+  transform: translateX(100%);
+  transition: transform 0.32s cubic-bezier(0.2, 0.8, 0.2, 1);
+  z-index: 9;
+  display: flex;
+  flex-direction: column;
+}
+
+#convoPanel.open {
+  transform: translateX(0);
+}
+
+.convo-head {
+  padding: 18px 18px 12px;
+  border-bottom: 1px solid var(--color-line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.convo-head h3 {
+  font-family: var(--font-display);
+  font-size: 14px;
+  letter-spacing: 1.5px;
+  color: var(--color-amber);
+  text-transform: uppercase;
+}
+
+.convo-close {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.convo-list {
+  overflow-y: auto;
+  flex: 1;
+  padding: 8px 10px;
+}
+
+.convo-item {
+  padding: 12px;
+  border-radius: 9px;
+  cursor: pointer;
+  margin-bottom: 4px;
+  border: 1px solid transparent;
+}
+
+.convo-item:hover {
+  background: rgba(255, 180, 84, 0.07);
+  border-color: rgba(255, 180, 84, 0.2);
+}
+
+.convo-item .t {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.convo-item .m {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-muted-dim);
+  margin: 2px 0 5px;
+}
+
+.convo-item .s {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.archive-banner {
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(255, 180, 84, 0.09);
+  border: 1px solid rgba(255, 180, 84, 0.28);
+  border-radius: 10px;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-amber);
+}
+
+.archive-banner button {
+  background: rgba(255, 180, 84, 0.15);
+  border: 1px solid rgba(255, 180, 84, 0.35);
+  color: var(--color-amber);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 4px 9px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.archive-banner.show {
+  display: flex;
+}

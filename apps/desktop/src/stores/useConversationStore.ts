@@ -8,6 +8,7 @@ export interface ConversationState {
   isTyping: boolean;
   streamingMessageId: string | null;
   streamingContent: string;
+  streamingSearchQuery: string | null;
   addMessage: (message: Message) => void;
   setTyping: (value: boolean) => void;
   setConversationId: (id: string) => void;
@@ -15,6 +16,8 @@ export interface ConversationState {
   startStreaming: (messageId: string) => void;
   appendStreamToken: (token: string) => void;
   finishStreaming: () => void;
+  setStreamingMeta: (query: string | null) => void;
+  setMessages: (messages: Message[]) => void;
 }
 
 export const useConversationStore = create<ConversationState>((set) => ({
@@ -23,6 +26,7 @@ export const useConversationStore = create<ConversationState>((set) => ({
   isTyping: false,
   streamingMessageId: null,
   streamingContent: "",
+  streamingSearchQuery: null,
   addMessage: (message) => set((state) => ({ messages: [...state.messages, message] })),
   setTyping: (value) => set({ isTyping: value }),
   setConversationId: (id) => {
@@ -36,10 +40,13 @@ export const useConversationStore = create<ConversationState>((set) => ({
       currentConversationId: null, 
       isTyping: false, 
       streamingMessageId: null, 
-      streamingContent: "" 
+      streamingContent: "",
+      streamingSearchQuery: null 
     });
   },
-  startStreaming: (messageId) => set({ streamingMessageId: messageId, streamingContent: "" }),
+  startStreaming: (messageId) => set({ streamingMessageId: messageId, streamingContent: "", streamingSearchQuery: null }),
   appendStreamToken: (token) => set((state) => ({ streamingContent: state.streamingContent + token })),
-  finishStreaming: () => set({ streamingMessageId: null, streamingContent: "" }),
+  finishStreaming: () => set({ streamingMessageId: null, streamingContent: "", streamingSearchQuery: null }),
+  setStreamingMeta: (query) => set({ streamingSearchQuery: query }),
+  setMessages: (messages) => set({ messages }),
 }));

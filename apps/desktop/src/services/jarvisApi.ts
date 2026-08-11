@@ -64,8 +64,19 @@ export async function getConversation(
   return response.json()
 }
 
+export async function getConversations(): Promise<any[]> {
+  const response = await window.fetch(
+    `${JARVIS_ENGINE_URL}/conversations`
+  )
+  if (!response.ok) {
+    throw new Error("Failed to get conversations")
+  }
+  return response.json()
+}
+
 export async function sendMessageStream(
   request: ChatRequest,
+  onMeta: (convId: string, searchQuery: string | null) => void,
   onToken: (token: string) => void,
   onDone: (
     conversationId: string, 
@@ -104,7 +115,12 @@ export async function sendMessageStream(
       for (const line of lines) {
         try {
           const data = JSON.parse(line)
-          if (data.type === "token") {
+          if (data.type === "meta") {
+            onMeta(
+              data.conversation_id || "",
+              data.search_query || null
+            )
+          } else if (data.type === "token") {
             onToken(data.content)
           } else if (data.type === "done") {
             onDone(

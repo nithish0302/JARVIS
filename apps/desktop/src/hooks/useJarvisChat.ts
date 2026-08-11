@@ -9,7 +9,10 @@ export function useJarvisChat() {
     addMessage, 
     setTyping,
     currentConversationId,
-    setConversationId 
+    setConversationId,
+    streamingMessageId,
+    streamingContent,
+    streamingSearchQuery
   } = useConversationStore()
   
   const { 
@@ -47,6 +50,12 @@ export function useJarvisChat() {
           provider,
           model,
         },
+        // onMeta — update streaming search query
+        (_convId, searchQuery) => {
+          if (searchQuery) {
+            useConversationStore.getState().setStreamingMeta(searchQuery)
+          }
+        },
         // onToken — append each word
         (token) => {
           useConversationStore.getState().appendStreamToken(token)
@@ -61,6 +70,7 @@ export function useJarvisChat() {
             id: streamingId,
             role: "assistant",
             content: fullResponse,
+            searchQuery: useConversationStore.getState().streamingSearchQuery || undefined,
             timestamp: new Date().toLocaleTimeString(
               [], { 
                 hour: "2-digit", 
@@ -104,6 +114,9 @@ export function useJarvisChat() {
   return { 
     messages, 
     sendUserMessage,
-    isTyping: useConversationStore(s => s.isTyping)
+    isTyping: useConversationStore(s => s.isTyping),
+    streamingMessageId,
+    streamingContent,
+    streamingSearchQuery
   }
 }

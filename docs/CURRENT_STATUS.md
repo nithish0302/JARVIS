@@ -1,12 +1,12 @@
 # JARVIS Current Status
 
-Last updated: 2026-08-01
+Last updated: 2026-08-11
 
 ## Current phase
 
-Phase 3 - Milestone 1: Web Search
+Phase 3 - Milestone 2: Complete UI Overhaul
 Status: Complete; awaiting review
-Next: Phase 3 - Milestone 2
+Next: Phase 3 - Milestone 3
 
 **Phase 3 - External Integrations**
 
@@ -14,13 +14,13 @@ The project has integrated DuckDuckGo web search capability.
 
 ## Current milestone
 
-**Milestone 1 - Web Search**
+**Milestone 2 - Complete UI Overhaul**
 
 Status: **Complete**
 
-The first milestone of Phase 3 is complete. The jarvis-engine can detect search intent, query DuckDuckGo, and inject real-time web results into the AI context window.
+The second milestone of Phase 3 is complete. The JARVIS desktop UI has been completely overhauled to match the HUD concept design. The layout now utilizes a horizontal layout with a Stage, Dock, Topbar, LeftColumn (Inspector/System), RightColumn (Filter, Orb, Stats), and an interactive GraphCanvas background simulation. Chat functionality and all original state mechanics are preserved within ChatShell and ConversationPanel.
 
-Validation passed: API endpoints responded successfully and tests pass.
+Validation passed: 53 tests run successfully and application builds.
 
 ## Completed milestones
 
@@ -49,17 +49,18 @@ Validation passed: API endpoints responded successfully and tests pass.
 | Phase 2 - Milestone 7: Long Term Memory System                          | Complete                  | Integrated long-term memory system using SQLite, extracting facts, and injecting context into system prompts.                                 |
 | Phase 2 - Milestone 8: Live StatusBar & Settings                        | Complete                  | Enhanced AppShell StatusBar with live state tracking, memory count fetching, and AI Provider settings persistence.                            |
 | Phase 2 - Milestone 9: Conversation Persistence                         | Complete                  | Persisted conversation IDs in local storage, implemented automatic context reloading on startup, and added /conversations endpoint.           |
-| Phase 3 - Milestone 1: Web Search Capability                            | Complete; awaiting review | Integrated DuckDuckGo search for real-time information retrieval and injected search results into AI prompt context.                          |
+| Phase 3 - Milestone 1: Web Search Capability                            | Complete                  | Integrated DuckDuckGo search for real-time information retrieval and injected search results into AI prompt context.                          |
+| Phase 3 - Milestone 2: Complete UI Overhaul                             | Complete; awaiting review | Replaced the original chat-app interface with the complex HUD layout, refined graph physics, and integrated live system stats via Tauri `sysinfo`. |
 
 ## Pending milestone
 
-**Phase 3 - Milestone 1 review**
+**Phase 3 - Milestone 2 review**
 
 Awaiting review. No further implementation milestone should begin until this milestone is accepted.
 
 ## Next planned milestone
 
-The next milestone for Phase 3 will be Milestone 2.
+The next milestone for Phase 3 will be Milestone 3.
 
 ## Current technology stack
 

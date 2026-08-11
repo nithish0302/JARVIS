@@ -1,0 +1,184 @@
+.orb-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 14px 10px 12px;
+}
+
+.orb-mini {
+  position: relative;
+  width: 140px;
+  height: 140px;
+  margin-bottom: 14px;
+}
+
+.ring {
+  position: absolute;
+  border-radius: 50%;
+}
+
+.ring-outer {
+  inset: 0;
+  background: repeating-conic-gradient(var(--color-cyan) 0deg 2.1deg, transparent 2.1deg 8deg);
+  opacity: 0.85;
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 12px), #000 calc(100% - 11px), #000 calc(100% - 1px), transparent 100%);
+  mask: radial-gradient(farthest-side, transparent calc(100% - 12px), #000 calc(100% - 11px), #000 calc(100% - 1px), transparent 100%);
+}
+
+.ring-sweep {
+  inset: 0;
+  background: conic-gradient(from -20deg, transparent 0deg, transparent 245deg, rgba(255, 180, 84, 0.35) 270deg, rgba(255, 180, 84, 0.98) 305deg, rgba(255, 180, 84, 0.98) 330deg, transparent 345deg);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 13px), #000 calc(100% - 12px), #000 calc(100% - 1px), transparent 100%);
+  mask: radial-gradient(farthest-side, transparent calc(100% - 13px), #000 calc(100% - 12px), #000 calc(100% - 1px), transparent 100%);
+  filter: drop-shadow(0 0 5px rgba(255, 180, 84, 0.6));
+  animation: spin 7s linear infinite;
+}
+
+.ring-ticks {
+  inset: 26px;
+  background: repeating-conic-gradient(var(--color-line-strong) 0deg 1deg, transparent 1deg 7deg);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
+  animation: spin 70s linear infinite;
+}
+
+.ring-sweep-inner {
+  inset: 26px;
+  animation: spin 4.2s linear infinite;
+}
+
+.ring-sweep-inner::after {
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: 50%;
+  width: 2px;
+  height: 8px;
+  margin-left: -1px;
+  background: var(--color-amber);
+  box-shadow: 0 0 6px var(--color-amber), 0 0 10px var(--color-amber);
+  border-radius: 2px;
+}
+
+.ring-sweep-inner::before {
+  content: "";
+  position: absolute;
+  bottom: 6px;
+  left: 14%;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--color-amber);
+  box-shadow: 0 0 5px var(--color-amber);
+}
+
+.core-glow {
+  position: absolute;
+  inset: 38px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(82, 236, 227, 0.35) 0%, rgba(82, 236, 227, 0.08) 45%, transparent 72%);
+  filter: blur(2px);
+  animation: breathe 3.2s ease-in-out infinite;
+}
+
+.core {
+  position: absolute;
+  inset: 46px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 28%, #123734 0%, #0c2926 55%, #071916 100%);
+  border: 1px solid rgba(82, 236, 227, 0.55);
+  box-shadow: 0 0 26px rgba(82, 236, 227, 0.4), inset 0 0 20px rgba(0, 0, 0, 0.5);
+  animation: breathe 3.2s ease-in-out infinite;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.core-text {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 1.2px;
+  color: #eafffb;
+  text-shadow: 0 0 8px rgba(82, 236, 227, 0.7);
+  text-align: center;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes breathe {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+}
+
+.orb-mini.active .ring-outer {
+  opacity: 1;
+}
+
+.core.audio-live,
+.core-glow.audio-live {
+  animation: none;
+}
+
+.orb-status-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.orb-status-row .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-cyan);
+  box-shadow: 0 0 6px var(--color-cyan);
+}
+
+.orb-status {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: 3px;
+  font-size: 12px;
+  color: var(--color-cyan);
+  text-transform: uppercase;
+}
+
+.orb-status-row.listening .dot {
+  background: #39e08a;
+  box-shadow: 0 0 6px #39e08a;
+}
+
+.orb-status-row.listening .orb-status {
+  color: #39e08a;
+}
+
+.orb-status-row.speaking .dot {
+  background: var(--color-amber);
+  box-shadow: 0 0 6px var(--color-amber);
+}
+
+.orb-status-row.speaking .orb-status {
+  color: var(--color-amber);
+}
+
+.orb-caption {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-muted-dim);
+  margin-top: 5px;
+}
+
+.orb-sub {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-muted-dim);
+  margin-top: 3px;
+}

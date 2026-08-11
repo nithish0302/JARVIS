@@ -6,8 +6,17 @@
 
 :root {
   /* Colors */
-  --color-background: #05080f;
+  --color-background: #04070a;
   --color-background-secondary: #0b1220;
+  --color-cyan: #52ece3;
+  --color-amber: #ffb454;
+  --color-panel: rgba(11,20,27,0.68);
+  --color-panel-solid: #0b141b;
+  --color-line: rgba(88,232,224,0.16);
+  --color-line-strong: rgba(88,232,224,0.32);
+  --color-muted-dim: #435357;
+  --text: #e7f6f4;
+  --muted: #6f8d92;
   --color-surface: #111827;
   --color-surface-raised: var(--color-surface);
   --color-accent: #00d4ff;
@@ -26,6 +35,8 @@
   /* Typography */
   --font-family-sans: Inter, system-ui, sans-serif;
   --font-family-mono: SFMono-Regular, Consolas, Liberation Mono, monospace;
+  --font-display: 'Rajdhani', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
   --font-size-caption: 0.75rem;
   --font-size-sm: 0.875rem;
   --font-size-body: 1rem;
