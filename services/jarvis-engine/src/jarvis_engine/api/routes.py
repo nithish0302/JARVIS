@@ -56,6 +56,46 @@ Personality:
 You are not a generic chatbot. You are JARVIS — 
 act like it."""
 
+UI_ACTION_INSTRUCTION = """
+You can control the JARVIS interface by including
+special action tags in your response.
+
+Available UI actions:
+[UI_ACTION:chat_mode_on] - Switch to full chat mode
+[UI_ACTION:chat_mode_off] - Switch back to graph mode
+[UI_ACTION:graph_expand] - Expand graph to Level 1
+[UI_ACTION:graph_collapse] - Collapse graph to Level 0
+[UI_ACTION:graph_open_hub:Skills] - Open Skills hub
+[UI_ACTION:graph_open_hub:Tools] - Open Tools hub
+[UI_ACTION:graph_open_hub:Files] - Open Files hub
+[UI_ACTION:graph_open_hub:Notes] - Open Notes hub
+[UI_ACTION:graph_open_hub:Models] - Open Models hub
+[UI_ACTION:graph_open_hub:Conversations] - Open Conversations
+[UI_ACTION:conversations_open] - Open conversation panel
+[UI_ACTION:conversations_close] - Close conversation panel
+
+Rules:
+- Only use actions when user explicitly requests them
+- Put action tags at the END of your response
+- Never show the raw tag text to the user
+- Multiple actions can be included if needed
+- Example: "Opening skills now. [UI_ACTION:graph_open_hub:Skills]"
+"""
+
+JARVIS_SYSTEM_PROMPT += "\n" + UI_ACTION_INSTRUCTION
+
+SEARCH_STRICT_INSTRUCTION = """
+When web search results are provided:
+- Use ONLY information from the search results
+- Do NOT add facts from your training data
+- Do NOT invent statistics, numbers, or dates
+- If the search results don't contain specific
+  data (like subscriber counts), say:
+  "I found [X] but couldn't confirm [Y]"
+- Always be honest about uncertainty
+- Cite which source the information came from
+"""
+
 @router.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest):
     conversation_id_exists = request.conversation_id is not None
@@ -69,16 +109,22 @@ async def chat_endpoint(request: ChatRequest):
         memory_context = "\n\nRelevant memories about Nithish:\n" + "\n".join(memory_lines)
     
     # Create system message
+    search_performed = False
+    search_query_used = ""
+    search_sources = []
     search_context = ""
-    search_query = None
+    
     if needs_web_search(request.message):
-        search_query = extract_search_query(request.message)
-        search_results = await search_web(search_query, max_results=4)
+        search_query_used = extract_search_query(request.message)
+        search_results = await search_web(search_query_used, max_results=4)
         if search_results:
-            search_context = f"\n\nReal-time web search results for '{search_query}':\n"
+            search_performed = True
+            search_sources = search_results
+            search_context = f"\n\nReal-time web search results for '{search_query_used}':\n"
             for i, r in enumerate(search_results, 1):
                 search_context += f"\n{i}. {r['title']}\n   {r['snippet']}\n   Source: {r['url']}\n"
             search_context += "\nUse these results to answer accurately. Always cite your sources."
+            search_context += SEARCH_STRICT_INSTRUCTION
             
     system_message = Message(
         role="system",
@@ -131,113 +177,171 @@ async def chat_endpoint(request: ChatRequest):
         conversation_id=conversation_id,
         provider_used=provider_used,
         model_used=model_used,
-        search_query=search_query
+        search_performed=search_performed,
+        search_query=search_query_used,
+        sources=search_sources
     )
 
 @router.post("/chat/stream")
 async def chat_stream_endpoint(
   request: ChatRequest
 ):
-  conversation_id = (
-    request.conversation_id or str(uuid.uuid4())
-  )
-  
-  # Get relevant memories
-  relevant_memories = await memory_manager.get_relevant_memories(request.message, limit=5)
-  memory_context = ""
-  if relevant_memories:
-      memory_lines = [f"- {m['content']}" for m in relevant_memories]
-      memory_context = "\n\nRelevant memories about Nithish:\n" + "\n".join(memory_lines)
-
-  search_context = ""
-  search_query = None
-  if needs_web_search(request.message):
-      search_query = extract_search_query(request.message)
-      search_results = await search_web(search_query, max_results=4)
-      if search_results:
-          search_context = f"\n\nReal-time web search results for '{search_query}':\n"
-          for i, r in enumerate(search_results, 1):
-              search_context += f"\n{i}. {r['title']}\n   {r['snippet']}\n   Source: {r['url']}\n"
-          search_context += "\nUse these results to answer accurately. Always cite your sources."
-
-  system_message = Message(
-    role="system",
-    content=JARVIS_SYSTEM_PROMPT + memory_context + search_context,
-    timestamp=""
-  )
-  
-  history = []
-  if request.conversation_id:
-    history = await get_conversation_messages(
-      conversation_id
+  try:
+    print(f"Stream request: {request.message[:50]}")
+    conversation_id = (
+      request.conversation_id or str(uuid.uuid4())
     )
-  
-  new_user_message = Message(
-    role="user",
-    content=request.message,
-    timestamp=""
-  )
-  
-  full_messages = (
-    [system_message] + history + [new_user_message]
-  )
-  
-  await save_message(
-    conversation_id=conversation_id,
-    role="user",
-    content=request.message
-  )
-  
-  full_response = []
-  
-  async def generate():
-    nonlocal full_response
     
-    # Send conversation_id first as metadata
-    yield json_module.dumps({
-      "type": "meta",
-      "conversation_id": conversation_id,
-      "search_query": search_query
-    }) + "\n"
+    # Get relevant memories
+    relevant_memories = await memory_manager.get_relevant_memories(request.message, limit=5)
+    memory_context = ""
+    if relevant_memories:
+        memory_lines = [f"- {m['content']}" for m in relevant_memories]
+        memory_context = "\n\nRelevant memories about Nithish:\n" + "\n".join(memory_lines)
+
+    search_performed = False
+    search_query_used = ""
+    search_sources = []
+    search_context = ""
     
-    # Stream tokens from Ollama
-    async for token in (
-      provider_manager.providers[0].stream(
-        full_messages
+    if needs_web_search(request.message):
+        search_query_used = extract_search_query(request.message)
+        search_results = await search_web(search_query_used, max_results=4)
+        if search_results:
+            search_performed = True
+            search_sources = search_results
+            search_context = f"\n\nReal-time web search results for '{search_query_used}':\n"
+            for i, r in enumerate(search_results, 1):
+                search_context += f"\n{i}. {r['title']}\n   {r['snippet']}\n   Source: {r['url']}\n"
+            search_context += "\nUse these results to answer accurately. Always cite your sources."
+            search_context += SEARCH_STRICT_INSTRUCTION
+
+    system_message = Message(
+      role="system",
+      content=JARVIS_SYSTEM_PROMPT + memory_context + search_context,
+      timestamp=""
+    )
+    
+    history = []
+    if request.conversation_id:
+      history = await get_conversation_messages(
+        conversation_id
       )
-    ):
-      full_response.append(token)
-      yield json_module.dumps({
-        "type": "token",
-        "content": token
-      }) + "\n"
     
-    # Send done signal
-    complete_response = "".join(full_response)
+    new_user_message = Message(
+      role="user",
+      content=request.message,
+      timestamp=""
+    )
+    
+    full_messages = (
+      [system_message] + history + [new_user_message]
+    )
+    
     await save_message(
       conversation_id=conversation_id,
-      role="assistant",
-      content=complete_response,
-      provider_used="ollama",
-      model_used=provider_manager.providers[0].model
+      role="user",
+      content=request.message
     )
     
-    # Extract and save memories from user message
-    await memory_manager.extract_and_save_memories(
-        request.message,
-        conversation_id
+    async def generate():
+      try:
+        # Send meta chunk first
+        try:
+          yield json_module.dumps({
+            "type": "meta",
+            "conversation_id": conversation_id,
+            "search_performed": search_performed,
+            "search_query": search_query_used,
+            "sources": [
+              {
+                "title": str(s.get("title", "")),
+                "url": str(s.get("url", "")),
+                "snippet": str(s.get("snippet", "")[:200]),
+                "source": str(s.get("source", ""))
+              }
+              for s in (search_sources or [])
+            ]
+          }) + "\n"
+        except Exception as meta_err:
+          print(f"Meta chunk error: {meta_err}")
+          yield json_module.dumps({
+            "type": "meta",
+            "conversation_id": conversation_id,
+            "search_performed": False,
+            "search_query": "",
+            "sources": []
+          }) + "\n"
+
+        # Stream tokens from Ollama
+        full_response_parts = []
+        try:
+          async for token in (
+            provider_manager.providers[0].stream(
+              full_messages
+            )
+          ):
+            full_response_parts.append(token)
+            yield json_module.dumps({
+              "type": "token",
+              "content": token
+            }) + "\n"
+        except Exception as stream_err:
+          print(f"Stream token error: {stream_err}")
+          # If streaming fails midway, yield what we have
+
+        # Save complete response
+        complete_response = "".join(full_response_parts)
+        
+        if complete_response:
+          try:
+            await save_message(
+              conversation_id=conversation_id,
+              role="assistant",
+              content=complete_response,
+              provider_used="ollama",
+              model_used=provider_manager.providers[0].model
+            )
+          except Exception as save_err:
+            print(f"Save message error: {save_err}")
+
+          # Extract memories (non-blocking)
+          try:
+            await memory_manager.extract_and_save_memories(
+              request.message,
+              conversation_id
+            )
+          except Exception as mem_err:
+            print(f"Memory extraction error: {mem_err}")
+
+        # Send done chunk
+        yield json_module.dumps({
+          "type": "done",
+          "conversation_id": conversation_id,
+          "full_response": complete_response
+        }) + "\n"
+
+      except Exception as fatal_err:
+        print(f"FATAL stream error: {fatal_err}")
+        import traceback
+        traceback.print_exc()
+        try:
+          yield json_module.dumps({
+            "type": "error",
+            "message": str(fatal_err)
+          }) + "\n"
+        except:
+          pass
+    
+    return StreamingResponse(
+      generate(),
+      media_type="application/x-ndjson"
     )
-    yield json_module.dumps({
-      "type": "done",
-      "conversation_id": conversation_id,
-      "full_response": complete_response,
-      "search_query": search_query
-    }) + "\n"
-  
-  return StreamingResponse(
-    generate(),
-    media_type="application/x-ndjson"
-  )
+  except Exception as setup_err:
+    print(f"Stream setup error: {setup_err}")
+    import traceback
+    traceback.print_exc()
+    raise
 
 @router.get("/health", response_model=HealthResponse)
 async def health_endpoint():

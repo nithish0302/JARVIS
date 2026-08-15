@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { ChatComposer } from "./ChatComposer";
@@ -37,9 +37,9 @@ describe("ChatComposer", () => {
     const textarea = screen.getByRole("textbox", { name: "Message" });
 
     const longText = "a".repeat(501);
-    await userEvent.type(textarea, longText, { delay: null });
+    fireEvent.change(textarea, { target: { value: longText } });
 
-    const count = screen.getByText("501 / 500");
+    const count = await screen.findByText("501 / 500");
     expect(count).toBeInTheDocument();
   });
 });

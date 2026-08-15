@@ -5,7 +5,7 @@ import { cn } from "../../../lib/cn";
 import { invoke } from "@tauri-apps/api/core";
 
 export function LeftColumn() {
-  const { graphOpen, activeHub } = useAppStore();
+  const { graphOpen, activeHub, chatMode, setChatMode, inspectorMessage } = useAppStore();
 
   const [cpuUsage, setCpuUsage] = useState(0);
   const [cpuName, setCpuName] = useState("Unknown CPU");
@@ -80,7 +80,7 @@ export function LeftColumn() {
   };
 
   return (
-    <div className="side-col max-lg:hidden">
+    <div className="side-col shrink-0 overflow-y-auto right-col-scroll pb-5 flex flex-col h-full gap-[14px]">
       <div className={cn("panel", activeHub ? "flex-[0_0_auto]" : "flex-[0_0_auto]")} id="inspector">
         <h3 className="flex items-center justify-between">
           Inspector
@@ -90,6 +90,10 @@ export function LeftColumn() {
         </h3>
         {activeHub ? (
           renderInspectorContent()
+        ) : inspectorMessage ? (
+          <div className="text-[11px] text-[var(--color-cyan)] mt-1 font-mono uppercase">
+            ● {inspectorMessage}
+          </div>
         ) : (
           <div className="text-[11px] text-[rgba(231,246,244,0.4)] mt-1 font-mono uppercase">
             INSPECTOR — click a node
@@ -152,6 +156,23 @@ export function LeftColumn() {
             </div>
           ))}
         </div>
+      </div>
+
+      <div className="mt-auto">
+        <button
+          className={cn("w-full h-8 rounded-lg border text-[11px] font-mono tracking-widest uppercase transition-colors flex items-center justify-center gap-2 shadow-[0_4px_12px_rgba(0,0,0,0.2)]", 
+            chatMode 
+              ? "bg-[rgba(82,236,227,0.15)] border-[rgba(82,236,227,0.3)] text-[var(--cyan)]" 
+              : "bg-[var(--color-panel-solid)] border-[var(--color-line)] text-[var(--color-muted)] hover:border-[var(--color-line-strong)] hover:text-white"
+          )}
+          onClick={() => setChatMode(!chatMode)}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" className="w-3.5 h-3.5">
+            <path d="M4 5h16v11H8l-4 4V5Z" />
+            <path d="M8 9h8M8 12h5" />
+          </svg>
+          Chat Mode
+        </button>
       </div>
     </div>
   );

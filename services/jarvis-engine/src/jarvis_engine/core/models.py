@@ -17,7 +17,9 @@ class ChatResponse(BaseModel):
     conversation_id: str
     provider_used: str
     model_used: str
-    search_query: str | None = None
+    search_performed: bool = False
+    search_query: str = ""
+    sources: list[dict] = []
 
 class ProviderStatus(BaseModel):
     name: str

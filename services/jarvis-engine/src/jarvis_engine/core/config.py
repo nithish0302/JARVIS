@@ -7,6 +7,9 @@ class Settings(BaseSettings):
     OLLAMA_MODEL: str = "llama3.2:3b"
     OPENROUTER_API_KEY: str = ""
     OPENROUTER_MODEL: str = "google/gemma-4-27b-it:free"
+    TAVILY_API_KEY: str = ""
+    TAVILY_MAX_RESULTS: int = 5
+    SEARCH_PROVIDER: str = "tavily"
     DB_PATH: str = "data/jarvis.db"
     VERSION: str = "0.1.0"
 

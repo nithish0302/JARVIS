@@ -60,6 +60,7 @@ pub fn run() {
     let sys = System::new_all();
     
     tauri::Builder::default()
+        .plugin(tauri_plugin_shell::init())
         .manage(SysState(Mutex::new(sys)))
         .invoke_handler(tauri::generate_handler![get_system_info])
         .run(tauri::generate_context!())

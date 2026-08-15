@@ -45,7 +45,9 @@ export const useConversationStore = create<ConversationState>((set) => ({
     });
   },
   startStreaming: (messageId) => set({ streamingMessageId: messageId, streamingContent: "", streamingSearchQuery: null }),
-  appendStreamToken: (token) => set((state) => ({ streamingContent: state.streamingContent + token })),
+  appendStreamToken: (token) => set((state) => ({ 
+    streamingContent: (state.streamingContent + token).replace(/\[UI_ACTION:[^\]]*\]/g, "")
+  })),
   finishStreaming: () => set({ streamingMessageId: null, streamingContent: "", streamingSearchQuery: null }),
   setStreamingMeta: (query) => set({ streamingSearchQuery: query }),
   setMessages: (messages) => set({ messages }),

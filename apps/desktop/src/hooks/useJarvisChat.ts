@@ -1,7 +1,10 @@
+import { useRef } from "react"
 import { useConversationStore } from "../stores/useConversationStore"
 import { useAIStore } from "../stores/useAIStore"
 import { sendMessageStream } from "../services/jarvisApi"
 import type { Message } from "../types/chat.types"
+import { parseUIActions } from "../utils/uiActionParser"
+import { executeUIActions } from "../utils/uiActionExecutor"
 
 export function useJarvisChat() {
   const { 
@@ -21,6 +24,16 @@ export function useJarvisChat() {
     setStatus, 
     setError 
   } = useAIStore()
+  
+  const searchMetaRef = useRef<{
+    searchPerformed: boolean,
+    searchQuery: string,
+    sources: any[]
+  }>({
+    searchPerformed: false,
+    searchQuery: "",
+    sources: []
+  })
 
   const sendUserMessage = async (text: string) => {
     if (!text.trim()) return
@@ -51,9 +64,14 @@ export function useJarvisChat() {
           model,
         },
         // onMeta — update streaming search query
-        (_convId, searchQuery) => {
-          if (searchQuery) {
-            useConversationStore.getState().setStreamingMeta(searchQuery)
+        (meta) => {
+          searchMetaRef.current = {
+            searchPerformed: meta.searchPerformed,
+            searchQuery: meta.searchQuery,
+            sources: meta.sources
+          }
+          if (meta.searchQuery) {
+            useConversationStore.getState().setStreamingMeta(meta.searchQuery)
           }
         },
         // onToken — append each word
@@ -62,49 +80,113 @@ export function useJarvisChat() {
         },
         // onDone — add complete message
         (convId, fullResponse) => {
-          useConversationStore.getState().finishStreaming()
-          if (!currentConversationId) {
-            setConversationId(convId)
+          try {
+            useConversationStore.getState().finishStreaming()
+            
+            if (!currentConversationId && convId) {
+              setConversationId(convId)
+            }
+            
+            // Safely get search meta with fallbacks
+            const meta = searchMetaRef.current || {
+              searchPerformed: false,
+              searchQuery: "",
+              sources: []
+            }
+            
+            // Parse UI actions
+            const { cleanText, actions } = parseUIActions(fullResponse || "")
+            
+            // Build assistant message safely
+            const assistantMessage: Message = {
+              id: streamingId,
+              role: "assistant" as const,
+              content: cleanText,
+              timestamp: new Date().toLocaleTimeString(
+                [], { hour: "2-digit", minute: "2-digit" }
+              ),
+              searchPerformed: meta.searchPerformed === true,
+              searchQuery: meta.searchQuery || "",
+              sources: Array.isArray(meta.sources) 
+                ? meta.sources.map(s => ({
+                    title: String(s?.title || ""),
+                    url: String(s?.url || ""),
+                    snippet: String(s?.snippet || ""),
+                    source: String(s?.source || "")
+                  }))
+                : [],
+            }
+            
+            addMessage(assistantMessage)
+            setStatus("idle")
+            setTyping(false)
+            
+            // Execute actions after a short delay so the message renders first
+            if (actions.length > 0) {
+              setTimeout(() => {
+                executeUIActions(actions)
+              }, 500)
+            }
+            
+            // Reset search meta for next message
+            searchMetaRef.current = {
+              searchPerformed: false,
+              searchQuery: "",
+              sources: []
+            }
+            
+          } catch (error) {
+            console.error("onDone error:", error)
+            // Even if onDone fails, show the response
+            const fallbackMessage: Message = {
+              id: streamingId,
+              role: "assistant" as const,
+              content: fullResponse || 
+                "Response received but display failed.",
+              timestamp: new Date().toLocaleTimeString(
+                [], { hour: "2-digit", minute: "2-digit" }
+              ),
+            }
+            addMessage(fallbackMessage)
+            setStatus("idle")
+            setTyping(false)
           }
-          const assistantMessage: Message = {
-            id: streamingId,
-            role: "assistant",
-            content: fullResponse,
-            searchQuery: useConversationStore.getState().streamingSearchQuery || undefined,
-            timestamp: new Date().toLocaleTimeString(
-              [], { 
-                hour: "2-digit", 
-                minute: "2-digit" 
-              }
-            ),
-          }
-          addMessage(assistantMessage)
-          setStatus("idle")
-          setTyping(false)
         },
         // onError
-        (error) => {
-          useConversationStore.getState().finishStreaming()
-          const errorMessage: Message = {
-            id: window.crypto.randomUUID(),
-            role: "assistant",
-            content:
-              "I apologize, I encountered an error. " +
-              "Please try again.",
-            timestamp: new Date().toLocaleTimeString(
-              [], { 
-                hour: "2-digit", 
-                minute: "2-digit" 
+        (error: string) => {
+          try {
+            useConversationStore.getState().finishStreaming()
+            
+            // Only add error message if we have no
+            // streaming content yet
+            const currentContent = useConversationStore.getState().streamingContent
+            if (!currentContent || 
+                currentContent.trim().length === 0) {
+              const errorMessage: Message = {
+                id: window.crypto.randomUUID(),
+                role: "assistant" as const,
+                content:
+                  "I apologize, I am unable to connect. " +
+                  "Please ensure the JARVIS engine is running.",
+                timestamp: new Date().toLocaleTimeString(
+                  [], { hour: "2-digit", minute: "2-digit" }
+                ),
               }
-            ),
+              addMessage(errorMessage)
+            }
+            
+            setStatus("error")
+            setError(error)
+            setTyping(false)
+          } catch (e) {
+            console.error("onError handler failed:", e)
+            setStatus("error")
+            setTyping(false)
           }
-          addMessage(errorMessage)
-          setStatus("error")
-          setError(error)
-          setTyping(false)
         }
       )
-    } catch {
+    } catch (error) {
+      console.error("sendUserMessage failed:", error)
       useConversationStore.getState().finishStreaming()
       setStatus("error")
       setTyping(false)

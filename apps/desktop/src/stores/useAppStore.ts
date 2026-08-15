@@ -9,11 +9,19 @@ export interface AppState {
   activeHub: string | null;
   conversationPanelOpen: boolean;
   chatMode: boolean;
+  graphLevel: 0 | 1 | 2;
+  actionFeedback: string;
+  actionFeedbackVisible: boolean;
+  inspectorMessage: string;
   setGraphOpen: (open: boolean) => void;
   setGraphFocused: (focused: boolean) => void;
   setActiveHub: (hub: string | null) => void;
   setConversationPanelOpen: (open: boolean) => void;
   setChatMode: (enabled: boolean) => void;
+  setGraphLevel: (level: 0 | 1 | 2) => void;
+  showActionFeedback: (message: string) => void;
+  clearActionFeedback: () => void;
+  setInspectorMessage: (msg: string) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -24,9 +32,27 @@ export const useAppStore = create<AppState>((set) => ({
   activeHub: null,
   conversationPanelOpen: false,
   chatMode: false,
+  graphLevel: 1,
+  actionFeedback: "",
+  actionFeedbackVisible: false,
+  inspectorMessage: "",
   setGraphOpen: (open) => set({ graphOpen: open }),
   setGraphFocused: (focused) => set({ graphFocused: focused }),
   setActiveHub: (hub) => set({ activeHub: hub }),
   setConversationPanelOpen: (open) => set({ conversationPanelOpen: open }),
   setChatMode: (enabled) => set({ chatMode: enabled }),
+  setGraphLevel: (level) => set({ graphLevel: level }),
+  showActionFeedback: (message) => {
+    set({ actionFeedback: message, actionFeedbackVisible: true });
+    setTimeout(() => {
+      set({ actionFeedback: "", actionFeedbackVisible: false });
+    }, 5000);
+  },
+  clearActionFeedback: () => set({ actionFeedback: "", actionFeedbackVisible: false }),
+  setInspectorMessage: (msg) => {
+    set({ inspectorMessage: msg });
+    setTimeout(() => {
+      set((state) => (state.inspectorMessage === msg ? { inspectorMessage: "" } : state));
+    }, 3000);
+  }
 }));

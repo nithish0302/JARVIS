@@ -2,7 +2,7 @@ import { cn } from "../../../lib/cn";
 
 export interface MessageAvatarProps {
   className?: string;
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "system";
 }
 
 export function MessageAvatar({ className, role }: MessageAvatarProps) {

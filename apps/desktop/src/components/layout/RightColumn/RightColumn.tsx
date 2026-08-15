@@ -1,5 +1,6 @@
 import "../../../styles/Panels.css";
 import { Orb } from "../../orb/Orb/Orb";
+import { cn } from "../../../lib/cn";
 
 const HUBS = [
   { key: "skills", label: "Skills", color: "#5aa9e6", leaves: 9 },
@@ -16,14 +17,14 @@ export function RightColumn() {
   const totalNodes = HUBS.length + HUBS.reduce((acc, h) => acc + h.leaves, 0);
 
   return (
-    <div className="side-col max-lg:hidden overflow-y-auto pb-5 flex flex-col h-full gap-[14px]">
-      <div className="panel flex-shrink-0 !p-[10px_14px]">
-        <h3>Filter</h3>
-        <div>
+    <div className="side-col shrink-0 flex flex-col h-full justify-between pb-3">
+      <div className="panel flex-shrink min-h-0 flex flex-col !p-[10px_14px]">
+        <h3 className="shrink-0">Filter</h3>
+        <div className="overflow-y-auto no-scrollbar flex-1 grid grid-cols-2 gap-x-1 gap-y-[2px]">
           {HUBS.map((h) => (
-            <div className="legend-row !py-[2px]" key={h.key}>
-              <span className="sw" style={{ background: h.color }}></span>
-              {h.label}
+            <div className={cn("legend-row !py-[2px] pr-1 text-[11px]", h.key === "conversations" && "col-span-2")} key={h.key} title={h.label}>
+              <span className="sw flex-shrink-0" style={{ background: h.color }}></span>
+              <span className="truncate">{h.label}</span>
             </div>
           ))}
         </div>

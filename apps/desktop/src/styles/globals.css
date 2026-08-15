@@ -92,3 +92,22 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+.right-col-scroll::-webkit-scrollbar {
+  width: 3px;
+}
+.right-col-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+.right-col-scroll::-webkit-scrollbar-thumb {
+  background: rgba(82,236,227,0.2);
+  border-radius: 2px;
+}

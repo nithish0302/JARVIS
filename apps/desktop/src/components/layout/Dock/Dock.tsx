@@ -11,8 +11,6 @@ export function Dock() {
     setConversationPanelOpen,
     view,
     setView,
-    chatMode,
-    setChatMode,
   } = useAppStore();
 
   const [listening, setListening] = useState(false);
@@ -40,35 +38,28 @@ export function Dock() {
         onClick={() => setConversationPanelOpen(true)}
       >
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
-          <path d="M4 5h16v11H8l-4 4V5Z" />
-          <path d="M8 9h8M8 12h5" />
+          <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
+          <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path>
+          <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>
         </svg>
       </button>
-      <button
-        className={cn("dock-btn", chatMode && "active")}
-        title="Toggle Chat Mode"
-        onClick={() => setChatMode(!chatMode)}
-      >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
-          <path d="M4 5h16v11H8l-4 4V5Z" />
-          <path d="M8 9h8M8 12h5" />
-        </svg>
-      </button>
+      
       <button
         className={cn("dock-btn", view === "settings" && "active")}
         title="Settings"
         onClick={() => setView(view === "settings" ? "chat" : "settings")}
       >
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
-          <circle cx="12" cy="12" r="2.6" />
-          <path d="M12 3v2.4M12 18.6V21M21 12h-2.4M5.4 12H3M18 6l-1.6 1.6M7.6 16.4 6 18M18 18l-1.6-1.6M7.6 7.6 6 6" />
+          <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1Z"/>
         </svg>
       </button>
-      <div className="dock-spacer"></div>
+
       <button
         className={cn("dock-mic", listening && "live")}
         title="Toggle listening"
         onClick={() => setListening(!listening)}
+        style={{ position: 'absolute', bottom: '275px' }}
       >
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
           <rect x="9" y="3" width="6" height="11" rx="3" />

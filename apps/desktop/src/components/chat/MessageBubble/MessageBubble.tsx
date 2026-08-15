@@ -5,7 +5,7 @@ import { MessageAvatar } from "../MessageAvatar/MessageAvatar";
 export interface MessageBubbleProps {
   className?: string;
   content: string;
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "system";
   timestamp: string;
 }
 

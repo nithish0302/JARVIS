@@ -4,9 +4,9 @@ Last updated: 2026-08-11
 
 ## Current phase
 
-Phase 3 - Milestone 2: Complete UI Overhaul
-Status: Complete; awaiting review
-Next: Phase 3 - Milestone 3
+Phase 3 - Milestone 4: [UI_ACTION] Protocol
+Status: Complete
+Next: Phase 3 - Milestone 5
 
 **Phase 3 - External Integrations**
 
@@ -14,13 +14,13 @@ The project has integrated DuckDuckGo web search capability.
 
 ## Current milestone
 
-**Milestone 2 - Complete UI Overhaul**
+**Milestone 4 - [UI_ACTION] Protocol**
 
 Status: **Complete**
 
-The second milestone of Phase 3 is complete. The JARVIS desktop UI has been completely overhauled to match the HUD concept design. The layout now utilizes a horizontal layout with a Stage, Dock, Topbar, LeftColumn (Inspector/System), RightColumn (Filter, Orb, Stats), and an interactive GraphCanvas background simulation. Chat functionality and all original state mechanics are preserved within ChatShell and ConversationPanel.
+The fourth milestone of Phase 3 is complete. The JARVIS system now supports the `[UI_ACTION]` protocol, allowing the AI model to directly control the desktop application's UI by emitting special command tags (e.g., `[UI_ACTION:chat_mode_on]`). The frontend robustly parses and strips these tags during both streaming and completion phases so they are never visible to the user. An executor utility securely translates these actions into Zustand state updates, enabling JARVIS to expand the graph, navigate into specific data hubs (Skills, Tools, etc.), and toggle the conversation panel automatically. We also added UI feedback components that display floating text near the orb and log to the inspector when actions execute, supporting future voice features.
 
-Validation passed: 53 tests run successfully and application builds.
+Validation passed: parser tests succeed and the frontend and backend interact as expected.
 
 ## Completed milestones
 
@@ -50,17 +50,14 @@ Validation passed: 53 tests run successfully and application builds.
 | Phase 2 - Milestone 8: Live StatusBar & Settings                        | Complete                  | Enhanced AppShell StatusBar with live state tracking, memory count fetching, and AI Provider settings persistence.                            |
 | Phase 2 - Milestone 9: Conversation Persistence                         | Complete                  | Persisted conversation IDs in local storage, implemented automatic context reloading on startup, and added /conversations endpoint.           |
 | Phase 3 - Milestone 1: Web Search Capability                            | Complete                  | Integrated DuckDuckGo search for real-time information retrieval and injected search results into AI prompt context.                          |
-| Phase 3 - Milestone 2: Complete UI Overhaul                             | Complete; awaiting review | Replaced the original chat-app interface with the complex HUD layout, refined graph physics, and integrated live system stats via Tauri `sysinfo`. |
+| Phase 3 - Milestone 2: Complete UI Overhaul                             | Complete                  | Replaced the original chat-app interface with the complex HUD layout, refined graph physics, and integrated live system stats via Tauri `sysinfo`. |
+| Phase 3 - Milestone 3: Tavily Search + Sources UI                       | Complete                  | Migrated to Tavily Search API and integrated `SearchBadge` and `SourcesList` HUD UI to display live search context and clickable source citations. |
 
-## Pending milestone
+| Phase 3 - Milestone 4: [UI_ACTION] Protocol                   | Complete                  | Introduced the UI Action protocol, letting JARVIS command the React frontend (opening hubs, switching views) via invisible tags safely parsed from its streaming responses. |
 
-**Phase 3 - Milestone 2 review**
+**Phase 3 - Milestone 5**
 
-Awaiting review. No further implementation milestone should begin until this milestone is accepted.
-
-## Next planned milestone
-
-The next milestone for Phase 3 will be Milestone 3.
+The next milestone for Phase 3 will be Milestone 5.
 
 ## Current technology stack
 

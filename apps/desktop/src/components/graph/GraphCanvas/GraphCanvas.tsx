@@ -34,8 +34,11 @@ export function GraphCanvas() {
     setGraphOpen,
     graphFocused,
     setGraphFocused,
+    activeHub,
     setActiveHub,
     setConversationPanelOpen,
+    graphLevel,
+    setGraphLevel,
   } = useAppStore();
 
   const [showCaption, setShowCaption] = useState(true);
@@ -49,6 +52,8 @@ export function GraphCanvas() {
       setShowCaption(true);
     }
   }, [graphOpen]);
+
+  const externalChange = useRef(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const stateRef = useRef({
@@ -59,6 +64,51 @@ export function GraphCanvas() {
     mouseX: -1000,
     mouseY: -1000,
   });
+
+  useEffect(() => {
+    externalChange.current = true;
+    
+    // Sync graphOpen based on graphLevel
+    if (graphLevel === 0 && graphOpen) setGraphOpen(false);
+    if (graphLevel > 0 && !graphOpen) setGraphOpen(true);
+
+    // Sync activeHub clear if we go back to level 0 or 1
+    if (graphLevel < 2 && activeHub) {
+      setActiveHub(null);
+      stateRef.current.selectedHub = null;
+    }
+    
+    setTimeout(() => { externalChange.current = false; }, 50);
+  }, [graphLevel, graphOpen, activeHub, setGraphOpen, setActiveHub]);
+
+  const prevActiveHub = useRef<string | null>(null);
+
+  useEffect(() => {
+    // Only react to new activeHub values
+    if (activeHub && activeHub !== prevActiveHub.current) {
+      prevActiveHub.current = activeHub;
+      
+      // If we're not at level 1, go there first
+      if (graphLevel < 1) {
+        setGraphLevel(1);
+        setTimeout(() => {
+          const hub = hubNodesRef.current.find(h => h.key === activeHub);
+          if (hub) stateRef.current.selectedHub = hub;
+          setGraphLevel(2);
+        }, 600);
+      } else {
+        // Already at level 1, drill directly
+        const hub = hubNodesRef.current.find(h => h.key === activeHub);
+        if (hub) stateRef.current.selectedHub = hub;
+        setGraphLevel(2);
+      }
+    }
+    
+    // Reset when activeHub is cleared
+    if (!activeHub && prevActiveHub.current) {
+      prevActiveHub.current = null;
+    }
+  }, [activeHub, graphLevel, setGraphLevel]);
 
   const hubNodesRef = useRef<any[]>([]);
 
@@ -279,13 +329,14 @@ export function GraphCanvas() {
       const cy = h / 2;
       const canvasRadius = Math.min(w, h) * 0.5;
       const LEVEL_0_RADIUS = canvasRadius * 0.12;
-      const LEVEL_1_RADIUS = canvasRadius * 0.32;
+      // Increased to 0.70 per user request so the connecting lines are much longer
+      const LEVEL_1_RADIUS = canvasRadius * 0.70;
       
       const { expandT, drillT, selectedHub } = stateRef.current;
       const r = LEVEL_0_RADIUS + (LEVEL_1_RADIUS - LEVEL_0_RADIUS) * expandT;
 
       hubNodesRef.current.forEach((hub) => {
-        const a = hub.angle + stateRef.current.angleBase * (hub.key === "conversations" ? 0.6 : 1);
+        const a = hub.angle + stateRef.current.angleBase;
         
         let targetHubX = cx + Math.cos(a) * r;
         let targetHubY = cy + Math.sin(a) * r;
@@ -303,7 +354,7 @@ export function GraphCanvas() {
         hub.x = targetHubX;
         hub.y = targetHubY;
         
-        const LEAF_ORBIT_RADIUS = canvasRadius * 0.56;
+        const LEAF_ORBIT_RADIUS = canvasRadius * 0.60;
         const LEAF_ORBIT_SPEED = 0.003 * speedMultiplier;
 
         hub.leavesList.forEach((leaf: any) => {
@@ -347,6 +398,15 @@ export function GraphCanvas() {
           speedMultiplier = HOVER_SPEED;
           isHovering = true;
         }
+        
+        if (stateRef.current.expandT > 0.1) {
+          hub.leavesList.forEach((leaf: any) => {
+            if (Math.hypot(mx - leaf.x, my - leaf.y) < 30) {
+              speedMultiplier = HOVER_SPEED;
+              isHovering = true;
+            }
+          });
+        }
       });
       
       canvas.style.cursor = isHovering ? "pointer" : "default";
@@ -386,12 +446,14 @@ export function GraphCanvas() {
       if (mx > 10 && mx < 80 && my > 10 && my < 40) {
         stateRef.current.selectedHub = null;
         setActiveHub(null);
+        if (!externalChange.current) setGraphLevel(1);
         return;
       }
       
       if (Math.hypot(mx - cx, my - cy) < 20) {
         stateRef.current.selectedHub = null;
         setActiveHub(null);
+        if (!externalChange.current) setGraphLevel(1);
         return;
       }
     } else {
@@ -400,6 +462,7 @@ export function GraphCanvas() {
         setGraphFocused(true);
         stateRef.current.selectedHub = null;
         setActiveHub(null);
+        if (!externalChange.current) setGraphLevel(!graphOpen ? 1 : 0);
         return;
       }
     }
@@ -428,10 +491,12 @@ export function GraphCanvas() {
       setGraphFocused(true);
       stateRef.current.selectedHub = hit;
       setActiveHub(hit.key || hit.id);
+      if (!externalChange.current) setGraphLevel(2);
     } else {
       if (!stateRef.current.selectedHub) {
           stateRef.current.selectedHub = null;
           setActiveHub(null);
+          if (!externalChange.current) setGraphLevel(1);
       }
     }
   };

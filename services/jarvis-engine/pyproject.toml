@@ -17,6 +17,7 @@ dependencies = [
     "pydantic-settings>=2.14.2",
     "python-dotenv>=1.2.2",
     "sentence-transformers>=5.7.0",
+    "tavily-python>=0.7.27",
     "uvicorn>=0.52.1",
 ]
 

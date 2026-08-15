@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import "./Orb.css";
 import { cn } from "../../../lib/cn";
 import { useAIStore } from "../../../stores/useAIStore";
+import { ActionFeedback } from "../ActionFeedback/ActionFeedback";
 
 export function Orb() {
   const { status, provider, model } = useAIStore();
@@ -81,6 +82,7 @@ export function Orb() {
         <span className="dot"></span>
         <span className="orb-status">{getStatusLabel()}</span>
       </div>
+      <ActionFeedback />
       <div className="orb-caption">{getCaption()}</div>
       <div className="orb-sub">
         {model} · {provider} fallback

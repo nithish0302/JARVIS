@@ -1,4 +1,5 @@
 /* eslint-disable no-unused-vars */
+import { SearchSource } from "../types/chat.types"
 export const JARVIS_ENGINE_URL = "http://localhost:8765"
 
 export interface ChatRequest {
@@ -13,6 +14,9 @@ export interface ChatResponse {
   conversation_id: string
   provider_used: string
   model_used: string
+  search_performed: boolean
+  search_query: string
+  sources: SearchSource[]
 }
 
 export interface ProviderStatus {
@@ -76,7 +80,7 @@ export async function getConversations(): Promise<any[]> {
 
 export async function sendMessageStream(
   request: ChatRequest,
-  onMeta: (convId: string, searchQuery: string | null) => void,
+  onMeta: (meta: { conversationId: string, searchPerformed: boolean, searchQuery: string, sources: SearchSource[] }) => void,
   onToken: (token: string) => void,
   onDone: (
     conversationId: string, 
@@ -116,10 +120,12 @@ export async function sendMessageStream(
         try {
           const data = JSON.parse(line)
           if (data.type === "meta") {
-            onMeta(
-              data.conversation_id || "",
-              data.search_query || null
-            )
+            onMeta({
+              conversationId: data.conversation_id || "",
+              searchPerformed: data.search_performed || false,
+              searchQuery: data.search_query || "",
+              sources: data.sources || []
+            })
           } else if (data.type === "token") {
             onToken(data.content)
           } else if (data.type === "done") {

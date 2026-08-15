@@ -1226,3 +1226,32 @@ Thinking...\) and dynamically fetch memory count.
 - Tests: Re-ran `pnpm test`.
 - Linting: Re-ran `pnpm lint`.
 - Build: Currently running `pnpm build`.
+
+## Phase 3 - Milestone 3: Tavily Search + Sources UI
+**Date:** 2026-08-14
+**Objective:** Upgrade backend search engine to Tavily and expose search metadata in the HUD.
+**Decisions made:**
+- Configured backend with `tavily-python` and updated `web_search.py` to use a tiered search approach (Tavily with DuckDuckGo fallback).
+- Passed robust search metadata (`search_performed`, `search_query`, `sources`) down through the SSE stream via a new `meta` chunk.
+- Parsed metadata in the React frontend (`jarvisApi.ts`, `useJarvisChat.ts`).
+- Displayed `SearchBadge` above JARVIS's messages when a search query is utilized.
+- Rendered `SourcesList` below JARVIS's message with a list of interactive citations.
+- Configured Tauri `shell` plugin and `shell:allow-open` capability to safely launch external URLs in the user's default browser.
+**Current status:** Complete. Backend tests, frontend tests, and frontend build successfully pass.
+
+## Phase 3 - Milestone 4: [UI_ACTION] Protocol
+**Date:** 2026-08-14
+**Objective:** Enable the AI to trigger frontend UI commands via special response tags.
+**Decisions made:**
+- Taught JARVIS a `[UI_ACTION]` protocol using an injected system prompt instructions.
+- Implemented `uiActionParser.ts` to cleanly extract these tags from text (including streaming partial tags).
+- Implemented `uiActionExecutor.ts` to execute extracted UI actions by mutating the Zustand global store.
+- Updated `useJarvisChat.ts` to seamlessly parse tags, strip them, and queue actions so raw tags are hidden during SSE streams and completed messages.
+- Updated `GraphCanvas.tsx` to deeply integrate its internal rendering state (`selectedHub`, `graphOpen`) with the global `graphLevel` from the store, enabling two-way reactive state tracking and synchronization.
+- **Milestone 4 additions:** Removed auto chat mode switch from `ChatShell.tsx`, allowing users to stay in graph mode while JARVIS executes UI actions in the background.
+- Added `ActionFeedback` to the Orb and updated `LeftColumn` Inspector to log UI actions visually when in graph mode without disrupting the screen.
+- **Bug Fixes:**
+  - Ensured `GraphCanvas.tsx` properly clears `activeHub` when switching away from Level 2 so same-hub clicks trigger again properly, and added cleanup timeout to `uiActionExecutor.ts`.
+  - Upgraded explicit transition in `GraphCanvas.tsx` drill-down (`graph_open_hub`) to handle collapsed Level 0, going to Level 1, waiting 600ms, and then proceeding to Level 2.
+  - Re-synced `GraphCanvas.tsx` logic so it gracefully handles `graphLevel === 0` collapse.
+**Current status:** Complete. Backend tests, frontend unit tests (`parseUIActions`, `ActionFeedback` specifically), and UI build completed successfully.

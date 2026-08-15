@@ -148,6 +148,12 @@ async def test_web_search():
     )
     data2 = r2.json()
     print(f"\nTest Chat+Search: {'PASS' if r2.status_code == 200 else 'FAIL'}")
+    print(f"Search Performed: {data2.get('search_performed')}")
+    print(f"Search Query: {data2.get('search_query')}")
+    print(f"Search provider: Tavily")
+    print(f"Sources count: {len(data2.get('sources',[]))}")
+    for s in data2.get("sources", [])[:3]:
+      print(f"  • {s['title']} ({s['source']})")
     print(f"Response preview: {data2.get('response', '')[:200]}")
 
 async def test_conversations():

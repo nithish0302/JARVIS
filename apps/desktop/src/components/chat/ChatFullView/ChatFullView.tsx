@@ -1,6 +1,9 @@
 import React, { useEffect, useRef, useState } from "react";
 import { cn } from "../../../lib/cn";
 import { useJarvisChat } from "../../../hooks/useJarvisChat";
+import { useConversationStore } from "../../../stores/useConversationStore";
+import { SearchBadge } from "../SearchBadge/SearchBadge";
+import { SourcesList } from "../SourcesList/SourcesList";
 
 export function ChatFullView() {
   const { messages, sendUserMessage, isTyping, streamingMessageId, streamingContent, streamingSearchQuery } = useJarvisChat();
@@ -26,6 +29,32 @@ export function ChatFullView() {
     }
   }, [messages, isTyping, streamingContent]);
 
+  const { clearConversation } = useConversationStore();
+
+  const handleNewChat = () => {
+    clearConversation();
+  };
+
+  const formatTime = (timestamp: string) => {
+    if (!timestamp) return "";
+    try {
+      const date = new Date(timestamp);
+      if (isNaN(date.getTime())) return timestamp;
+      return date.toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit"
+      });
+    } catch {
+      return timestamp;
+    }
+  };
+
+  const getTitle = () => {
+    if (!messages || messages.length === 0) return "New Conversation";
+    const firstMsg = messages[0].content;
+    return firstMsg.length > 40 ? firstMsg.substring(0, 40) + "..." : firstMsg;
+  };
+
   const allMessages = [...messages];
   if (streamingMessageId) {
     allMessages.push({
@@ -33,45 +62,65 @@ export function ChatFullView() {
       role: "assistant",
       content: streamingContent,
       timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      searchPerformed: true,
       searchQuery: streamingSearchQuery || undefined
     });
   }
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-transparent overflow-hidden px-8 pb-6 pt-8 z-10">
+    <div className="flex-1 min-h-0 flex flex-col h-full bg-transparent overflow-hidden px-8 pb-6 pt-8 z-10">
+      <div className="flex items-center justify-between mb-4 px-2">
+        <div className="w-[100px]"></div> {/* Spacer to center the title */}
+        <div className="font-display text-[14px] uppercase tracking-wider text-[var(--color-muted)] text-center flex-1">
+          {getTitle()}
+        </div>
+        <div className="w-[100px] flex justify-end">
+          <button 
+            onClick={handleNewChat}
+            className="flex items-center gap-2 h-[28px] px-3 rounded-md border border-[var(--color-line)] bg-transparent text-[11px] font-mono text-[var(--color-muted)] cursor-pointer transition-colors hover:text-[var(--color-cyan)] hover:border-[var(--color-line-strong)]"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-3 h-3">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+            New Chat
+          </button>
+        </div>
+      </div>
+
       <div 
-        className="flex-1 flex flex-col gap-4 overflow-y-auto pr-4 mb-4"
+        className="flex-1 flex flex-col gap-4 overflow-y-auto pr-4 mb-4 no-scrollbar"
         ref={logRef}
       >
         <div className="flex-1 min-h-0" /> {/* Spacer to push messages down if few */}
         {allMessages.map((msg, idx) => (
-          <div 
-            key={idx} 
-            className={cn(
-              "max-w-[82%] px-[15px] py-[11px] rounded-xl text-[14px] leading-[1.6] backdrop-blur-[8px] border",
-              msg.role === "user" ? "self-end" : "self-start"
-            )}
-            style={{ 
-              background: 'var(--color-panel)', 
-              borderColor: msg.role === 'user' ? 'rgba(82, 236, 227, 0.3)' : 'var(--color-line)' 
-            }}
-          >
+          <div key={idx} className={cn("flex flex-col", msg.role === "user" ? "items-end" : "items-start")}>
             {msg.role === "assistant" && (
-              <div className="flex flex-col mb-[6px]">
-                <div className="flex items-center gap-[6px]">
-                  <div className="w-[6px] h-[6px] rounded-full shadow-[0_0_6px_var(--color-cyan)]" style={{ background: 'var(--color-cyan)' }} />
-                  <span className="font-display font-bold tracking-[1px] text-[12px] uppercase" style={{ color: 'var(--color-cyan)' }}>J.A.R.V.I.S</span>
-                </div>
-                {msg.searchQuery && (
-                  <div className="font-mono text-[11px] flex items-center mt-1" style={{ color: 'var(--color-cyan)' }}>
-                    🌐 searched: {msg.searchQuery}
-                  </div>
-                )}
-              </div>
+              <SearchBadge query={msg.searchQuery || ""} visible={msg.searchPerformed === true} />
             )}
-            <div className="whitespace-pre-wrap font-sans text-[var(--text)]">{msg.content}</div>
-            <div className="mt-2 font-mono text-[11px] text-right" style={{ color: 'var(--color-muted-dim)' }}>
-              {msg.timestamp}
+            <div 
+              className={cn(
+                "max-w-[82%] px-[15px] py-[11px] rounded-xl text-[14px] leading-[1.6] backdrop-blur-[8px] border"
+              )}
+              style={{ 
+                background: 'var(--color-panel)', 
+                borderColor: msg.role === 'user' ? 'rgba(82, 236, 227, 0.3)' : 'var(--color-line)' 
+              }}
+            >
+              {msg.role === "assistant" && (
+                <div className="flex flex-col mb-[6px]">
+                  <div className="flex items-center gap-[6px]">
+                    <div className="w-[6px] h-[6px] rounded-full shadow-[0_0_6px_var(--color-cyan)]" style={{ background: 'var(--color-cyan)' }} />
+                    <span className="font-display font-bold tracking-[1px] text-[12px] uppercase" style={{ color: 'var(--color-cyan)' }}>J.A.R.V.I.S</span>
+                  </div>
+                </div>
+              )}
+              <div className="whitespace-pre-wrap font-sans text-[var(--text)]">{msg.content}</div>
+              {msg.role === "assistant" && (
+                <SourcesList sources={msg.sources || []} visible={msg.searchPerformed === true} />
+              )}
+              <div className="mt-2 font-mono text-[11px] text-right" style={{ color: 'var(--color-muted-dim)' }}>
+                {formatTime(msg.timestamp)}
+              </div>
             </div>
           </div>
         ))}
