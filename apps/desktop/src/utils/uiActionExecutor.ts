@@ -32,12 +32,10 @@ export function executeUIActions(
               setTimeout(() => {
                 store.setActiveHub(action.payload!)
                 store.setGraphLevel(2)
-                setTimeout(() => store.setActiveHub(null), 1000)
               }, 800)
             } else {
               store.setActiveHub(action.payload!)
               store.setGraphLevel(2)
-              setTimeout(() => store.setActiveHub(null), 1000)
             }
           }
           break

@@ -92,13 +92,13 @@ export function GraphCanvas() {
       if (graphLevel < 1) {
         setGraphLevel(1);
         setTimeout(() => {
-          const hub = hubNodesRef.current.find(h => h.key === activeHub);
+          const hub = hubNodesRef.current.find(h => h.key.toLowerCase() === activeHub.toLowerCase());
           if (hub) stateRef.current.selectedHub = hub;
           setGraphLevel(2);
         }, 600);
       } else {
         // Already at level 1, drill directly
-        const hub = hubNodesRef.current.find(h => h.key === activeHub);
+        const hub = hubNodesRef.current.find(h => h.key.toLowerCase() === activeHub.toLowerCase());
         if (hub) stateRef.current.selectedHub = hub;
         setGraphLevel(2);
       }

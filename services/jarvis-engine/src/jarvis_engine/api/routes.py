@@ -79,6 +79,7 @@ Rules:
 - Put action tags at the END of your response
 - Never show the raw tag text to the user
 - Multiple actions can be included if needed
+- If the user asks to open "memory index", "chat history","list the chats","list the chat", or "past chats", use [UI_ACTION:conversations_open]
 - Example: "Opening skills now. [UI_ACTION:graph_open_hub:Skills]"
 """
 
