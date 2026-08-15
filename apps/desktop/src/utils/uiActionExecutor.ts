@@ -18,14 +18,17 @@ export function executeUIActions(
           break
           
         case "graph_expand":
+          store.setChatMode(false)
           store.setGraphLevel(1)
           break
           
         case "graph_collapse":
+          store.setChatMode(false)
           store.setGraphLevel(0)
           break
           
         case "graph_open_hub":
+          store.setChatMode(false)
           if (action.payload) {
             if (store.graphLevel === 0) {
               store.setGraphLevel(1)

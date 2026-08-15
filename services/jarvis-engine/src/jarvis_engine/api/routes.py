@@ -1,4 +1,5 @@
 import uuid
+import asyncio
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -54,12 +55,20 @@ Personality:
 - Reference earlier parts of the conversation 
   naturally when relevant
 
-You are not a generic chatbot. You are JARVIS — 
-act like it."""
+You are not a generic chatbot. You are JARVIS — act like it.
+"""
+
+UI_ACTION_REMINDER = (
+    "Remember: You can use [UI_ACTION:command] "
+    "tags to control the interface. Available: "
+    "graph_open_hub:Skills/Tools/Files/Notes/Models, "
+    "chat_mode_on, chat_mode_off, graph_collapse, "
+    "conversations_open"
+)
 
 UI_ACTION_INSTRUCTION = """
-You can control the JARVIS interface by including
-special action tags in your response.
+<SYSTEM_CAPABILITIES>
+You can control the JARVIS interface by including special action tags in your response.
 
 Available UI actions:
 [UI_ACTION:chat_mode_on] - Switch to full chat mode
@@ -75,17 +84,21 @@ Available UI actions:
 [UI_ACTION:conversations_open] - Open conversation panel
 [UI_ACTION:conversations_close] - Close conversation panel
 
-Rules:
+CRITICAL RULES FOR UI ACTIONS:
+- YOU MUST include the EXACT bracketed tag (e.g. [UI_ACTION:chat_mode_on]) whenever you are asked to perform an action.
 - Only use actions when user explicitly requests them
 - Put action tags at the END of your response
 - Never show the raw tag text to the user
 - Multiple actions can be included if needed
-- If the user asks to open "memory index", "chat history","list the chats","list the chat", or "past chats", use [UI_ACTION:conversations_open]
-- Example: "Opening skills now. [UI_ACTION:graph_open_hub:Skills]"
+- If the user asks to open "memory index", "chat history", "list the chats", "list the chat", or "past chats", use [UI_ACTION:conversations_open]
+
+Examples:
+- User: "open skills" -> Assistant: "Opening skills now. [UI_ACTION:graph_open_hub:Skills]"
+- User: "switch to chat mode" -> Assistant: "Switching to chat mode. [UI_ACTION:chat_mode_on]"
+- User: "close the chat mode" -> Assistant: "Switching back to graph mode. [UI_ACTION:chat_mode_off]"
+- User: "collapse the graph" -> Assistant: "Collapsing the graph. [UI_ACTION:graph_collapse]"
+</SYSTEM_CAPABILITIES>
 """
-
-JARVIS_SYSTEM_PROMPT += "\n" + UI_ACTION_INSTRUCTION
-
 SEARCH_STRICT_INSTRUCTION = """
 When web search results are provided:
 - Use ONLY information from the search results
@@ -110,34 +123,26 @@ async def chat_endpoint(request: ChatRequest):
         memory_lines = [f"- {m['content']}" for m in relevant_memories]
         memory_context = "\n\nRelevant memories about Nithish:\n" + "\n".join(memory_lines)
     
-    # Create system message
     search_performed = False
     search_query_used = ""
     search_sources = []
-    search_context = ""
-    
-    if needs_web_search(request.message):
-        search_query_used = extract_search_query(request.message)
-        search_results = await search_web(search_query_used, max_results=4)
-        if search_results:
-            search_performed = True
-            search_sources = search_results
-            search_context = f"\n\nReal-time web search results for '{search_query_used}':\n"
-            for i, r in enumerate(search_results, 1):
-                search_context += f"\n{i}. {r['title']}\n   {r['snippet']}\n   Source: {r['url']}\n"
-            search_context += "\nUse these results to answer accurately. Always cite your sources."
-            search_context += SEARCH_STRICT_INSTRUCTION
-            
-    system_message = Message(
-        role="system",
-        content=JARVIS_SYSTEM_PROMPT + memory_context + search_context,
-        timestamp=""
-    )
     
     # Load existing conversation history
     history = []
+    search_context_accumulated = ""
     if conversation_id_exists:
         history = await get_conversation_messages(conversation_id)
+        system_msgs = [m for m in history if m.role == "system"]
+        history = [m for m in history if m.role != "system"]
+        if system_msgs:
+            search_context_accumulated = "\n\n" + "\n".join(m.content for m in system_msgs)
+            search_context_accumulated += "\n" + SEARCH_STRICT_INSTRUCTION
+            
+    system_message = Message(
+        role="system",
+        content=JARVIS_SYSTEM_PROMPT + memory_context + search_context_accumulated + "\n" + UI_ACTION_INSTRUCTION,
+        timestamp=""
+    )
         
     # Create new user message
     new_user_message = Message(
@@ -146,8 +151,15 @@ async def chat_endpoint(request: ChatRequest):
         timestamp=""
     )
     
+    # UI_ACTION reminder placed right before user message
+    ui_reminder = Message(
+        role="system",
+        content=UI_ACTION_REMINDER,
+        timestamp=""
+    )
+    
     # Build full message list
-    full_messages = [system_message] + history + [new_user_message]
+    full_messages = [system_message] + history + [ui_reminder] + [new_user_message]
     
     # Save user message to DB
     await save_message(
@@ -156,8 +168,37 @@ async def chat_endpoint(request: ChatRequest):
         content=request.message
     )
     
-    # Get AI response
-    response_text, provider_used, model_used = await provider_manager.chat(full_messages)
+    if needs_web_search(request.message):
+        search_query_used = extract_search_query(request.message)
+        search_results, ai_response = await asyncio.gather(
+            search_web(search_query_used, max_results=4),
+            provider_manager.chat(full_messages),
+            return_exceptions=True
+        )
+        if isinstance(search_results, list):
+            search_sources = search_results
+            search_performed = True
+            if search_sources:
+                search_context_note = (
+                    f"[Search results for: {search_query_used}]\n"
+                )
+                for r in search_sources[:3]:
+                    search_context_note += (
+                        f"- {r['title']} ({r.get('source', '')})\n"
+                    )
+                await save_message(
+                    conversation_id=conversation_id,
+                    role="system",
+                    content=search_context_note
+                )
+        if isinstance(ai_response, Exception):
+            response_text = "I encountered an error."
+            provider_used = "error"
+            model_used = "error"
+        else:
+            response_text, provider_used, model_used = ai_response
+    else:
+        response_text, provider_used, model_used = await provider_manager.chat(full_messages)
     
     # Save assistant message to DB
     await save_message(
@@ -201,34 +242,28 @@ async def chat_stream_endpoint(
         memory_lines = [f"- {m['content']}" for m in relevant_memories]
         memory_context = "\n\nRelevant memories about Nithish:\n" + "\n".join(memory_lines)
 
+    search_needed = needs_web_search(request.message)
     search_performed = False
     search_query_used = ""
     search_sources = []
-    search_context = ""
-    
-    if needs_web_search(request.message):
-        search_query_used = extract_search_query(request.message)
-        search_results = await search_web(search_query_used, max_results=4)
-        if search_results:
-            search_performed = True
-            search_sources = search_results
-            search_context = f"\n\nReal-time web search results for '{search_query_used}':\n"
-            for i, r in enumerate(search_results, 1):
-                search_context += f"\n{i}. {r['title']}\n   {r['snippet']}\n   Source: {r['url']}\n"
-            search_context += "\nUse these results to answer accurately. Always cite your sources."
-            search_context += SEARCH_STRICT_INSTRUCTION
-
-    system_message = Message(
-      role="system",
-      content=JARVIS_SYSTEM_PROMPT + memory_context + search_context,
-      timestamp=""
-    )
     
     history = []
+    search_context_accumulated = ""
     if request.conversation_id:
       history = await get_conversation_messages(
         conversation_id
       )
+      system_msgs = [m for m in history if m.role == "system"]
+      history = [m for m in history if m.role != "system"]
+      if system_msgs:
+          search_context_accumulated = "\n\n" + "\n".join(m.content for m in system_msgs)
+          search_context_accumulated += "\n" + SEARCH_STRICT_INSTRUCTION
+          
+    system_message = Message(
+      role="system",
+      content=JARVIS_SYSTEM_PROMPT + memory_context + search_context_accumulated + "\n" + UI_ACTION_INSTRUCTION,
+      timestamp=""
+    )
     
     new_user_message = Message(
       role="user",
@@ -236,8 +271,15 @@ async def chat_stream_endpoint(
       timestamp=""
     )
     
+    # UI_ACTION reminder placed right before user message
+    ui_reminder = Message(
+      role="system",
+      content=UI_ACTION_REMINDER,
+      timestamp=""
+    )
+    
     full_messages = (
-      [system_message] + history + [new_user_message]
+      [system_message] + history + [ui_reminder] + [new_user_message]
     )
     
     await save_message(
@@ -246,7 +288,16 @@ async def chat_stream_endpoint(
       content=request.message
     )
     
+    search_task = None
+    if search_needed:
+        search_query_used = extract_search_query(request.message)
+        search_task = asyncio.create_task(
+            search_web(search_query_used, max_results=4)
+        )
+        search_performed = True
+
     async def generate():
+      nonlocal search_sources
       try:
         # Send meta chunk first
         try:
@@ -255,15 +306,7 @@ async def chat_stream_endpoint(
             "conversation_id": conversation_id,
             "search_performed": search_performed,
             "search_query": search_query_used,
-            "sources": [
-              {
-                "title": str(s.get("title", "")),
-                "url": str(s.get("url", "")),
-                "snippet": str(s.get("snippet", "")[:200]),
-                "source": str(s.get("source", ""))
-              }
-              for s in (search_sources or [])
-            ]
+            "sources": []
           }) + "\n"
         except Exception as meta_err:
           print(f"Meta chunk error: {meta_err}")
@@ -291,6 +334,30 @@ async def chat_stream_endpoint(
         except Exception as stream_err:
           print(f"Stream token error: {stream_err}")
           # If streaming fails midway, yield what we have
+
+        if search_task is not None:
+          try:
+            search_results = await asyncio.wait_for(
+              search_task, timeout=10.0
+            )
+            if search_results:
+              search_sources = search_results
+              search_context_note = (
+                f"[Search results for: {search_query_used}]\n"
+              )
+              for r in search_results[:3]:
+                search_context_note += (
+                  f"- {r['title']} ({r.get('source', '')})\n"
+                )
+              await save_message(
+                conversation_id=conversation_id,
+                role="system",
+                content=search_context_note
+              )
+          except asyncio.TimeoutError:
+            print("Background search timed out")
+          except Exception as e:
+            print(f"Background search error: {e}")
 
         # Save complete response
         complete_response = "".join(full_response_parts)
@@ -320,7 +387,16 @@ async def chat_stream_endpoint(
         yield json_module.dumps({
           "type": "done",
           "conversation_id": conversation_id,
-          "full_response": complete_response
+          "full_response": complete_response,
+          "sources": [
+            {
+              "title": str(s.get("title", "")),
+              "url": str(s.get("url", "")),
+              "snippet": str(s.get("snippet", "")[:200]),
+              "source": str(s.get("source", ""))
+            }
+            for s in search_sources
+          ]
         }) + "\n"
 
       except Exception as fatal_err:
@@ -359,7 +435,9 @@ async def get_conversation_endpoint(conversation_id: str):
     messages = await get_conversation_messages(conversation_id)
     if not messages:
         raise HTTPException(status_code=404, detail="Conversation not found")
-    return messages
+    
+    # Filter out system messages so they don't appear in the frontend UI
+    return [msg for msg in messages if msg.role != "system"]
 
 @router.delete("/conversation/{conversation_id}")
 async def delete_conversation_endpoint(conversation_id: str):

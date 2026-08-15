@@ -84,7 +84,8 @@ export async function sendMessageStream(
   onToken: (token: string) => void,
   onDone: (
     conversationId: string, 
-    fullResponse: string
+    fullResponse: string,
+    sources: SearchSource[]
   ) => void,
   onError: (error: string) => void
 ): Promise<void> {
@@ -131,7 +132,8 @@ export async function sendMessageStream(
           } else if (data.type === "done") {
             onDone(
               data.conversation_id || "",
-              data.full_response || ""
+              data.full_response || "",
+              Array.isArray(data.sources) ? data.sources : []
             )
           }
         } catch {

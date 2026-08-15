@@ -1,6 +1,7 @@
 import asyncio
 import httpx
 import json
+import time
 
 BASE_URL = "http://localhost:8765"
 
@@ -167,6 +168,30 @@ async def test_conversations():
     for c in data[:3]:
       print(f"  {c['id'][:8]}... — {c.get('message_count', 0)} messages")
 
+async def test_parallel_search():
+  async with httpx.AsyncClient(
+    timeout=60.0
+  ) as client:
+    
+    start = time.time()
+    r = await client.post(
+      f"{BASE_URL}/chat",
+      json={
+        "message": "What is the latest AI news?",
+        "conversation_id": None,
+        "provider": "ollama",
+        "model": "llama3.2:3b"
+      }
+    )
+    elapsed = time.time() - start
+    
+    data = r.json()
+    print(f"\nTest Parallel Search:")
+    print(f"  Time: {elapsed:.2f}s")
+    print(f"  Search performed: {data.get('search_performed')}")
+    print(f"  Sources: {len(data.get('sources', []))}")
+    print(f"  PASS" if r.status_code == 200 else "  FAIL")
+
 async def main():
     print("=" * 50)
     print("JARVIS Engine Integration Tests")
@@ -196,6 +221,9 @@ async def main():
     
     print("\n--- Test 7: Web Search ---")
     await test_web_search()
+    
+    print("\n--- Test 8: Parallel Search ---")
+    await test_parallel_search()
     
     print("\n" + "=" * 50)
     print("Tests complete")

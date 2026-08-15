@@ -9,8 +9,24 @@ SEARCH_TRIGGERS = [
   "google", "find out", "tell me about",
 ]
 
+UI_EXCLUSIONS = [
+  "show my", "open ", "close ", "collapse",
+  "expand", "switch to", "go to", "chat mode",
+  "graph mode", "show conversations",
+  "show skills", "show tools", "show files",
+]
+
 def needs_web_search(message: str) -> bool:
-  msg_lower = message.lower()
+  msg_lower = message.lower().strip()
+
+  # Never search for UI commands
+  for exc in UI_EXCLUSIONS:
+    if exc in msg_lower:
+      return False
+
+  # Never search for very short messages
+  if len(msg_lower) < 8:
+    return False
   
   # Explicit search request
   for trigger in SEARCH_TRIGGERS:

@@ -55,9 +55,13 @@ Validation passed: parser tests succeed and the frontend and backend interact as
 
 | Phase 3 - Milestone 4: [UI_ACTION] Protocol                   | Complete                  | Introduced the UI Action protocol, letting JARVIS command the React frontend (opening hubs, switching views) via invisible tags safely parsed from its streaming responses. |
 
-**Phase 3 - Milestone 5**
+**Phase 3 - Milestone 5: Background Search**
 
-The next milestone for Phase 3 will be Milestone 5.
+Status: **Complete**
+
+The fifth milestone of Phase 3 is complete. The JARVIS system now supports parallel background search. The AI response streams immediately while the web search executes in the background. Search context is appended to the conversation history as a system message so that follow-up questions can reference the live information, and the sources are piped to the frontend in the final "done" chunk.
+
+The next milestone for Phase 3 will be Milestone 6.
 
 ## Current technology stack
 

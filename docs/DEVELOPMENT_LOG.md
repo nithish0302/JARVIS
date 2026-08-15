@@ -1255,3 +1255,24 @@ Thinking...\) and dynamically fetch memory count.
   - Upgraded explicit transition in `GraphCanvas.tsx` drill-down (`graph_open_hub`) to handle collapsed Level 0, going to Level 1, waiting 600ms, and then proceeding to Level 2.
   - Re-synced `GraphCanvas.tsx` logic so it gracefully handles `graphLevel === 0` collapse.
 **Current status:** Complete. Backend tests, frontend unit tests (`parseUIActions`, `ActionFeedback` specifically), and UI build completed successfully.
+
+## Phase 3 - Milestone 5: Background Search
+**Date:** 2026-08-15
+**Objective:** Parallelize AI streaming and web search to eliminate search delay.
+**Decisions made:**
+- Refactored `api/routes.py` `POST /chat/stream` to initiate `search_web` asynchronously alongside `provider_manager.stream` using `asyncio.create_task`.
+- Passed the `meta` chunk immediately with an empty sources array, then yielded token chunks.
+- Awaited the background search task using `asyncio.wait_for` after token streaming completed.
+- Saved search results as a hidden system message (`role: "system"`) directly into the SQLite database to provide context for the next follow-up message without exposing it to the UI.
+- Updated `POST /chat` to run `search_web` and `provider_manager.chat` using `asyncio.gather`.
+- Sent final search sources securely in the `done` chunk.
+- Adjusted React frontend `jarvisApi.ts` and `useJarvisChat.ts` to properly consume `sources` from the `done` chunk instead of relying strictly on the `meta` chunk reference.
+- Filtered `role: "system"` messages out of the `get_conversation_messages` SQL query so they don't break the frontend UI.
+- Added `test_parallel_search()` timing benchmark to `test_api.py`.
+- **Bug Fixes:**
+  - Fixed an issue where the UI_ACTION protocol stopped working after a web search. The background search saved context as a `role: "system"` message in the database, which was filtered out in `get_conversation_messages`, causing the context to be lost for the backend.
+  - Modified `get_conversation_messages` to retrieve system messages from the database, and `get_conversation_endpoint` to filter them out before returning to the frontend UI.
+  - Updated `routes.py` to correctly extract system messages from the conversation history, concatenate their contents, and append them directly to the main `JARVIS_SYSTEM_PROMPT` to prevent the LLM from dropping the system prompt and UI action rules mid-conversation.
+  - Added additional examples (`[UI_ACTION:chat_mode_on]`, `[UI_ACTION:graph_collapse]`) to the `UI_ACTION_INSTRUCTION` in `routes.py` to improve LLaMA 3.2 3B's reliability.
+  - Refactored `useJarvisChat.ts` `onDone` callback to correctly parse UI actions *before* building the message and storing it in state.
+**Current status:** Complete. Parallel execution measured at ~9.6s. Frontend and backend tests pass. Build successful.

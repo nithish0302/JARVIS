@@ -79,25 +79,20 @@ export function useJarvisChat() {
           useConversationStore.getState().appendStreamToken(token)
         },
         // onDone — add complete message
-        (convId, fullResponse) => {
+        (convId, fullResponse, sources = []) => {
           try {
             useConversationStore.getState().finishStreaming()
-            
+
             if (!currentConversationId && convId) {
               setConversationId(convId)
             }
-            
-            // Safely get search meta with fallbacks
-            const meta = searchMetaRef.current || {
-              searchPerformed: false,
-              searchQuery: "",
-              sources: []
-            }
-            
-            // Parse UI actions
-            const { cleanText, actions } = parseUIActions(fullResponse || "")
-            
-            // Build assistant message safely
+
+            // Parse UI actions FIRST
+            const { cleanText, actions } = parseUIActions(
+              fullResponse || ""
+            )
+
+            // Build message with CLEAN text
             const assistantMessage: Message = {
               id: streamingId,
               role: "assistant" as const,
@@ -105,10 +100,11 @@ export function useJarvisChat() {
               timestamp: new Date().toLocaleTimeString(
                 [], { hour: "2-digit", minute: "2-digit" }
               ),
-              searchPerformed: meta.searchPerformed === true,
-              searchQuery: meta.searchQuery || "",
-              sources: Array.isArray(meta.sources) 
-                ? meta.sources.map(s => ({
+              searchPerformed: sources.length > 0,
+              searchQuery: searchMetaRef.current
+                ?.searchQuery || "",
+              sources: Array.isArray(sources)
+                ? sources.map(s => ({
                     title: String(s?.title || ""),
                     url: String(s?.url || ""),
                     snippet: String(s?.snippet || ""),
@@ -116,33 +112,31 @@ export function useJarvisChat() {
                   }))
                 : [],
             }
-            
+
             addMessage(assistantMessage)
             setStatus("idle")
             setTyping(false)
-            
-            // Execute actions after a short delay so the message renders first
+
+            // Execute UI actions after message renders
             if (actions.length > 0) {
               setTimeout(() => {
                 executeUIActions(actions)
               }, 500)
             }
-            
-            // Reset search meta for next message
+
+            // Reset search meta
             searchMetaRef.current = {
               searchPerformed: false,
               searchQuery: "",
               sources: []
             }
-            
+
           } catch (error) {
             console.error("onDone error:", error)
-            // Even if onDone fails, show the response
             const fallbackMessage: Message = {
               id: streamingId,
               role: "assistant" as const,
-              content: fullResponse || 
-                "Response received but display failed.",
+              content: fullResponse || "",
               timestamp: new Date().toLocaleTimeString(
                 [], { hour: "2-digit", minute: "2-digit" }
               ),
