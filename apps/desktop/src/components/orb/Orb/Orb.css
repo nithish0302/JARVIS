@@ -85,9 +85,9 @@
   position: absolute;
   inset: 46px;
   border-radius: 50%;
-  background: radial-gradient(circle at 35% 28%, #123734 0%, #0c2926 55%, #071916 100%);
-  border: 1px solid rgba(82, 236, 227, 0.55);
-  box-shadow: 0 0 26px rgba(82, 236, 227, 0.4), inset 0 0 20px rgba(0, 0, 0, 0.5);
+  background: radial-gradient(circle at 35% 28%, var(--bg-elevated) 0%, var(--bg-base) 100%);
+  border: 1px solid var(--blue-border);
+  box-shadow: 0 0 26px var(--blue-bg), inset 0 0 20px rgba(0, 0, 0, 0.5);
   animation: breathe 3.2s ease-in-out infinite;
   display: flex;
   align-items: center;
@@ -99,8 +99,8 @@
   font-weight: 700;
   font-size: 11px;
   letter-spacing: 1.2px;
-  color: #eafffb;
-  text-shadow: 0 0 8px rgba(82, 236, 227, 0.7);
+  color: var(--text-primary);
+  text-shadow: 0 0 8px var(--blue-border);
   text-align: center;
 }
 
@@ -152,12 +152,12 @@
 }
 
 .orb-status-row.listening .dot {
-  background: #39e08a;
-  box-shadow: 0 0 6px #39e08a;
+  background: var(--pink);
+  box-shadow: 0 0 6px var(--pink);
 }
 
 .orb-status-row.listening .orb-status {
-  color: #39e08a;
+  color: var(--pink);
 }
 
 .orb-status-row.speaking .dot {

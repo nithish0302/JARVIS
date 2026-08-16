@@ -6,8 +6,8 @@ import { useConversationStore } from "../../../stores/useConversationStore";
 
 export function ChatShell() {
   const { messages, sendUserMessage, isTyping, streamingMessageId, streamingContent, streamingSearchQuery } = useJarvisChat();
-  const { clearConversation } = useConversationStore();
-  const { graphFocused } = useAppStore();
+  const clearConversation = useConversationStore(state => state.clearConversation);
+  const graphFocused = useAppStore(state => state.graphFocused);
   const [inputValue, setInputValue] = useState("");
   const logRef = useRef<HTMLDivElement>(null);
 

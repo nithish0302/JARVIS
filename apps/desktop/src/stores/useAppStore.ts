@@ -22,6 +22,8 @@ export interface AppState {
   showActionFeedback: (message: string) => void;
   clearActionFeedback: () => void;
   setInspectorMessage: (msg: string) => void;
+  deletingConversationId: string | null;
+  setDeletingConversationId: (id: string | null) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -54,5 +56,7 @@ export const useAppStore = create<AppState>((set) => ({
     setTimeout(() => {
       set((state) => (state.inspectorMessage === msg ? { inspectorMessage: "" } : state));
     }, 3000);
-  }
+  },
+  deletingConversationId: null,
+  setDeletingConversationId: (id) => set({ deletingConversationId: id }),
 }));

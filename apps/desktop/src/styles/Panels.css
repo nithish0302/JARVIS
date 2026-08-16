@@ -98,7 +98,7 @@
   height: 100%;
   border-radius: 4px;
   background: var(--color-cyan);
-  box-shadow: 0 0 8px rgba(82, 236, 227, 0.5);
+  box-shadow: 0 0 8px var(--blue-border);
   transition: width 0.7s ease, background 0.3s ease;
 }
 

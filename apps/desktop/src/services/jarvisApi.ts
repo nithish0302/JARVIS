@@ -78,6 +78,31 @@ export async function getConversations(): Promise<any[]> {
   return response.json()
 }
 
+export async function deleteConversation(conversationId: string): Promise<void> {
+  const response = await window.fetch(
+    `${JARVIS_ENGINE_URL}/conversation/${conversationId}`,
+    { method: "DELETE" }
+  )
+  if (!response.ok) {
+    throw new Error("Failed to delete conversation")
+  }
+}
+
+export async function updateConversationTitle(conversationId: string, title: string): Promise<void> {
+  const response = await window.fetch(
+    `${JARVIS_ENGINE_URL}/conversation/${conversationId}/title`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title }),
+    }
+  )
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.detail || "Failed to update conversation title");
+  }
+}
+
 export async function sendMessageStream(
   request: ChatRequest,
   onMeta: (meta: { conversationId: string, searchPerformed: boolean, searchQuery: string, sources: SearchSource[] }) => void,
@@ -190,5 +215,43 @@ export async function setOpenRouterKey(
     )
   } catch {
     console.error("Failed to set OpenRouter key")
+  }
+}
+
+export async function setGroqKey(
+  apiKey: string
+): Promise<void> {
+  try {
+    await window.fetch(
+      `${JARVIS_ENGINE_URL}/config/groq-key`,
+      {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json" 
+        },
+        body: JSON.stringify({ api_key: apiKey }),
+      }
+    )
+  } catch {
+    console.error("Failed to set Groq key")
+  }
+}
+
+export async function setGeminiKey(
+  apiKey: string
+): Promise<void> {
+  try {
+    await window.fetch(
+      `${JARVIS_ENGINE_URL}/config/gemini-key`,
+      {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json" 
+        },
+        body: JSON.stringify({ api_key: apiKey }),
+      }
+    )
+  } catch {
+    console.error("Failed to set Gemini key")
   }
 }

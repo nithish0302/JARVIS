@@ -53,17 +53,34 @@ async def delete_conversation(conversation_id: str) -> None:
         await db.execute("DELETE FROM conversations WHERE id = ?", (conversation_id,))
         await db.commit()
 
+async def update_conversation_title(conversation_id: str, new_title: str) -> None:
+    timestamp = datetime.datetime.now().isoformat()
+    async with aiosqlite.connect(settings.DB_PATH) as db:
+        # Check uniqueness
+        cursor = await db.execute("SELECT id FROM conversations WHERE LOWER(title) = LOWER(?) AND id != ?", (new_title, conversation_id))
+        existing = await cursor.fetchone()
+        if existing:
+            raise ValueError(f"Conversation with title '{new_title}' already exists")
+
+        await db.execute(
+            """
+            INSERT INTO conversations (id, title, created_at, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET title = excluded.title, updated_at = excluded.updated_at
+            """,
+            (conversation_id, new_title, timestamp, timestamp)
+        )
+        await db.commit()
+
 async def get_conversations(limit: int = 10) -> List[dict]:
     async with aiosqlite.connect(settings.DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute("""
             SELECT 
                 c.id, c.title, c.created_at, c.updated_at,
-                COUNT(m.id) as message_count,
-                MIN(CASE WHEN m.role='user' THEN m.content END) as first_message
+                (SELECT COUNT(id) FROM messages WHERE conversation_id = c.id) as message_count,
+                (SELECT content FROM messages WHERE conversation_id = c.id AND role='user' ORDER BY timestamp ASC LIMIT 1) as first_message
             FROM conversations c
-            LEFT JOIN messages m ON c.id = m.conversation_id
-            GROUP BY c.id
             ORDER BY c.updated_at DESC
             LIMIT ?
         """, (limit,))

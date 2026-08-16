@@ -85,7 +85,7 @@ export function Orb() {
       <ActionFeedback />
       <div className="orb-caption">{getCaption()}</div>
       <div className="orb-sub">
-        {model} · {provider} fallback
+        {model} · {provider}
       </div>
     </div>
   );

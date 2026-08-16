@@ -6,6 +6,7 @@ import { getConversation } from "../services/jarvisApi"
 export function useConversationLoader() {
   const { 
     setConversationId, 
+    setConversationTitle,
     addMessage, 
     messages 
   } = useConversationStore()
@@ -47,6 +48,16 @@ export function useConversationLoader() {
         }
 
         setConversationId(savedId)
+        
+        // Fetch the title if possible
+        import("../services/jarvisApi").then(api => {
+          api.getConversations().then(convos => {
+            const current = convos.find(c => c.id === savedId)
+            if (current && current.title) {
+              setConversationTitle(current.title)
+            }
+          })
+        })
         
         history
           .filter((msg: any) => 

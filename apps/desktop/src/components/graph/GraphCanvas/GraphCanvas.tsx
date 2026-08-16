@@ -2,13 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import "./GraphCanvas.css";
 import { cn } from "../../../lib/cn";
 import { useAppStore } from "../../../stores/useAppStore";
+import { useConversationStore } from "../../../stores/useConversationStore";
 
 const LEAVES_DATA: Record<string, string[]> = {
   skills: ["Python", "React", "TypeScript", "Rust", "FastAPI", "Tauri"],
   tools: ["Web Search", "Memory", "File System", "Terminal", "Browser", "Calculator"],
   files: ["Documents", "Downloads", "Projects", "Desktop", "Pictures", "Music"],
   notes: ["JARVIS Notes", "Ideas", "Tasks", "Meeting Notes", "Code Snippets"],
-  models: ["llama3.2:3b", "qwen2.5-coder:3b", "nomic-embed-text", "OpenRouter"],
+  models: ["gemini-2.5-flash", "llama3.2:3b", "qwen2.5-coder:3b", "OpenRouter", "Groq", "nomic-embed-text"],
   worlds: ["Home", "Work", "Projects", "Archive"],
   conversations: []
 };
@@ -20,7 +21,7 @@ const HUBS = [
   { key: "notes", label: "Notes", color: "#52d68a", leaves: LEAVES_DATA.notes.length },
   { key: "worlds", label: "Worlds", color: "#e8934b", leaves: LEAVES_DATA.worlds.length },
   { key: "models", label: "Models", color: "#b98be8", leaves: LEAVES_DATA.models.length },
-  { key: "conversations", label: "Conversations", color: "#ffb454", leaves: 0, special: true },
+  { key: "conversations", label: "Conversations", color: "#ffb454", leaves: 0 },
 ];
 
 function hexToRgb(hex: string) {
@@ -29,17 +30,14 @@ function hexToRgb(hex: string) {
 }
 
 export function GraphCanvas() {
-  const {
-    graphOpen,
-    setGraphOpen,
-    graphFocused,
-    setGraphFocused,
-    activeHub,
-    setActiveHub,
-    setConversationPanelOpen,
-    graphLevel,
-    setGraphLevel,
-  } = useAppStore();
+  const graphOpen = useAppStore(state => state.graphOpen);
+  const setGraphOpen = useAppStore(state => state.setGraphOpen);
+  const graphFocused = useAppStore(state => state.graphFocused);
+  const setGraphFocused = useAppStore(state => state.setGraphFocused);
+  const activeHub = useAppStore(state => state.activeHub);
+  const setActiveHub = useAppStore(state => state.setActiveHub);
+  const graphLevel = useAppStore(state => state.graphLevel);
+  const setGraphLevel = useAppStore(state => state.setGraphLevel);
 
   const [showCaption, setShowCaption] = useState(true);
 
@@ -61,6 +59,7 @@ export function GraphCanvas() {
     expandT: 1, // FIX 1: Keep initial state as Level 1 (spread)
     drillT: 0,
     selectedHub: null as any,
+    lastSelectedHub: null as any,
     mouseX: -1000,
     mouseY: -1000,
   });
@@ -93,13 +92,19 @@ export function GraphCanvas() {
         setGraphLevel(1);
         setTimeout(() => {
           const hub = hubNodesRef.current.find(h => h.key.toLowerCase() === activeHub.toLowerCase());
-          if (hub) stateRef.current.selectedHub = hub;
+          if (hub) {
+            stateRef.current.selectedHub = hub;
+            stateRef.current.lastSelectedHub = hub;
+          }
           setGraphLevel(2);
         }, 600);
       } else {
         // Already at level 1, drill directly
         const hub = hubNodesRef.current.find(h => h.key.toLowerCase() === activeHub.toLowerCase());
-        if (hub) stateRef.current.selectedHub = hub;
+        if (hub) {
+          stateRef.current.selectedHub = hub;
+          stateRef.current.lastSelectedHub = hub;
+        }
         setGraphLevel(2);
       }
     }
@@ -142,6 +147,32 @@ export function GraphCanvas() {
         });
       }
     });
+
+    // Fetch dynamic conversations
+    import("../../../services/jarvisApi").then(({ getConversations }) => {
+      getConversations().then(data => {
+        const convoHub = hubNodesRef.current.find(h => h.key === "conversations");
+        if (convoHub) {
+          const recent = data.slice(0, 8); // Max 8 leaves for graph
+          convoHub.leavesList = recent.map((c: any, i: number) => {
+            const angle = (Math.PI * 2 / recent.length) * i;
+            let label = c.title || c.preview || "Session";
+            if (label.length > 20) label = label.substring(0, 20) + "...";
+            return {
+              id: "conversations-leaf-" + c.id,
+              label,
+              color: convoHub.color,
+              angle: angle,
+              dist: 45 + Math.random() * 35,
+              x: 0,
+              y: 0,
+              vx: 0,
+              vy: 0,
+            };
+          });
+        }
+      }).catch(err => console.error("Failed to fetch graph convos", err));
+    });
   }, []);
 
   useEffect(() => {
@@ -172,30 +203,34 @@ export function GraphCanvas() {
       const cy = h / 2;
       ctx.clearRect(0, 0, w, h);
 
-      const { expandT, drillT, selectedHub } = stateRef.current;
+      const { expandT, drillT, selectedHub, lastSelectedHub } = stateRef.current;
       const hubNodes = hubNodesRef.current;
+      
+      const effectiveHub = selectedHub || lastSelectedHub;
 
+      // Outer ring of the core anchor fades out
       ctx.globalAlpha = 1 - drillT;
       if (ctx.globalAlpha > 0.01) {
-        // Core anchor
         ctx.beginPath();
         ctx.arc(cx, cy, 14, 0, Math.PI * 2);
-        ctx.strokeStyle = "rgba(82,236,227,0.28)";
+        ctx.strokeStyle = "rgba(79, 168, 255, 0.28)";
         ctx.lineWidth = 1;
         ctx.stroke();
-        ctx.beginPath();
-        ctx.arc(cx, cy, 9, 0, Math.PI * 2);
-        ctx.fillStyle = "rgba(82,236,227,0.95)";
-        ctx.shadowColor = "#52ece3";
-        ctx.shadowBlur = 14;
-        ctx.fill();
-        ctx.shadowBlur = 0;
       }
+      
+      // Core anchor stays permanently bright
       ctx.globalAlpha = 1;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 9, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(79, 168, 255, 0.95)";
+      ctx.shadowColor = "#4FA8FF";
+      ctx.shadowBlur = 14;
+      ctx.fill();
+      ctx.shadowBlur = 0;
 
       hubNodes.forEach((hub) => {
-        const isSelected = selectedHub === hub;
-        const dim = selectedHub && !isSelected;
+        const isSelected = effectiveHub === hub;
+        const dim = effectiveHub && !isSelected;
         const linkAlpha = Math.max(0, 1 - (dim ? drillT : 0));
         
         ctx.globalAlpha = linkAlpha;
@@ -203,7 +238,7 @@ export function GraphCanvas() {
           ctx.strokeStyle =
             hub.key === "conversations"
               ? `rgba(255,180,84,${0.25 + expandT * 0.25})`
-              : `rgba(82,236,227,${0.1 + expandT * 0.22})`;
+              : `rgba(79, 168, 255,${0.1 + expandT * 0.22})`;
           ctx.lineWidth = 1;
           ctx.beginPath();
           ctx.moveTo(cx, cy);
@@ -216,8 +251,8 @@ export function GraphCanvas() {
       if (expandT > 0.04) {
         hubNodes.forEach((hub) =>
           hub.leavesList.forEach((leaf: any) => {
-            const isSelectedHub = selectedHub === hub;
-            const dim = selectedHub && !isSelectedHub;
+            const isSelectedHub = effectiveHub === hub;
+            const dim = effectiveHub && !isSelectedHub;
             const alpha = Math.max(0, expandT - (dim ? drillT : 0));
             
             ctx.globalAlpha = alpha;
@@ -234,8 +269,8 @@ export function GraphCanvas() {
         );
         hubNodes.forEach((hub) =>
           hub.leavesList.forEach((leaf: any) => {
-            const isSelectedHub = selectedHub === hub;
-            const dim = selectedHub && !isSelectedHub;
+            const isSelectedHub = effectiveHub === hub;
+            const dim = effectiveHub && !isSelectedHub;
             const alpha = Math.max(0, expandT - (dim ? drillT : 0));
             
             ctx.globalAlpha = alpha;
@@ -264,8 +299,8 @@ export function GraphCanvas() {
       }
 
       hubNodes.forEach((hub) => {
-        const isSelected = selectedHub === hub;
-        const dim = selectedHub && !isSelected;
+        const isSelected = effectiveHub === hub;
+        const dim = effectiveHub && !isSelected;
         const alpha = Math.max(0, 1 - (dim ? drillT * 0.8 : 0));
         
         ctx.globalAlpha = alpha;
@@ -284,7 +319,7 @@ export function GraphCanvas() {
           ctx.lineWidth = 2;
           ctx.stroke();
         }
-        ctx.globalAlpha = dim ? 0.3 : 1;
+        ctx.globalAlpha = alpha;
         ctx.beginPath();
         ctx.arc(hub.x, hub.y, baseR, 0, Math.PI * 2);
         ctx.fillStyle = hub.color;
@@ -316,7 +351,7 @@ export function GraphCanvas() {
       if (drillT > 0.05) {
         ctx.globalAlpha = drillT;
         ctx.font = "600 13px JetBrains Mono, monospace";
-        ctx.fillStyle = "rgba(82,236,227,0.7)";
+        ctx.fillStyle = "rgba(79, 168, 255, 0.7)";
         ctx.fillText("← BACK", 20, 30);
         ctx.globalAlpha = 1;
       }
@@ -332,8 +367,9 @@ export function GraphCanvas() {
       // Increased to 0.70 per user request so the connecting lines are much longer
       const LEVEL_1_RADIUS = canvasRadius * 0.70;
       
-      const { expandT, drillT, selectedHub } = stateRef.current;
+      const { expandT, drillT, selectedHub, lastSelectedHub } = stateRef.current;
       const r = LEVEL_0_RADIUS + (LEVEL_1_RADIUS - LEVEL_0_RADIUS) * expandT;
+      const effectiveHub = selectedHub || lastSelectedHub;
 
       hubNodesRef.current.forEach((hub) => {
         const a = hub.angle + stateRef.current.angleBase;
@@ -341,8 +377,8 @@ export function GraphCanvas() {
         let targetHubX = cx + Math.cos(a) * r;
         let targetHubY = cy + Math.sin(a) * r;
         
-        if (selectedHub) {
-            if (selectedHub === hub) {
+        if (effectiveHub && drillT > 0.01) {
+            if (effectiveHub === hub) {
                 targetHubX = targetHubX + (cx - targetHubX) * drillT;
                 targetHubY = targetHubY + (cy - targetHubY) * drillT;
             } else {
@@ -358,7 +394,7 @@ export function GraphCanvas() {
         const LEAF_ORBIT_SPEED = 0.003 * speedMultiplier;
 
         hub.leavesList.forEach((leaf: any) => {
-          if (selectedHub === hub) {
+          if (effectiveHub === hub && drillT > 0.01) {
             leaf.angle += LEAF_ORBIT_SPEED;
             const targetDist = LEAF_ORBIT_RADIUS;
             const startDist = leaf.dist * (0.2 + expandT * 0.2); // tighter in level 0
@@ -443,6 +479,44 @@ export function GraphCanvas() {
     const cy = h / 2;
 
     if (stateRef.current.selectedHub) {
+      let hitLeaf: any = null;
+      let bestLeaf = 15;
+      stateRef.current.selectedHub.leavesList.forEach((leaf: any) => {
+        const d = Math.hypot(leaf.x - mx, leaf.y - my);
+        if (d < bestLeaf) {
+          hitLeaf = leaf;
+          bestLeaf = d;
+        }
+      });
+
+      if (hitLeaf) {
+        if (stateRef.current.selectedHub.key === "conversations") {
+          const convoId = hitLeaf.id.replace("conversations-leaf-", "");
+          import("../../../services/jarvisApi").then(({ getConversation }) => {
+            getConversation(convoId).then((history: any) => {
+              if (history && history.length > 0) {
+                const store = useConversationStore.getState();
+                store.clearConversation();
+                store.setConversationId(convoId);
+                history
+                  .filter((msg: any) => msg.role === "user" || msg.role === "assistant")
+                  .forEach((msg: any) => {
+                    store.addMessage({
+                      id: window.crypto?.randomUUID() || Math.random().toString(),
+                      role: msg.role,
+                      content: msg.content,
+                      timestamp: msg.timestamp || new Date().toISOString()
+                    });
+                  });
+                useAppStore.getState().setGraphOpen(false);
+                useAppStore.getState().setChatMode(true);
+              }
+            });
+          });
+        }
+        return;
+      }
+
       if (mx > 10 && mx < 80 && my > 10 && my < 40) {
         stateRef.current.selectedHub = null;
         setActiveHub(null);
@@ -479,17 +553,11 @@ export function GraphCanvas() {
       }
     });
 
-    if (hit && hit.key === "conversations") {
-      stateRef.current.selectedHub = null;
-      setActiveHub("conversations");
-      setConversationPanelOpen(true);
-      return;
-    }
-
     if (hit) {
       if (!graphOpen) setGraphOpen(true);
       setGraphFocused(true);
       stateRef.current.selectedHub = hit;
+      stateRef.current.lastSelectedHub = hit;
       setActiveHub(hit.key || hit.id);
       if (!externalChange.current) setGraphLevel(2);
     } else {

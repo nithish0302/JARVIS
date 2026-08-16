@@ -20,3 +20,7 @@ class BaseProvider(ABC):
     @abstractmethod
     async def is_available(self) -> bool:
         pass
+
+    @abstractmethod
+    async def stream(self, messages: List[Message]) -> 'typing.AsyncGenerator[str, None]':
+        pass

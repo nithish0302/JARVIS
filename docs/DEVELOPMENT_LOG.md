@@ -1276,3 +1276,14 @@ Thinking...\) and dynamically fetch memory count.
   - Added additional examples (`[UI_ACTION:chat_mode_on]`, `[UI_ACTION:graph_collapse]`) to the `UI_ACTION_INSTRUCTION` in `routes.py` to improve LLaMA 3.2 3B's reliability.
   - Refactored `useJarvisChat.ts` `onDone` callback to correctly parse UI actions *before* building the message and storing it in state.
 **Current status:** Complete. Parallel execution measured at ~9.6s. Frontend and backend tests pass. Build successful.
+
+## Phase 4 - Additional Providers
+**Milestone 1 - Groq Provider**
+**Date:** 2026-08-16
+**Objective:** Add support for Groq API to provide blazing-fast inference using Llama 3.3 70B models.
+**Decisions made:**
+- Created `GroqProvider` implementing `BaseProvider` to interface with the Groq API using the official Python SDK.
+- Updated `ProviderManager` to include `GroqProvider` as Priority 2, between OpenRouter and Ollama.
+- Expanded configuration in `config.py` and `.env.example` with `GROQ_API_KEY` and `GROQ_MODEL` settings.
+- Adjusted React frontend settings UI (`AIProviderSection.tsx`, `useAIStore.ts`) to offer Groq as a selectable provider with corresponding Llama 3 models.
+**Current status:** Complete. API tests confirm successful integration, and frontend build is successful.

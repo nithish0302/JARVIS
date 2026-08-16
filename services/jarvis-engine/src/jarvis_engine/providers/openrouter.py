@@ -71,3 +71,48 @@ class OpenRouterProvider(BaseProvider):
       )
     except Exception as e:
       return f"OpenRouter error: {str(e)}"
+
+  async def stream(
+    self,
+    messages: list[Message]
+  ) -> 'typing.AsyncGenerator[str, None]':
+    import json
+    from ..core.config import settings
+    payload = {
+      "model": settings.OPENROUTER_MODEL,
+      "messages": [
+        {"role": m.role, "content": m.content}
+        for m in messages
+        if m.role != "system" or m.content.strip() != ""
+      ],
+      "stream": True,
+    }
+    try:
+      async with httpx.AsyncClient(timeout=60.0) as client:
+        async with client.stream(
+          "POST",
+          "https://openrouter.ai/api/v1/chat/completions",
+          headers={
+            "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "http://localhost:1420",
+            "X-Title": "JARVIS",
+          },
+          json=payload
+        ) as response:
+          response.raise_for_status()
+          async for line in response.aiter_lines():
+            if line.startswith("data: "):
+              data_str = line[6:]
+              if data_str.strip() == "[DONE]":
+                break
+              try:
+                data = json.loads(data_str)
+                content = data["choices"][0].get("delta", {}).get("content")
+                if content:
+                  yield content
+              except Exception:
+                pass
+    except Exception as e:
+      # If streaming fails, raise exception so routes.py can catch it and fallback
+      raise e

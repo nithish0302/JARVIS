@@ -2,7 +2,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useAppStore } from "../../../stores/useAppStore";
 
 export function ActionFeedback() {
-  const { actionFeedback, actionFeedbackVisible } = useAppStore();
+  const actionFeedback = useAppStore(state => state.actionFeedback);
+  const actionFeedbackVisible = useAppStore(state => state.actionFeedbackVisible);
 
   return (
     <div className="h-[20px] flex items-center justify-center mt-2">

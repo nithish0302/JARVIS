@@ -2,13 +2,15 @@
 import { create } from "zustand";
 
 export interface AIState {
-  provider: "ollama" | "openrouter" | "claude";
+  provider: "ollama" | "openrouter" | "groq" | "gemini";
   model: string;
   status: "idle" | "connecting" | "streaming" | "error" | "offline";
   isStreaming: boolean;
   error: string | null;
   memoryCount: number;
   openrouterKey: string;
+  groqKey: string;
+  geminiKey: string;
   setProvider: (provider: AIState["provider"]) => void;
   setModel: (model: string) => void;
   setStatus: (status: AIState["status"]) => void;
@@ -16,6 +18,8 @@ export interface AIState {
   setError: (error: string | null) => void;
   setMemoryCount: (count: number) => void;
   setOpenrouterKey: (key: string) => void;
+  setGroqKey: (key: string) => void;
+  setGeminiKey: (key: string) => void;
 }
 
 export const useAIStore = create<AIState>((set) => ({
@@ -26,6 +30,8 @@ export const useAIStore = create<AIState>((set) => ({
   error: null,
   memoryCount: 0,
   openrouterKey: "",
+  groqKey: "",
+  geminiKey: "",
   setProvider: (provider) => set({ provider }),
   setModel: (model) => set({ model }),
   setStatus: (status) => set({ status }),
@@ -33,4 +39,6 @@ export const useAIStore = create<AIState>((set) => ({
   setError: (error) => set({ error }),
   setMemoryCount: (count) => set({ memoryCount: count }),
   setOpenrouterKey: (key) => set({ openrouterKey: key }),
+  setGroqKey: (key) => set({ groqKey: key }),
+  setGeminiKey: (key) => set({ geminiKey: key }),
 }));

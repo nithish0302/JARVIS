@@ -8,7 +8,7 @@ const HUBS = [
   { key: "files", label: "Files", color: "#7a8c93", leaves: 8 },
   { key: "notes", label: "Notes", color: "#52d68a", leaves: 7 },
   { key: "worlds", label: "Worlds", color: "#e8934b", leaves: 5 },
-  { key: "models", label: "Models", color: "#b98be8", leaves: 3 },
+  { key: "models", label: "Models", color: "#b98be8", leaves: 6 },
   { key: "conversations", label: "Conversations", color: "#ffb454", leaves: 0 },
 ];
 

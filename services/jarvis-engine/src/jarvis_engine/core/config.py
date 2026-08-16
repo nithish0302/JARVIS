@@ -10,6 +10,10 @@ class Settings(BaseSettings):
     TAVILY_API_KEY: str = ""
     TAVILY_MAX_RESULTS: int = 5
     SEARCH_PROVIDER: str = "tavily"
+    GROQ_API_KEY: str = ""
+    GROQ_MODEL: str = "llama-3.3-70b-versatile"
+    GEMINI_API_KEY: str = ""
+    GEMINI_MODEL: str = "gemini-2.5-flash"
     DB_PATH: str = "data/jarvis.db"
     VERSION: str = "0.1.0"
 

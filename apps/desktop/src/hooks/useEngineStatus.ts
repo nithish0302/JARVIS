@@ -9,15 +9,17 @@ export function useEngineStatus() {
     const check = async () => {
       try {
         const health = await checkHealth()
-        const ollamaProvider = health.providers.find(
-          p => p.name === "ollama"
-        )
-        if (ollamaProvider?.available) {
+        const activeProvider = health.providers.find(p => p.available)
+        
+        if (activeProvider) {
           setStatus("idle")
           setError(null)
+          // Ensure store typings are respected while syncing
+          useAIStore.getState().setProvider(activeProvider.name as any)
+          useAIStore.getState().setModel(activeProvider.model)
         } else {
           setStatus("offline")
-          setError("Ollama not available")
+          setError("No AI providers available")
         }
       } catch {
         setStatus("offline")

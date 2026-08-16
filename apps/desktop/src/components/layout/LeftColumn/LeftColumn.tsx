@@ -5,7 +5,11 @@ import { cn } from "../../../lib/cn";
 import { invoke } from "@tauri-apps/api/core";
 
 export function LeftColumn() {
-  const { graphOpen, activeHub, chatMode, setChatMode, inspectorMessage } = useAppStore();
+  const graphOpen = useAppStore(state => state.graphOpen);
+  const activeHub = useAppStore(state => state.activeHub);
+  const chatMode = useAppStore(state => state.chatMode);
+  const setChatMode = useAppStore(state => state.setChatMode);
+  const inspectorMessage = useAppStore(state => state.inspectorMessage);
 
   const [cpuUsage, setCpuUsage] = useState(0);
   const [cpuName, setCpuName] = useState("Unknown CPU");
@@ -80,7 +84,8 @@ export function LeftColumn() {
   };
 
   return (
-    <div className="side-col shrink-0 overflow-y-auto right-col-scroll pb-5 flex flex-col h-full gap-[14px]">
+    <div className="side-col shrink-0 flex flex-col h-full overflow-hidden">
+      <div className="flex-1 overflow-y-auto no-scrollbar flex flex-col gap-[14px] pb-4">
       <div className={cn("panel", activeHub ? "flex-[0_0_auto]" : "flex-[0_0_auto]")} id="inspector">
         <h3 className="flex items-center justify-between">
           Inspector
@@ -158,7 +163,9 @@ export function LeftColumn() {
         </div>
       </div>
 
-      <div className="mt-auto">
+      </div>
+
+      <div className="shrink-0 mt-2 mb-5">
         <button
           className={cn("w-full h-8 rounded-lg border text-[11px] font-mono tracking-widest uppercase transition-colors flex items-center justify-center gap-2 shadow-[0_4px_12px_rgba(0,0,0,0.2)]", 
             chatMode 

@@ -10,7 +10,7 @@ import aiosqlite
 from ..core.models import ChatRequest, ChatResponse, HealthResponse, Message, Memory, CreateMemoryRequest
 from ..core.config import settings
 from ..providers.manager import provider_manager
-from ..memory.conversation import save_message, get_conversation_messages, delete_conversation, get_conversations
+from ..memory.conversation import save_message, get_conversation_messages, delete_conversation, get_conversations, update_conversation_title
 from ..memory.memory_manager import memory_manager
 from ..tools.web_search import (
   search_web, format_search_results
@@ -63,7 +63,8 @@ UI_ACTION_REMINDER = (
     "tags to control the interface. Available: "
     "graph_open_hub:Skills/Tools/Files/Notes/Models, "
     "chat_mode_on, chat_mode_off, graph_collapse, "
-    "conversations_open"
+    "conversations_open, switch_provider:name, "
+    "new_chat[:title], rename_chat:title, delete_conversation:title, open_chat:title"
 )
 
 UI_ACTION_INSTRUCTION = """
@@ -83,17 +84,33 @@ Available UI actions:
 [UI_ACTION:graph_open_hub:Conversations] - Open Conversations
 [UI_ACTION:conversations_open] - Open conversation panel
 [UI_ACTION:conversations_close] - Close conversation panel
+[UI_ACTION:new_chat] - Start a new chat session / clear conversation
+[UI_ACTION:new_chat:Title] - Start a new chat session and pre-set its title
+[UI_ACTION:open_chat:Title] - Open an existing past chat by its title
+[UI_ACTION:rename_chat:Title] - Rename the current conversation to the given title
+[UI_ACTION:delete_conversation:Title] - Delete a past conversation by searching its title
 
 CRITICAL RULES FOR UI ACTIONS:
-- YOU MUST include the EXACT bracketed tag (e.g. [UI_ACTION:chat_mode_on]) whenever you are asked to perform an action.
-- Only use actions when user explicitly requests them
+- NEVER use a UI action unless the user EXPLICITLY asks you to perform that specific action.
+- If you are answering a question or providing search results, DO NOT include any UI actions!
+- YOU MUST include the EXACT bracketed tag (e.g. [UI_ACTION:chat_mode_on]) when requested.
 - Put action tags at the END of your response
 - Never show the raw tag text to the user
 - Multiple actions can be included if needed
-- If the user asks to open "memory index", "chat history", "list the chats", "list the chat", or "past chats", use [UI_ACTION:conversations_open]
+- If the user asks to open "memory index", "chat history", "list the chats", or "past chats", use [UI_ACTION:conversations_open]
+- If the user asks to "start a new chat", "open a new chat", or "clear the chat", use [UI_ACTION:new_chat]
+- If the user asks to start a new chat AND specifies a title, use [UI_ACTION:new_chat:Title]
+- If the user asks to open an existing old/past chat by name, use [UI_ACTION:open_chat:Title]
+- If the user asks to name/rename the CURRENT chat, use [UI_ACTION:rename_chat:Title]
+- If the user asks to delete a conversation, use [UI_ACTION:delete_conversation:Title]
 
 Examples:
 - User: "open skills" -> Assistant: "Opening skills now. [UI_ACTION:graph_open_hub:Skills]"
+- User: "start a new chat" -> Assistant: "Starting a fresh conversation. [UI_ACTION:new_chat]"
+- User: "open a new chat and name it ai news" -> Assistant: "Starting a new chat titled 'ai news'. [UI_ACTION:new_chat:ai news]"
+- User: "open ai news" or "open the ai news chat" -> Assistant: "Opening conversation 'ai news'. [UI_ACTION:open_chat:ai news]"
+- User: "name this chat as the 3050" -> Assistant: "Renaming chat to '3050'. [UI_ACTION:rename_chat:3050]"
+- User: "delete the 3050 conversation" -> Assistant: "Initiating deletion for the 3050 conversation. [UI_ACTION:delete_conversation:3050]"
 - User: "switch to chat mode" -> Assistant: "Switching to chat mode. [UI_ACTION:chat_mode_on]"
 - User: "close the chat mode" -> Assistant: "Switching back to graph mode. [UI_ACTION:chat_mode_off]"
 - User: "collapse the graph" -> Assistant: "Collapsing the graph. [UI_ACTION:graph_collapse]"
@@ -138,9 +155,13 @@ async def chat_endpoint(request: ChatRequest):
             search_context_accumulated = "\n\n" + "\n".join(m.content for m in system_msgs)
             search_context_accumulated += "\n" + SEARCH_STRICT_INSTRUCTION
             
+    active_provider = provider_manager.providers[0]
+    available_providers = ", ".join(p.name.title() for p in provider_manager.providers)
+    system_state = f"\n<SYSTEM_STATE>\nActive AI Brain (Provider): {active_provider.name.title()}\nActive Model: {active_provider.model}\nAvailable Brains: {available_providers}\n</SYSTEM_STATE>\nIf the user asks to switch models or brains to an available brain, you MUST use [UI_ACTION:switch_provider:provider_name] (e.g. [UI_ACTION:switch_provider:gemini] or [UI_ACTION:switch_provider:groq]).\n"
+            
     system_message = Message(
         role="system",
-        content=JARVIS_SYSTEM_PROMPT + memory_context + search_context_accumulated + "\n" + UI_ACTION_INSTRUCTION,
+        content=JARVIS_SYSTEM_PROMPT + memory_context + search_context_accumulated + "\n" + UI_ACTION_INSTRUCTION + system_state,
         timestamp=""
     )
         
@@ -259,9 +280,13 @@ async def chat_stream_endpoint(
           search_context_accumulated = "\n\n" + "\n".join(m.content for m in system_msgs)
           search_context_accumulated += "\n" + SEARCH_STRICT_INSTRUCTION
           
+    active_provider = provider_manager.providers[0]
+    available_providers = ", ".join(p.name.title() for p in provider_manager.providers)
+    system_state = f"\n<SYSTEM_STATE>\nActive AI Brain (Provider): {active_provider.name.title()}\nActive Model: {active_provider.model}\nAvailable Brains: {available_providers}\n</SYSTEM_STATE>\nIf the user asks to switch models or brains to an available brain, you MUST use [UI_ACTION:switch_provider:provider_name] (e.g. [UI_ACTION:switch_provider:gemini] or [UI_ACTION:switch_provider:groq]).\n"
+
     system_message = Message(
       role="system",
-      content=JARVIS_SYSTEM_PROMPT + memory_context + search_context_accumulated + "\n" + UI_ACTION_INSTRUCTION,
+      content=JARVIS_SYSTEM_PROMPT + memory_context + search_context_accumulated + "\n" + UI_ACTION_INSTRUCTION + system_state,
       timestamp=""
     )
     
@@ -318,22 +343,38 @@ async def chat_stream_endpoint(
             "sources": []
           }) + "\n"
 
-        # Stream tokens from Ollama
+        # Stream tokens with fallback
         full_response_parts = []
+        provider_used_name = "unknown"
+        model_used_name = "unknown"
+
         try:
-          async for token in (
-            provider_manager.providers[0].stream(
-              full_messages
-            )
-          ):
-            full_response_parts.append(token)
-            yield json_module.dumps({
-              "type": "token",
-              "content": token
-            }) + "\n"
-        except Exception as stream_err:
-          print(f"Stream token error: {stream_err}")
-          # If streaming fails midway, yield what we have
+          for provider in provider_manager.providers:
+            if not await provider.is_available():
+                continue
+
+            provider_used_name = provider.name
+            model_used_name = provider.model
+
+            try:
+              async for token in provider.stream(full_messages):
+                full_response_parts.append(token)
+                yield json_module.dumps({
+                  "type": "token",
+                  "content": token
+                }) + "\n"
+              
+              # Stream completed successfully
+              break
+            except Exception as stream_err:
+              print(f"Stream error for {provider.name}: {stream_err}")
+              if full_response_parts:
+                # Already yielded parts, can't cleanly fallback
+                break
+              # Fallback to the next provider
+              continue
+        except Exception as e:
+          print(f"Streaming failed across providers: {e}")
 
         if search_task is not None:
           try:
@@ -368,8 +409,8 @@ async def chat_stream_endpoint(
               conversation_id=conversation_id,
               role="assistant",
               content=complete_response,
-              provider_used="ollama",
-              model_used=provider_manager.providers[0].model
+              provider_used=provider_used_name,
+              model_used=model_used_name
             )
           except Exception as save_err:
             print(f"Save message error: {save_err}")
@@ -443,6 +484,17 @@ async def get_conversation_endpoint(conversation_id: str):
 async def delete_conversation_endpoint(conversation_id: str):
     await delete_conversation(conversation_id)
     return {"status": "deleted", "conversation_id": conversation_id}
+
+class UpdateTitleRequest(BaseModel):
+    title: str
+
+@router.put("/conversation/{conversation_id}/title")
+async def update_conversation_title_endpoint(conversation_id: str, request: UpdateTitleRequest):
+    try:
+        await update_conversation_title(conversation_id, request.title)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"status": "updated", "conversation_id": conversation_id, "title": request.title}
 
 @router.get("/providers")
 async def get_providers_endpoint():
@@ -523,14 +575,37 @@ async def deduplicate_memories():
     }
 
 @router.post("/config/openrouter-key")
-async def set_openrouter_key(
-  request: dict
-):
+async def set_openrouter_key(request: dict):
   key = request.get("api_key", "")
-  # Store in environment for this session
   import os
+  from dotenv import set_key
   os.environ["OPENROUTER_API_KEY"] = key
-  # Reload settings
+  env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), ".env")
+  set_key(env_path, "OPENROUTER_API_KEY", key)
   from ..core.config import settings
   settings.OPENROUTER_API_KEY = key
+  return {"status": "updated"}
+
+@router.post("/config/groq-key")
+async def set_groq_key(request: dict):
+  key = request.get("api_key", "")
+  import os
+  from dotenv import set_key
+  os.environ["GROQ_API_KEY"] = key
+  env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), ".env")
+  set_key(env_path, "GROQ_API_KEY", key)
+  from ..core.config import settings
+  settings.GROQ_API_KEY = key
+  return {"status": "updated"}
+
+@router.post("/config/gemini-key")
+async def set_gemini_key(request: dict):
+  key = request.get("api_key", "")
+  import os
+  from dotenv import set_key
+  os.environ["GEMINI_API_KEY"] = key
+  env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), ".env")
+  set_key(env_path, "GEMINI_API_KEY", key)
+  from ..core.config import settings
+  settings.GEMINI_API_KEY = key
   return {"status": "updated"}

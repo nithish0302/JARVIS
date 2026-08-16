@@ -7,6 +7,7 @@ import { SourcesList } from "../SourcesList/SourcesList";
 
 export function ChatFullView() {
   const { messages, sendUserMessage, isTyping, streamingMessageId, streamingContent, streamingSearchQuery } = useJarvisChat();
+  const currentConversationTitle = useConversationStore((state) => state.currentConversationTitle);
   const [inputValue, setInputValue] = useState("");
   const logRef = useRef<HTMLDivElement>(null);
 
@@ -29,7 +30,7 @@ export function ChatFullView() {
     }
   }, [messages, isTyping, streamingContent]);
 
-  const { clearConversation } = useConversationStore();
+  const clearConversation = useConversationStore(state => state.clearConversation);
 
   const handleNewChat = () => {
     clearConversation();
@@ -50,9 +51,11 @@ export function ChatFullView() {
   };
 
   const getTitle = () => {
-    if (!messages || messages.length === 0) return "New Conversation";
+    if (currentConversationTitle) return currentConversationTitle.toUpperCase();
+    if (!messages || messages.length === 0) return "NEW CONVERSATION";
     const firstMsg = messages[0].content;
-    return firstMsg.length > 40 ? firstMsg.substring(0, 40) + "..." : firstMsg;
+    const title = firstMsg.length > 40 ? firstMsg.substring(0, 40) + "..." : firstMsg;
+    return title.toUpperCase();
   };
 
   const allMessages = [...messages];

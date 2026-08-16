@@ -4,14 +4,12 @@ import { cn } from "../../../lib/cn";
 import { useState } from "react";
 
 export function Dock() {
-  const {
-    graphOpen,
-    setGraphOpen,
-    conversationPanelOpen,
-    setConversationPanelOpen,
-    view,
-    setView,
-  } = useAppStore();
+  const graphOpen = useAppStore(state => state.graphOpen);
+  const setGraphOpen = useAppStore(state => state.setGraphOpen);
+  const conversationPanelOpen = useAppStore(state => state.conversationPanelOpen);
+  const setConversationPanelOpen = useAppStore(state => state.setConversationPanelOpen);
+  const view = useAppStore(state => state.view);
+  const setView = useAppStore(state => state.setView);
 
   const [listening, setListening] = useState(false);
 

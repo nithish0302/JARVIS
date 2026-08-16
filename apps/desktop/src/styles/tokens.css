@@ -6,37 +6,80 @@
 
 :root {
   /* Colors */
-  --color-background: #04070a;
-  --color-background-secondary: #0b1220;
-  --color-cyan: #52ece3;
-  --color-amber: #ffb454;
-  --color-panel: rgba(11,20,27,0.68);
-  --color-panel-solid: #0b141b;
-  --color-line: rgba(88,232,224,0.16);
-  --color-line-strong: rgba(88,232,224,0.32);
-  --color-muted-dim: #435357;
-  --text: #e7f6f4;
-  --muted: #6f8d92;
-  --color-surface: #111827;
-  --color-surface-raised: var(--color-surface);
-  --color-accent: #00d4ff;
+  --color-background: var(--bg-base);
+  --color-background-secondary: var(--bg-elevated);
+  --bg-base: #070B14;
+  --bg-elevated: #0D1420;
+  --bg-glass: rgba(13, 20, 32, 0.55);
+  --bg-glass-strong: rgba(13, 20, 32, 0.75);
+
+  --border-soft: rgba(255, 255, 255, 0.08);
+
+  --text-primary: #E8EEF7;
+  --text-secondary: #8B98AC;
+
+  --font-ui: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Consolas', monospace;
+
+  /* Blue — system / JARVIS voice */
+  --blue: #4FA8FF;
+  --blue-bg: rgba(79, 168, 255, 0.09);
+  --blue-border: rgba(79, 168, 255, 0.3);
+
+  /* Violet — session / user */
+  --violet: #B79CFF;
+  --violet-bg: rgba(183, 156, 255, 0.10);
+  --violet-border: rgba(183, 156, 255, 0.32);
+
+  /* Green — connection/success status only */
+  --green: #4ADE9C;
+  --green-bg: rgba(74, 222, 156, 0.09);
+  --green-border: rgba(74, 222, 156, 0.32);
+
+  /* Amber — warnings only */
+  --amber: #FFC067;
+  --amber-bg: rgba(255, 192, 103, 0.09);
+  --amber-border: rgba(255, 192, 103, 0.32);
+
+  /* Coral — errors/critical only */
+  --coral: #FF6B6B;
+  --coral-bg: rgba(255, 107, 107, 0.09);
+  --coral-border: rgba(255, 107, 107, 0.32);
+
+  /* Pink — voice/listening state only */
+  --pink: #FF7EDB;
+  --pink-bg: rgba(255, 126, 219, 0.10);
+  --pink-border: rgba(255, 126, 219, 0.35);
+
+  /* Legacy Colors (Keep for fallback during refactor) */
+  --color-cyan: var(--blue);
+  --color-amber: var(--amber);
+  --color-panel: var(--bg-glass);
+  --color-panel-solid: var(--bg-elevated);
+  --color-line: var(--border-soft);
+  --color-line-strong: var(--blue-border);
+  --color-muted-dim: var(--text-secondary);
+  --text: var(--text-primary);
+  --muted: var(--text-secondary);
+  --color-surface: var(--bg-elevated);
+  --color-surface-raised: var(--bg-elevated);
+  --color-accent: var(--blue);
   --color-accent-hover: #38bdf8;
-  --color-highlight: #4fe6ff;
-  --color-success: #22c55e;
-  --color-warning: #facc15;
-  --color-error: #ef4444;
-  --color-text-primary: CanvasText;
-  --color-text-secondary: color-mix(in srgb, CanvasText 70%, transparent);
-  --color-text-muted: var(--color-text-secondary);
-  --color-border: color-mix(in srgb, var(--color-surface) 70%, var(--color-accent) 30%);
-  --color-border-subtle: color-mix(in srgb, var(--color-surface) 85%, var(--color-background) 15%);
-  --color-border-focus: var(--color-accent);
+  --color-highlight: var(--blue);
+  --color-success: var(--green);
+  --color-warning: var(--amber);
+  --color-error: var(--coral);
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-secondary);
+  --color-border: var(--border-soft);
+  --color-border-subtle: var(--border-soft);
+  --color-border-focus: var(--blue);
 
   /* Typography */
-  --font-family-sans: Inter, system-ui, sans-serif;
-  --font-family-mono: SFMono-Regular, Consolas, Liberation Mono, monospace;
+  --font-family-sans: var(--font-ui);
+  --font-family-mono: var(--font-mono);
   --font-display: 'Rajdhani', sans-serif;
-  --font-mono: 'JetBrains Mono', monospace;
   --font-size-caption: 0.75rem;
   --font-size-sm: 0.875rem;
   --font-size-body: 1rem;
@@ -114,26 +157,70 @@
 
 [data-theme="dark"] {
   /* Colors */
-  --color-background: #05080f;
-  --color-background-secondary: #0b1220;
-  --color-surface: #111827;
-  --color-surface-raised: var(--color-surface);
-  --color-accent: #00d4ff;
+  --color-background: var(--bg-base);
+  --color-background-secondary: var(--bg-elevated);
+  --bg-base: #070B14;
+  --bg-elevated: #0D1420;
+  --bg-glass: rgba(13, 20, 32, 0.55);
+  --bg-glass-strong: rgba(13, 20, 32, 0.75);
+
+  --border-soft: rgba(255, 255, 255, 0.08);
+
+  --text-primary: #E8EEF7;
+  --text-secondary: #8B98AC;
+
+  --font-ui: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Consolas', monospace;
+
+  /* Blue — system / JARVIS voice */
+  --blue: #4FA8FF;
+  --blue-bg: rgba(79, 168, 255, 0.09);
+  --blue-border: rgba(79, 168, 255, 0.3);
+
+  /* Violet — session / user */
+  --violet: #B79CFF;
+  --violet-bg: rgba(183, 156, 255, 0.10);
+  --violet-border: rgba(183, 156, 255, 0.32);
+
+  /* Green — connection/success status only */
+  --green: #4ADE9C;
+  --green-bg: rgba(74, 222, 156, 0.09);
+  --green-border: rgba(74, 222, 156, 0.32);
+
+  /* Amber — warnings only */
+  --amber: #FFC067;
+  --amber-bg: rgba(255, 192, 103, 0.09);
+  --amber-border: rgba(255, 192, 103, 0.32);
+
+  /* Coral — errors/critical only */
+  --coral: #FF6B6B;
+  --coral-bg: rgba(255, 107, 107, 0.09);
+  --coral-border: rgba(255, 107, 107, 0.32);
+
+  /* Pink — voice/listening state only */
+  --pink: #FF7EDB;
+  --pink-bg: rgba(255, 126, 219, 0.10);
+  --pink-border: rgba(255, 126, 219, 0.35);
+
+  /* Legacy Colors (Keep for fallback during refactor) */
+  --color-surface: var(--bg-elevated);
+  --color-surface-raised: var(--bg-elevated);
+  --color-accent: var(--blue);
   --color-accent-hover: #38bdf8;
-  --color-highlight: #4fe6ff;
-  --color-success: #22c55e;
-  --color-warning: #facc15;
-  --color-error: #ef4444;
-  --color-text-primary: CanvasText;
-  --color-text-secondary: color-mix(in srgb, CanvasText 70%, transparent);
-  --color-text-muted: var(--color-text-secondary);
-  --color-border: color-mix(in srgb, var(--color-surface) 70%, var(--color-accent) 30%);
-  --color-border-subtle: color-mix(in srgb, var(--color-surface) 85%, var(--color-background) 15%);
-  --color-border-focus: var(--color-accent);
+  --color-highlight: var(--blue);
+  --color-success: var(--green);
+  --color-warning: var(--amber);
+  --color-error: var(--coral);
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-secondary);
+  --color-border: var(--border-soft);
+  --color-border-subtle: var(--border-soft);
+  --color-border-focus: var(--blue);
 
   /* Typography */
-  --font-family-sans: Inter, system-ui, sans-serif;
-  --font-family-mono: SFMono-Regular, Consolas, Liberation Mono, monospace;
+  --font-family-sans: var(--font-ui);
+  --font-family-mono: var(--font-mono);
   --font-size-caption: 0.75rem;
   --font-size-sm: 0.875rem;
   --font-size-body: 1rem;

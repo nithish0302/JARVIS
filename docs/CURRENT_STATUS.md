@@ -61,7 +61,15 @@ Status: **Complete**
 
 The fifth milestone of Phase 3 is complete. The JARVIS system now supports parallel background search. The AI response streams immediately while the web search executes in the background. Search context is appended to the conversation history as a system message so that follow-up questions can reference the live information, and the sources are piped to the frontend in the final "done" chunk.
 
-The next milestone for Phase 3 will be Milestone 6.
+**Phase 4 - Additional Providers**
+
+**Milestone 1 - Groq Provider**
+
+Status: **Complete**
+
+The first milestone of Phase 4 is complete. The JARVIS system now supports the Groq API provider for blazing-fast inference using Llama 3.3 70B models. The UI has been updated to reflect the new provider options (OpenRouter, Groq, Ollama) and connection priority is appropriately configured.
+
+The next milestone for Phase 4 will be expanding additional capabilities.
 
 ## Current technology stack
 
