@@ -43,6 +43,14 @@ class GroqProvider(BaseProvider):
       )
       return response.choices[0].message.content
     except Exception as e:
+      if "model" in str(e).lower() or \
+         "404" in str(e) or "400" in str(e):
+        response = client.chat.completions.create(
+          model="llama3-8b-8192",
+          messages=groq_messages,
+          max_tokens=2048,
+        )
+        return response.choices[0].message.content
       return f"Groq error: {str(e)}"
 
   async def stream(
@@ -68,4 +76,17 @@ class GroqProvider(BaseProvider):
         if content:
           yield content
     except Exception as e:
-      raise e
+      if "model" in str(e).lower() or \
+         "404" in str(e) or "400" in str(e):
+        response = client.chat.completions.create(
+          model="llama3-8b-8192",
+          messages=groq_messages,
+          max_tokens=2048,
+          stream=True,
+        )
+        for chunk in response:
+          content = chunk.choices[0].delta.content
+          if content:
+            yield content
+      else:
+        raise e

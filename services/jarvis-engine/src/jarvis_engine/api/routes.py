@@ -226,16 +226,16 @@ Request: "lock my screen"
 {{"action_type":"SYSTEM_CONTROL","command":"lock_screen","description":"Locking your Windows screen","requires_confirmation":false,"display_output":false}}
 
 Request: "open google and search JARVIS AI"
-{"action_type":"OPEN_URL","command":"https://google.com/search?q=JARVIS+AI","browser":"firefox","description":"Searching JARVIS AI on Google","requires_confirmation":false,"display_output":false}
+{{"action_type":"OPEN_URL","command":"https://google.com/search?q=JARVIS+AI","browser":"firefox","description":"Searching JARVIS AI on Google","requires_confirmation":false,"display_output":false}}
 
 Request: "open store and search forza 6"
-{"action_type":"OPEN_URL","command":"ms-windows-store://search?query=forza+6","browser":"default","description":"Opening Microsoft Store and searching for Forza 6","requires_confirmation":false,"display_output":false}
+{{"action_type":"OPEN_URL","command":"ms-windows-store://search?query=forza+6","browser":"default","description":"Opening Microsoft Store and searching for Forza 6","requires_confirmation":false,"display_output":false}}
 
 Request: "open youtube and search tamil songs"
-{"action_type":"OPEN_URL","command":"https://youtube.com/results?search_query=tamil+songs","browser":"firefox","description":"Searching Tamil songs on YouTube","requires_confirmation":false,"display_output":false}
+{{"action_type":"OPEN_URL","command":"https://youtube.com/results?search_query=tamil+songs","browser":"firefox","description":"Searching Tamil songs on YouTube","requires_confirmation":false,"display_output":false}}
 
 Request: "open amazon and search laptop"
-{"action_type":"OPEN_URL","command":"https://amazon.in/s?k=laptop","browser":"firefox","description":"Searching laptop on Amazon","requires_confirmation":false,"display_output":false}
+{{"action_type":"OPEN_URL","command":"https://amazon.in/s?k=laptop","browser":"firefox","description":"Searching laptop on Amazon","requires_confirmation":false,"display_output":false}}
 
 Common searchable URLs:
 - YouTube: https://youtube.com/results?search_query=QUERY
@@ -348,36 +348,92 @@ async def get_automation_context_str(automation_results: list[dict]) -> str:
 def deduplicate_actions(
   results: list[dict]
 ) -> list[dict]:
+  if not results:
+    return results
   
-  # If any OPEN_URL exists for a browser,
-  # remove OPEN_APP for that same browser
-  browsers_with_url = set()
+  # Step 1: Find all browsers that have
+  # a URL to open
+  browsers_opening_url = set()
   for r in results:
     if r.get("action_type") == "OPEN_URL":
-      browser = r.get("browser", "").lower()
-      browsers_with_url.add(browser)
+      browser = r.get("browser", "firefox")\
+        .lower().strip()
+      # Normalize browser names
+      if any(x in browser for x in 
+             ["firefox", "mozilla"]):
+        browsers_opening_url.add("firefox")
+      elif any(x in browser for x in 
+               ["edge", "microsoft"]):
+        browsers_opening_url.add("edge")
+      elif any(x in browser for x in 
+               ["chrome", "google"]):
+        browsers_opening_url.add("chrome")
+      else:
+        browsers_opening_url.add(browser)
   
-  # Browser name to app name mapping
-  browser_app_names = {
-    "firefox": ["firefox", "mozilla firefox",
-                "mozilla"],
-    "edge": ["edge", "microsoft edge"],
-    "chrome": ["chrome", "google chrome"],
-  }
+  if not browsers_opening_url:
+    return results
   
+  # Step 2: Remove OPEN_APP for any browser
+  # that already has an OPEN_URL
   filtered = []
   for r in results:
-    if r.get("action_type") == "OPEN_APP":
-      app = r.get("command", "").lower()
-      skip = False
-      for browser, names in \
-          browser_app_names.items():
-        if browser in browsers_with_url and \
-           any(n in app for n in names):
-          skip = True
-          break
-      if not skip:
+    if r.get("action_type") != "OPEN_APP":
+      filtered.append(r)
+      continue
+    
+    # Check if this app is a browser that
+    # already has a URL opening
+    app_name = r.get("command", "")\
+      .lower().strip()
+    
+    is_duplicate_browser = False
+    
+    if "firefox" in browsers_opening_url or \
+       "mozilla" in browsers_opening_url:
+      if any(x in app_name for x in 
+             ["firefox", "mozilla"]):
+        is_duplicate_browser = True
+    
+    if "edge" in browsers_opening_url:
+      if any(x in app_name for x in 
+             ["edge", "msedge"]):
+        is_duplicate_browser = True
+    
+    if "chrome" in browsers_opening_url:
+      if any(x in app_name for x in 
+             ["chrome"]):
+        is_duplicate_browser = True
+    
+    if not is_duplicate_browser:
+      filtered.append(r)
+  
+  return filtered
+
+def remove_duplicate_apps(
+  results: list[dict]
+) -> list[dict]:
+  seen_apps = set()
+  seen_urls = set()
+  filtered = []
+  
+  for r in results:
+    action_type = r.get("action_type", "")
+    
+    if action_type == "OPEN_APP":
+      app = r.get("command", "").lower().strip()
+      if app not in seen_apps:
+        seen_apps.add(app)
         filtered.append(r)
+      # else: skip duplicate
+      
+    elif action_type == "OPEN_URL":
+      url = r.get("command", "").lower().strip()
+      if url not in seen_urls:
+        seen_urls.add(url)
+        filtered.append(r)
+      # else: skip duplicate
+      
     else:
       filtered.append(r)
   
@@ -394,7 +450,7 @@ async def generate_automation_command(
     
     response = await asyncio.to_thread(
       client.chat.completions.create,
-      model="llama-3.3-70b-versatile",
+      model="groq/compound",
       messages=[{
         "role": "user",
         "content": COMMAND_GENERATION_PROMPT.format(
@@ -407,20 +463,28 @@ async def generate_automation_command(
     
     text = response.choices[0].message.content.strip()
     import re
-    # Try array first
+    automation_results = []
     arr_match = re.search(r'\[.*\]', text, re.DOTALL)
+    obj_match = re.search(r'\{.*\}', text, re.DOTALL)
+    
     if arr_match:
       parsed = json_module.loads(arr_match.group())
       if isinstance(parsed, list):
-        return deduplicate_actions(parsed)
+        automation_results = parsed
     # Try single object
-    obj_match = re.search(r'\{.*\}', text, re.DOTALL)
-    if obj_match:
-      parsed = [json_module.loads(obj_match.group())]
-      return deduplicate_actions(parsed)
-    return []
+    elif obj_match:
+      automation_results = [json_module.loads(obj_match.group())]
+      
+    print(f"Raw automation results: {automation_results}")
+    automation_results = deduplicate_actions(automation_results)
+    automation_results = remove_duplicate_apps(automation_results)
+    print(f"After dedup: {automation_results}")
+    
+    return automation_results
     
   except Exception as e:
+    import traceback
+    traceback.print_exc()
     print(f"Command generation error: {e}")
     return []
 
