@@ -2,6 +2,7 @@ use std::sync::Mutex;
 use sysinfo::System;
 use std::process::Command;
 use std::path::Path;
+use std::fs;
 
 pub struct SysState(pub Mutex<System>);
 
@@ -437,6 +438,256 @@ fn open_url_in_browser(url: String, browser: String) -> Result<String, String> {
     }
 }
 
+// List files in a directory
+#[tauri::command]
+fn list_directory(path: String) 
+  -> Result<serde_json::Value, String> {
+  
+  // Expand common shortcuts
+  let expanded = path
+    .replace("~", &std::env::var("USERPROFILE")
+      .unwrap_or_default())
+    .replace("%USERPROFILE%", 
+      &std::env::var("USERPROFILE")
+        .unwrap_or_default())
+    .replace("%DESKTOP%",
+      &format!("{}\\Desktop",
+        std::env::var("USERPROFILE")
+          .unwrap_or_default()));
+  
+  match fs::read_dir(&expanded) {
+    Ok(entries) => {
+      let mut files = vec![];
+      let mut folders = vec![];
+      
+      for entry in entries.flatten() {
+        let name = entry.file_name()
+          .to_string_lossy()
+          .to_string();
+        let is_dir = entry.path().is_dir();
+        let size = if !is_dir {
+          entry.metadata()
+            .map(|m| m.len())
+            .unwrap_or(0)
+        } else { 0 };
+        
+        if is_dir {
+          folders.push(serde_json::json!({
+            "name": name,
+            "type": "folder",
+            "size": 0
+          }));
+        } else {
+          files.push(serde_json::json!({
+            "name": name,
+            "type": "file",
+            "size": size
+          }));
+        }
+      }
+      
+      Ok(serde_json::json!({
+        "path": expanded,
+        "folders": folders,
+        "files": files,
+        "total": folders.len() + files.len()
+      }))
+    }
+    Err(e) => Err(format!(
+      "Cannot read directory {}: {}", path, e
+    ))
+  }
+}
+
+// Create a folder
+#[tauri::command]
+fn create_folder(path: String)
+  -> Result<String, String> {
+
+  let expanded = path
+    .replace("~", &std::env::var("USERPROFILE")
+      .unwrap_or_default())
+    .replace("%DESKTOP%",
+      &format!("{}\\Desktop",
+        std::env::var("USERPROFILE")
+          .unwrap_or_default()));
+
+  // Check if folder already exists
+  if std::path::Path::new(&expanded).exists() {
+    return Ok(format!(
+      "Folder already exists: {}", expanded
+    ));
+  }
+
+  match fs::create_dir_all(&expanded) {
+    Ok(_) => Ok(format!(
+      "Created folder: {}", expanded
+    )),
+    Err(e) => Err(format!(
+      "Failed to create folder: {}", e
+    ))
+  }
+}
+
+// Read a text file
+#[tauri::command]
+fn read_file(path: String) 
+  -> Result<String, String> {
+  
+  // Safety: only allow reading text files
+  let allowed_extensions = vec![
+    "txt", "md", "json", "csv", "log",
+    "ini", "cfg", "yaml", "yml", "toml",
+    "py", "js", "ts", "rs", "html", "css",
+    "xml", "env", "gitignore",
+  ];
+  
+  let ext = std::path::Path::new(&path)
+    .extension()
+    .and_then(|e| e.to_str())
+    .unwrap_or("")
+    .to_lowercase();
+  
+  if !allowed_extensions.contains(&ext.as_str())
+     && !ext.is_empty() {
+    return Err(format!(
+      "Cannot read file type: .{}", ext
+    ));
+  }
+  
+  // Limit file size to 100KB
+  let metadata = fs::metadata(&path)
+    .map_err(|e| format!("File not found: {}", e))?;
+  
+  if metadata.len() > 102400 {
+    return Err(
+      "File too large to read (max 100KB)".to_string()
+    );
+  }
+  
+  fs::read_to_string(&path)
+    .map_err(|e| format!("Cannot read file: {}", e))
+}
+
+// Open file with default application
+#[tauri::command]
+fn open_file(path: String) 
+  -> Result<String, String> {
+  match open::that(&path) {
+    Ok(_) => Ok(format!(
+      "Opened: {}", path
+    )),
+    Err(e) => Err(format!(
+      "Cannot open file: {}", e
+    ))
+  }
+}
+
+// Show file in Windows Explorer
+#[tauri::command]
+fn show_in_explorer(path: String) 
+  -> Result<String, String> {
+  match Command::new("explorer")
+    .args(["/select,", &path])
+    .spawn() {
+    Ok(_) => Ok(format!(
+      "Showing {} in Explorer", path
+    )),
+    Err(e) => Err(format!("Failed: {}", e))
+  }
+}
+
+// Rename or move a file/folder
+#[tauri::command]
+fn rename_item(
+  from: String,
+  to: String
+) -> Result<String, String> {
+  match fs::rename(&from, &to) {
+    Ok(_) => Ok(format!(
+      "Renamed {} to {}", from, to
+    )),
+    Err(e) => Err(format!(
+      "Rename failed: {}", e
+    ))
+  }
+}
+
+// Delete file (requires confirmation flag)
+#[tauri::command]
+fn delete_file(
+  path: String,
+  confirmed: bool
+) -> Result<String, String> {
+  if !confirmed {
+    return Err(format!(
+      "REQUIRES_CONFIRMATION:Delete {}?", path
+    ));
+  }
+  
+  let p = std::path::Path::new(&path);
+  let result = if p.is_dir() {
+    fs::remove_dir_all(&path)
+  } else {
+    fs::remove_file(&path)
+  };
+  
+  match result {
+    Ok(_) => Ok(format!("Deleted: {}", path)),
+    Err(e) => Err(format!(
+      "Delete failed: {}", e
+    ))
+  }
+}
+
+// Shutdown computer with confirmation
+#[tauri::command]
+fn shutdown_computer(confirmed: bool)
+  -> Result<String, String> {
+  if !confirmed {
+    return Err(
+      "REQUIRES_CONFIRMATION:Shutdown computer?"
+        .to_string()
+    );
+  }
+  Command::new("shutdown")
+    .args(["/s", "/t", "30", "/c",
+           "JARVIS initiated shutdown"])
+    .spawn()
+    .map(|_| "Shutting down in 30 seconds. \
+               Say 'cancel shutdown' to abort."
+               .to_string())
+    .map_err(|e| format!("Failed: {}", e))
+}
+
+// Cancel shutdown
+#[tauri::command]
+fn cancel_shutdown() -> Result<String, String> {
+  Command::new("shutdown")
+    .args(["/a"])
+    .spawn()
+    .map(|_| "Shutdown cancelled, sir.".to_string())
+    .map_err(|e| format!("Failed: {}", e))
+}
+
+// Restart computer with confirmation
+#[tauri::command]
+fn restart_computer(confirmed: bool)
+  -> Result<String, String> {
+  if !confirmed {
+    return Err(
+      "REQUIRES_CONFIRMATION:Restart computer?"
+        .to_string()
+    );
+  }
+  Command::new("shutdown")
+    .args(["/r", "/t", "30"])
+    .spawn()
+    .map(|_| "Restarting in 30 seconds."
+           .to_string())
+    .map_err(|e| format!("Failed: {}", e))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let sys = System::new_all();
@@ -453,6 +704,16 @@ pub fn run() {
             get_battery_info,
             get_disk_info,
             open_url_in_browser,
+            list_directory,
+            create_folder,
+            read_file,
+            open_file,
+            show_in_explorer,
+            rename_item,
+            delete_file,
+            shutdown_computer,
+            cancel_shutdown,
+            restart_computer,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

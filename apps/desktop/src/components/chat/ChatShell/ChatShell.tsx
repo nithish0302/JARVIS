@@ -3,6 +3,7 @@ import { cn } from "../../../lib/cn";
 import { useJarvisChat } from "../../../hooks/useJarvisChat";
 import { useAppStore } from "../../../stores/useAppStore";
 import { useConversationStore } from "../../../stores/useConversationStore";
+import { ConfirmationButtons } from "../ConfirmationButtons/ConfirmationButtons";
 
 export function ChatShell() {
   const { messages, sendUserMessage, isTyping, streamingMessageId, streamingContent, streamingSearchQuery } = useJarvisChat();
@@ -53,6 +54,7 @@ export function ChatShell() {
       "absolute left-1/2 bottom-[16px] -translate-x-1/2 w-[min(680px,88%)] z-10",
       graphFocused && "nodes-focused"
     )}>
+      <ConfirmationButtons />
       <div className="flex items-center gap-2 rounded-[14px] p-[6px_6px_6px_16px] shadow-[0_8px_30px_rgba(0,0,0,0.4)]"
            style={{ background: 'var(--color-panel-solid)', border: '1px solid var(--color-line-strong)' }}>
         <input

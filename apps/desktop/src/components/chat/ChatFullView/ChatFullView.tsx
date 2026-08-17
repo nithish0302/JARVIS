@@ -4,6 +4,7 @@ import { useJarvisChat } from "../../../hooks/useJarvisChat";
 import { useConversationStore } from "../../../stores/useConversationStore";
 import { SearchBadge } from "../SearchBadge/SearchBadge";
 import { SourcesList } from "../SourcesList/SourcesList";
+import { ConfirmationButtons } from "../ConfirmationButtons/ConfirmationButtons";
 import ReactMarkdown from 'react-markdown';
 
 export function ChatFullView() {
@@ -149,7 +150,9 @@ export function ChatFullView() {
           </div>
         )}
       </div>
-      
+
+      <ConfirmationButtons />
+
       <div className="flex items-center gap-2 rounded-xl p-[8px_8px_8px_18px] shadow-[0_8px_30px_rgba(0,0,0,0.4)] flex-shrink-0"
            style={{ background: 'var(--color-panel-solid)', border: '1px solid var(--color-line-strong)' }}>
         <input

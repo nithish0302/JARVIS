@@ -1400,3 +1400,188 @@ Thinking...\) and dynamically fetch memory count.
 **Outcome:** Requests like "open firefox and search youtube" now open exactly one window with the requested URL, while "open firefox and notepad" still opens two separate apps correctly.
 
 **Status:** Complete and tested.
+
+## Phase 4 - Milestone 2: Foreground Search
+
+**Date:** 2026-08-17
+
+**Objective:** Add foreground search detection and URL building to route the user's intent to visually present search results in a browser rather than background processing.
+
+**Decisions made:**
+- Added `needs_foreground_search` to detect commands asking to "show me", "search on youtube", or open common websites.
+- Implemented `build_foreground_url` to construct search query strings and URLs for YouTube, Google, and standard sites.
+- Integrated detection inside `chat_endpoint` and `chat_stream_endpoint`, injecting a `[UI_ACTION:open_url:browser:url]` command into the system message context when foreground search is needed, effectively overriding background web search.
+
+**Files created or modified:**
+- Modified `routes.py`
+- Created `test_foreground.py`
+
+**Outcome:** Background search handles general conversational knowledge, while explicit visual requests open Firefox directly.
+
+**Status:** Complete and tested.
+
+## Phase 4 - Milestone 3: File System Operations
+
+**Date:** 2026-08-17
+
+**Objective:** Enable JARVIS to interact with the local file system using the Rust/Tauri backend. Features include directory listing, file reading, file/folder deletion (with user confirmation), and file explorer integration.
+
+**Decisions made:**
+- Added standard `std::fs` operations to `lib.rs` and registered them as Tauri commands.
+- Implemented shortcuts in paths (`~` and `%DESKTOP%`) for user convenience.
+- Limited file reads to 100KB and restricted reads to specific safe extensions (`txt`, `md`, `json`, etc.) to ensure security and prevent memory exhaustion.
+- Enforced a `REQUIRES_CONFIRMATION` flag for all destructive file operations (deletion).
+- Refined the prompt context in `routes.py` to support natural language queries mapped to the new filesystem `UI_ACTION` tags.
+- Hooked the frontend to these API commands via `uiActionExecutor.ts` and `systemApi.ts`, presenting the results immediately in the chat interface.
+
+**Files created or modified:**
+- `apps/desktop/src-tauri/src/lib.rs`
+- `apps/desktop/src/services/systemApi.ts`
+- `apps/desktop/src/utils/uiActionExecutor.ts`
+- `services/jarvis-engine/src/jarvis_engine/api/routes.py`
+- `docs/CURRENT_STATUS.md`
+
+**Outcome:** JARVIS can now seamlessly interpret file system instructions and safely execute operations on the user's local filesystem with full UI feedback.
+
+**Status:** Complete and tested.
+
+## Phase 4 - Milestone 3: File System Operations (Fixes)
+
+**Date:** 2026-08-17
+
+**Objective:** Fix command generation ambiguities where JARVIS confused Graph UI file requests with actual file system commands.
+
+**Decisions made:**
+- Added explicit "CRITICAL FILE SYSTEM RULES" to `COMMAND_GENERATION_PROMPT` to teach the AI to map "show my desktop/downloads" strictly to `list_dir` rather than `graph_open_hub`.
+- Updated `get_automation_context_str` in `routes.py` to parse `SYSTEM_QUERY` for `list_dir` and `FILE_OP` for `create_folder`, `delete_file`, `open_file`, and `show_explorer`.
+- Replaced the string slice truncation limit for the injected automation context to preserve complete command arrays.
+- Expanded the automation triggers in `needs_automation()` with targeted file system phrases.
+
+**Files created or modified:**
+- `services/jarvis-engine/src/jarvis_engine/api/routes.py`
+
+**Outcome:** File system commands accurately reflect system queries rather than UI toggles, providing correct functional responses in chat.
+
+## Phase 4 - Milestone 3: File System Operations (Implementation Fixes)
+
+**Date:** 2026-08-17
+
+**Objective:** Implement direct detection of file system operations to bypass LLM generation hallucinations entirely for specific user commands.
+
+**Decisions made:**
+- Implemented `is_file_system_command` in `routes.py` to intercept filesystem commands based on robust regex and substring checks.
+- Hooked this check at the very beginning of the `/chat` and `/chat/stream` endpoints to prevent `needs_automation` and LLM prompting for file queries.
+- Updated `uiActionExecutor.ts` in the frontend to gracefully handle `confirm_action` payloads formatted as `action_type:path`.
+- Modified the confirmation action logic in `useJarvisChat.ts` to execute `systemApi.deleteFile` directly instead of passing it to PowerShell when the user confirms a `delete_file` action.
+- Ran `pnpm build` to compile the frontend changes.
+
+**Files created or modified:**
+- `services/jarvis-engine/src/jarvis_engine/api/routes.py`
+- `apps/desktop/src/utils/uiActionExecutor.ts`
+- `apps/desktop/src/hooks/useJarvisChat.ts`
+- `docs/DEVELOPMENT_LOG.md`
+
+**Outcome:** File system operations now bypass the LLM entirely, instantly returning explicit actions to the frontend. The `delete_file` process safely requests user confirmation and invokes the Rust backend properly.
+
+**Status:** Implementation complete. Ready for manual validation.
+
+---
+
+## Phase 4 - Milestone 3: File System Operations (Context Optimization & UX Improvements)
+
+**Date:** 2026-08-17
+
+**Objective:** Optimize file system command processing to reduce context size for providers with token limits, preserve folder name case, handle "already exists" gracefully, and improve file listing UI.
+
+**Decisions made:**
+
+1. **Context Minimization for File Commands:**
+   - When `is_file_system_command()` detects a file system operation, override the full message list with minimal context containing only:
+     - Shortened system prompt (first 500 characters)
+     - File system command context
+     - Current user message
+   - Skip conversation history, memory context, and search results for file commands as they're deterministic operations that don't require conversation context
+   - Apply optimization to both `/chat` and `/chat/stream` endpoints
+   - Skip complex provider selection logic for file commands; use first available provider
+
+2. **Preserve Folder Name Case:**
+   - Modified `is_file_system_command()` regex to use original `message` instead of `msg_lower` when extracting folder names
+   - Added `re.IGNORECASE` flag to match triggers case-insensitively while preserving the user's intended capitalization
+   - Normalize only the `location` parameter (Desktop/Downloads) to lowercase for path matching
+
+3. **Handle "Already Exists" Gracefully:**
+   - Updated `create_folder` command in `lib.rs` to check if folder exists before attempting creation
+   - Return success message "Folder already exists: {path}" instead of error when folder already exists
+   - Prevents unnecessary error messages and provides better UX
+
+4. **Improved File Listing Display:**
+   - Enhanced `list_dir` case in `uiActionExecutor.ts` with cleaner formatting:
+     - Bold path header with folder emoji
+     - Summary line showing folder/file counts with bullet separator
+     - Display up to 10 folders and 15 files (increased from 5/10)
+     - Show file sizes in human-readable format (MB/KB/B)
+     - Add overflow indicator when total items exceed 25
+     - More professional feedback message with "sir" suffix
+
+**Files created or modified:**
+- `services/jarvis-engine/src/jarvis_engine/api/routes.py`
+- `apps/desktop/src-tauri/src/lib.rs`
+- `apps/desktop/src/utils/uiActionExecutor.ts`
+- `docs/DEVELOPMENT_LOG.md`
+
+**Outcome:** File system commands now work reliably with all AI providers regardless of context limits. Folder creation preserves user-intended capitalization. File listings are more informative and visually organized with size information.
+
+**Status:** Complete. Builds successful (cargo build: 1.12s, pnpm build: 10.29s).
+
+---
+
+## Phase 4 - Milestone 4: Safety Layer
+
+**Date:** 2026-08-17
+
+**Objective:** Implement a comprehensive safety system that requires user confirmation before executing any destructive or irreversible action, protecting the user from accidental data loss or system changes.
+
+**Decisions made:**
+
+1. **Destructive Action Detection:**
+   - Added `is_destructive_action()` function in `routes.py` with pattern matching for dangerous keywords: delete, remove, kill, terminate, shutdown, restart, format, clear, uninstall, wipe, erase
+   - Integrated safety check with file system command detection to automatically flag operations requiring confirmation
+   - Enhanced confirmation context messages to explicitly state what will be affected and require clear YES/NO response
+
+2. **Confirmation UI System:**
+   - Created `ConfirmationButtons` component with HUD-styled Confirm (red) and Cancel (cyan) buttons
+   - Buttons appear automatically when `pendingCommand` is set in app store
+   - Event-based communication using custom `jarvis-confirm` events to decouple UI from chat logic
+   - Integrated into both `ChatFullView` and `ChatShell` for consistent UX
+
+3. **Confirmation Event Flow:**
+   - Added event listener in `useJarvisChat` hook to handle confirmation responses
+   - "Yes" response executes pending command through existing confirmation flow
+   - "No/Cancel" response clears pending command and adds cancellation message to chat
+   - Maintains existing delete_file confirmation logic while extending to all destructive actions
+
+4. **System Control Commands:**
+   - Implemented `shutdown_computer()` command in `lib.rs` with mandatory confirmation and 30-second grace period
+   - Implemented `cancel_shutdown()` command to abort scheduled shutdowns
+   - Implemented `restart_computer()` command with mandatory confirmation and 30-second delay
+   - All system control commands return descriptive messages and require confirmation flag
+
+5. **Safety Rules Documentation:**
+   - Added comprehensive "SAFETY RULES - ALWAYS FOLLOW" section to `COMMAND_GENERATION_PROMPT`
+   - Clearly categorized safe actions (open apps, create folders, list files, lock screen)
+   - Clearly categorized destructive actions (delete, shutdown, kill process, format, uninstall)
+   - Mandated `requires_confirmation: true` for all destructive operations
+
+**Files created or modified:**
+- `services/jarvis-engine/src/jarvis_engine/api/routes.py` - Added safety classifier and enhanced confirmation flow
+- `apps/desktop/src/components/chat/ConfirmationButtons/ConfirmationButtons.tsx` - New confirmation UI component
+- `apps/desktop/src/hooks/useJarvisChat.ts` - Added confirmation event listener
+- `apps/desktop/src/components/chat/ChatFullView/ChatFullView.tsx` - Integrated ConfirmationButtons
+- `apps/desktop/src/components/chat/ChatShell/ChatShell.tsx` - Integrated ConfirmationButtons
+- `apps/desktop/src-tauri/src/lib.rs` - Added shutdown/restart commands with safety checks
+- `docs/CURRENT_STATUS.md` - Updated to reflect Milestone 4 completion
+- `docs/DEVELOPMENT_LOG.md` - Documented Milestone 4 implementation
+
+**Outcome:** JARVIS now features a robust safety layer that prevents accidental execution of destructive commands. All file deletions, system shutdowns/restarts, and process terminations require explicit user confirmation through a clean HUD-styled UI. The system provides clear feedback about what will be affected and gives users the option to cancel any dangerous operation.
+
+**Status:** Complete. Builds successful (cargo build: 1.26s, pnpm build: 9.86s). Ready for Milestone 5.

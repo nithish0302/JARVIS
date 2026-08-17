@@ -110,9 +110,11 @@ export async function sendMessageStream(
   onSearchComplete: (sources: SearchSource[]) => void,
   onToken: (token: string) => void,
   onDone: (
-    conversationId: string, 
+    conversationId: string,
     fullResponse: string,
-    sources: SearchSource[]
+    sources: SearchSource[],
+    providerUsed: string,
+    modelUsed: string
   ) => void,
   onError: (error: string) => void
 ): Promise<void> {
@@ -172,7 +174,9 @@ export async function sendMessageStream(
             onDone(
               data.conversation_id || "",
               data.full_response || "",
-              Array.isArray(data.sources) ? data.sources : []
+              Array.isArray(data.sources) ? data.sources : [],
+              data.provider_used || "unknown",
+              data.model_used || "unknown"
             )
           }
         } catch {

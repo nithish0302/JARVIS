@@ -53,7 +53,7 @@ export function useJarvisChat() {
     const { pendingCommand, setPendingCommand } = useAppStore.getState()
 
     if (pendingCommand && 
-        ["yes","confirm","ok","do it","go ahead"]
+        ["yes","confirm","ok","do it","go ahead","sure","proceed"]
           .includes(text.toLowerCase().trim())) {
       
       const userMessage: Message = {
@@ -66,27 +66,61 @@ export function useJarvisChat() {
       }
       addMessage(userMessage)
 
-      executePowerShell(pendingCommand, true)
-        .then(result => {
-          addMessage({
-            id: window.crypto.randomUUID(),
-            role: "assistant",
-            content: `Done. Command output:\n${result}`,
-            timestamp: new Date().toLocaleTimeString(
-              [], {hour:"2-digit",minute:"2-digit"}
-            )
-          })
+      const colonIdx = pendingCommand.indexOf(":")
+      const cmdType = pendingCommand.substring(0, colonIdx)
+      const cmdPayload = pendingCommand.substring(colonIdx + 1)
+      
+      if (cmdType === "delete_file") {
+        import("../services/systemApi").then(s => {
+          s.deleteFile(cmdPayload, true)
+            .then((result: string) => {
+              addMessage({
+                id: window.crypto.randomUUID(),
+                role: "assistant",
+                content: `✅ ${result}`,
+                timestamp: new Date()
+                  .toLocaleTimeString([],{
+                    hour:"2-digit",
+                    minute:"2-digit"
+                  })
+              })
+            })
+            .catch((err: Error) => {
+              addMessage({
+                id: window.crypto.randomUUID(),
+                role: "assistant", 
+                content: `❌ Failed: ${err.message}`,
+                timestamp: new Date()
+                  .toLocaleTimeString([],{
+                    hour:"2-digit",
+                    minute:"2-digit"
+                  })
+              })
+            })
         })
-        .catch(err => {
-          addMessage({
-            id: window.crypto.randomUUID(),
-            role: "assistant",
-            content: `Failed. Error:\n${err}`,
-            timestamp: new Date().toLocaleTimeString(
-              [], {hour:"2-digit",minute:"2-digit"}
-            )
+      } else {
+        executePowerShell(pendingCommand, true)
+          .then(result => {
+            addMessage({
+              id: window.crypto.randomUUID(),
+              role: "assistant",
+              content: `Done. Command output:\n${result}`,
+              timestamp: new Date().toLocaleTimeString(
+                [], {hour:"2-digit",minute:"2-digit"}
+              )
+            })
           })
-        })
+          .catch(err => {
+            addMessage({
+              id: window.crypto.randomUUID(),
+              role: "assistant",
+              content: `Failed. Error:\n${err}`,
+              timestamp: new Date().toLocaleTimeString(
+                [], {hour:"2-digit",minute:"2-digit"}
+              )
+            })
+          })
+      }
         
       setPendingCommand(null)
       return // Don't send to AI
@@ -143,12 +177,20 @@ export function useJarvisChat() {
           useConversationStore.getState().appendStreamToken(token)
         },
         // onDone — add complete message
-        (convId, fullResponse, sources = []) => {
+        (convId, fullResponse, sources = [], providerUsed = "unknown", modelUsed = "unknown") => {
           try {
             useConversationStore.getState().finishStreaming()
 
             if (!currentConversationId && convId) {
               setConversationId(convId)
+            }
+
+            // Update AI store with actual provider/model used
+            if (providerUsed !== "unknown") {
+              useAIStore.getState().setProvider(providerUsed as any)
+            }
+            if (modelUsed !== "unknown") {
+              useAIStore.getState().setModel(modelUsed)
             }
 
             // Parse UI actions FIRST
@@ -255,8 +297,41 @@ export function useJarvisChat() {
     }
   }
 
-  return { 
-    messages, 
+  // Listen for confirmation button events
+  useEffect(() => {
+    const handleConfirm = (e: Event) => {
+      const customEvent = e as CustomEvent
+      const response = customEvent.detail.response
+      if (response === "yes") {
+        sendUserMessage("yes")
+      } else {
+        sendUserMessage("cancel")
+        // Add cancel message to chat
+        addMessage({
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: "Action cancelled, sir.",
+          timestamp: new Date().toLocaleTimeString(
+            [], {hour:"2-digit",minute:"2-digit"}
+          )
+        })
+      }
+    }
+
+    window.addEventListener(
+      "jarvis-confirm",
+      handleConfirm as EventListener
+    )
+    return () => {
+      window.removeEventListener(
+        "jarvis-confirm",
+        handleConfirm as EventListener
+      )
+    }
+  }, [sendUserMessage, addMessage])
+
+  return {
+    messages,
     sendUserMessage,
     isTyping: useConversationStore(s => s.isTyping),
     streamingMessageId,

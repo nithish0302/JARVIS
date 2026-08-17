@@ -173,6 +173,26 @@ CORRECT (opens Firefox once with YouTube):
 Rule: OPEN_URL already opens the browser.
 Never combine OPEN_APP + OPEN_URL for the same browser.
 
+SAFETY RULES - ALWAYS FOLLOW:
+1. DELETE operations ALWAYS need confirmation
+   Set "requires_confirmation": true for any delete/remove action
+2. SHUTDOWN/RESTART always needs confirmation
+   Set "requires_confirmation": true
+3. KILL PROCESS needs confirmation
+   Set "requires_confirmation": true
+4. Clearly state what will be affected in description
+5. Never execute destructive actions silently
+
+Safe actions (no confirmation needed):
+- Open apps, Create folders, List files
+- Lock screen, Read files, Query system info
+- Open URLs, Search operations
+
+Destructive actions (REQUIRE confirmation):
+- Delete files/folders, Kill processes
+- Shutdown/Restart, Format/Clear directories
+- Uninstall software, Modify system settings
+
 More examples:
 'open firefox and go to youtube'
 → [{{"action_type":"OPEN_URL","command":"https://youtube.com","browser":"firefox"}}]
@@ -246,6 +266,66 @@ Common searchable URLs:
 - Stack Overflow: https://stackoverflow.com/search?q=QUERY
 
 Replace spaces with + in QUERY.
+
+CRITICAL FILE SYSTEM RULES:
+When user asks about their ACTUAL FILES on PC:
+- 'show my desktop files' → list_dir Desktop
+- 'show my downloads' → list_dir Downloads  
+- 'show my documents' → list_dir Documents
+- 'what files are on my desktop' → list_dir Desktop
+- 'list my downloads' → list_dir Downloads
+- 'create folder X on desktop' → create_folder
+- 'delete file X' → delete_file (with confirmation)
+
+NEVER use graph_open_hub:Files for file listing.
+graph_open_hub:Files is for the JARVIS graph UI only.
+list_dir is for REAL Windows files.
+
+Examples:
+'show my desktop files'
+→ [{"action_type":"SYSTEM_QUERY",
+    "command":"list_dir:C:\\Users\\%USERNAME%\\Desktop",
+    "description":"Listing Desktop files",
+    "requires_confirmation":false,
+    "display_output":true}]
+
+'show my downloads'
+→ [{"action_type":"SYSTEM_QUERY",
+    "command":"list_dir:C:\\Users\\%USERNAME%\\Downloads",
+    "description":"Listing Downloads folder",
+    "requires_confirmation":false,
+    "display_output":true}]
+
+'delete jarvis-ui-concept-v3.html in downloads'
+→ [{"action_type":"FILE_OP",
+    "command":"delete_file:C:\\Users\\%USERNAME%\\Downloads\\jarvis-ui-concept-v3.html",
+    "description":"Delete jarvis-ui-concept-v3.html from Downloads",
+    "requires_confirmation":true,
+    "display_output":false}]
+
+'create folder JARVIS on desktop'
+→ [{"action_type":"FILE_OP",
+    "command":"create_folder:C:\\Users\\%USERNAME%\\Desktop\\JARVIS",
+    "description":"Creating JARVIS folder on Desktop",
+    "requires_confirmation":false,
+    "display_output":false}]
+
+FILE SYSTEM ACTIONS:
+[UI_ACTION:list_dir:C:\\Users\\%USERNAME%\\Desktop] - List Desktop files
+[UI_ACTION:list_dir:C:\\Users\\%USERNAME%\\Documents] - List Documents
+[UI_ACTION:list_dir:C:\\Users\\%USERNAME%\\Downloads] - List Downloads
+[UI_ACTION:create_folder:C:\\Users\\%USERNAME%\\Desktop\\FolderName] - Create folder
+[UI_ACTION:open_file:C:\\path\\to\\file.txt] - Open file
+[UI_ACTION:show_explorer:C:\\path\\to\\file] - Show in Explorer
+[UI_ACTION:delete_file:C:\\path\\to\\file] - Delete (asks confirmation)
+
+FILE SYSTEM RULES:
+- Use %USERNAME% for user folder paths
+- For 'list my desktop files' → list_dir Desktop
+- For 'create folder X on desktop' → create_folder Desktop\\X
+- For 'show my downloads' → list_dir Downloads
+- For 'open [filename]' → open_file with full path
+- Always ask confirmation before delete
 """
 
 FOREGROUND_TRIGGERS = [
@@ -444,6 +524,145 @@ def build_foreground_url(
     "description": f"Searching for {message.strip()}"
   }
 
+DESTRUCTIVE_PATTERNS = [
+  r'\bdelete\b', r'\bremove\b', r'\bkill\b',
+  r'\bterminate\b', r'\bshutdown\b',
+  r'\brestart\b', r'\bformat\b', r'\bclear\b',
+  r'\buninstall\b', r'\bwipe\b', r'\berase\b',
+  r'\bclose\s+(?:all|every)\b',
+  r'\bend\s+(?:process|task)\b',
+]
+
+def is_destructive_action(message: str) -> bool:
+  """
+  Checks if a message contains destructive
+  action patterns that require confirmation.
+  """
+  import re
+  msg_lower = message.lower()
+  for pattern in DESTRUCTIVE_PATTERNS:
+    if re.search(pattern, msg_lower):
+      return True
+  return False
+
+def is_file_system_command(
+  message: str
+) -> tuple[bool, dict]:
+  """
+  Returns (is_file_cmd, action_dict)
+  Handles file system commands directly
+  without going through LLM generation.
+  """
+  import os
+  username = os.environ.get("USERNAME", "")
+  msg_lower = message.lower().strip()
+
+  print(f"[FILE_SYSTEM] Checking: '{msg_lower}'")
+  
+  # Common paths
+  desktop = f"C:\\Users\\{username}\\Desktop"
+  downloads = f"C:\\Users\\{username}\\Downloads"
+  documents = f"C:\\Users\\{username}\\Documents"
+  pictures = f"C:\\Users\\{username}\\Pictures"
+  music = f"C:\\Users\\{username}\\Music"
+  videos = f"C:\\Users\\{username}\\Videos"
+  
+  # LIST DIRECTORY patterns
+  list_patterns = {
+    "desktop": desktop,
+    "downloads": downloads,
+    "documents": documents,
+    "pictures": pictures,
+    "music": music,
+    "videos": videos,
+  }
+  
+  list_triggers = [
+    "show my ", "list my ", "show files in",
+    "what files", "list files", "show files",
+    "what's in my ", "whats in my ",
+    "what is in my ", "files on my ",
+    "show me my ", "open my files",
+  ]
+  
+  for trigger in list_triggers:
+    if trigger in msg_lower:
+      print(f"[FILE_SYSTEM] Matched list trigger: '{trigger}'")
+      for folder_name, folder_path in \
+          list_patterns.items():
+        if folder_name in msg_lower:
+          print(f"[FILE_SYSTEM] Matched folder: '{folder_name}' -> {folder_path}")
+          return True, {
+            "action": "list_dir",
+            "path": folder_path,
+            "description": f"Listing {folder_name}"
+          }
+  
+  # CREATE FOLDER patterns
+  create_triggers = [
+    "create folder", "create a folder",
+    "make folder", "make a folder",
+    "new folder", "create directory",
+  ]
+  for trigger in create_triggers:
+    if trigger in msg_lower:
+      # Extract folder name and location
+      import re
+      # Pattern: create folder X on/in Desktop
+      # Use original message to preserve case
+      match = re.search(
+        r'(?:create|make)\s+(?:a\s+)?'
+        r'(?:folder|directory)\s+'
+        r'(?:called\s+|named\s+)?'
+        r'([\'"]?)([\w][\w\s\-]*?)\1'
+        r'\s+(?:on|in|at)\s+(\w+)',
+        message,  # Use original message not msg_lower
+        re.IGNORECASE
+      )
+      if match:
+        folder_name = match.group(2).strip()
+        location = match.group(3).strip().lower()
+        base_path = list_patterns.get(
+          location, desktop
+        )
+        full_path = f"{base_path}\\{folder_name}"
+        return True, {
+          "action": "create_folder",
+          "path": full_path,
+          "description": f"Creating folder '{folder_name}'"
+        }
+  
+  # DELETE FILE patterns
+  delete_triggers = [
+    "delete ", "remove the file",
+    "delete the file", "delete the folder",
+  ]
+  for trigger in delete_triggers:
+    if trigger in msg_lower:
+      # Try to find file location
+      for folder_name, folder_path in \
+          list_patterns.items():
+        if folder_name in msg_lower:
+          # Extract filename
+          import re
+          # Look for filename with extension
+          file_match = re.search(
+            r'([\w\-\.]+\.\w+)',
+            message
+          )
+          if file_match:
+            filename = file_match.group(1)
+            full_path = f"{folder_path}\\{filename}"
+            return True, {
+              "action": "delete_file",
+              "path": full_path,
+              "description": f"Delete {filename}",
+              "requires_confirmation": True
+            }
+
+  print(f"[FILE_SYSTEM] No match found for: '{msg_lower}'")
+  return False, {}
+
 def needs_automation(message: str) -> bool:
   msg_lower = message.lower().strip()
   
@@ -469,6 +688,24 @@ def needs_automation(message: str) -> bool:
   
   # Existing automation triggers
   automation_triggers = [
+    "show my desktop", "show my downloads",
+    "show my documents", "show my files",
+    "list my files", "list files in",
+    "what files", "files on my desktop",
+    "files in my downloads",
+    "delete file", "delete the file",
+    "delete folder", "create folder",
+    "make folder", "new folder",
+    "open the file", "read the file",
+    "show in explorer",
+    "list ", "show files", "show folders",
+    "what files", "what's in",
+    "create folder", "make folder",
+    "new folder", "delete file",
+    "delete folder", "rename ",
+    "open file", "read file",
+    "show in explorer", "show desktop files",
+    "show downloads", "show documents",
     "open ", "launch ", "start ", "run ",
     "close ", "kill ", "stop ",
     "lock ", "unlock ",
@@ -524,10 +761,71 @@ async def get_automation_context_str(automation_results: list[dict]) -> str:
                 f"(Lock the Windows screen)\n"
             )
         elif action_type == "SYSTEM_QUERY":
-            automation_context += (
-                f"[UI_ACTION:run_powershell:{command}] "
-                f"(Run system query)\n"
-            )
+            cmd = result.get("command", "")
+            if cmd.startswith("list_dir:"):
+                path = cmd.replace("list_dir:", "")
+                # Expand %USERNAME%
+                import os
+                path = path.replace(
+                    "%USERNAME%", 
+                    os.environ.get("USERNAME", "")
+                )
+                automation_context += (
+                    f"List files in {path} "
+                    f"→ [UI_ACTION:list_dir:{path}]\n"
+                )
+            else:
+                automation_context += (
+                    f"Run: {cmd} "
+                    f"→ [UI_ACTION:run_powershell:{cmd}]\n"
+                )
+        elif action_type == "FILE_OP":
+            cmd = result.get("command", "")
+            requires_confirm = result.get("requires_confirmation", False)
+            if cmd.startswith("create_folder:"):
+                path = cmd.replace("create_folder:", "")
+                import os
+                path = path.replace(
+                    "%USERNAME%",
+                    os.environ.get("USERNAME", "")
+                )
+                automation_context += (
+                    f"Create folder {path} "
+                    f"→ [UI_ACTION:create_folder:{path}]\n"
+                )
+            elif cmd.startswith("delete_file:"):
+                path = cmd.replace("delete_file:", "")
+                import os
+                path = path.replace(
+                    "%USERNAME%",
+                    os.environ.get("USERNAME", "")
+                )
+                automation_context += (
+                    f"Delete {path} (ask confirmation) "
+                    f"→ [UI_ACTION:delete_file:{path}]\n"
+                )
+            elif cmd.startswith("open_file:"):
+                path = cmd.replace("open_file:", "")
+                automation_context += (
+                    f"Open file {path} "
+                    f"→ [UI_ACTION:open_file:{path}]\n"
+                )
+            elif cmd.startswith("show_explorer:"):
+                path = cmd.replace("show_explorer:", "")
+                automation_context += (
+                    f"Show in Explorer {path} "
+                    f"→ [UI_ACTION:show_explorer:{path}]\n"
+                )
+            elif requires_confirm:
+                automation_context += (
+                    f"[UI_ACTION:confirm_action:{cmd}] "
+                    f"(Ask user to confirm: {description})\n"
+                )
+            else:
+                automation_context += (
+                    f"[UI_ACTION:run_powershell:{cmd}] "
+                    f"({description})\n"
+                )
         elif requires_confirm:
             automation_context += (
                 f"[UI_ACTION:confirm_action:{command}] "
@@ -538,7 +836,7 @@ async def get_automation_context_str(automation_results: list[dict]) -> str:
                 f"[UI_ACTION:run_powershell:{command}] "
                 f"({description})\n"
             )
-    return automation_context[:300]
+    return automation_context
 
 
 def deduplicate_actions(
@@ -745,22 +1043,80 @@ async def chat_endpoint(request: ChatRequest):
         role="user",
         content=request.message
     )
-    
-    # Check for automation intent
-    automation_results = []
-    if needs_automation(request.message) and settings.GROQ_API_KEY:
-      automation_results = await generate_automation_command(
-        request.message,
-        settings.GROQ_API_KEY
-      )
 
-    if automation_results:
-      automation_context = await get_automation_context_str(automation_results)
-      full_messages.insert(-1, Message(
-        role="system",
-        content=automation_context,
-        timestamp=""
-      ))
+    # Check file system commands first
+    is_file_cmd, file_action = is_file_system_command(request.message)
+    automation_results = []
+
+    if is_file_cmd:
+        action = file_action["action"]
+        path = file_action.get("path", "")
+        description = file_action.get("description", "")
+        requires_confirm = file_action.get("requires_confirmation", False)
+
+        # Enhanced safety check
+        is_destructive = is_destructive_action(request.message)
+
+        print(f"[FILE_SYSTEM] Regular - Detected: {action} at {path}")
+        print(f"[SAFETY] Destructive: {is_destructive}, Requires confirm: {requires_confirm}")
+
+        if requires_confirm or is_destructive:
+            fs_context = (
+                f"[SAFETY CHECK REQUIRED]\n"
+                f"This action is destructive and irreversible.\n"
+                f"You MUST ask the user to confirm.\n"
+                f"Say EXACTLY what will be deleted/affected.\n"
+                f"Ask: 'Are you sure? Reply YES to confirm or NO to cancel.'\n"
+                f"Include: [UI_ACTION:confirm_action:{action}:{path}]\n"
+                f"DO NOT execute the action yet."
+            )
+        else:
+            fs_context = (
+                f"[FILE SYSTEM COMMAND DETECTED]\n"
+                f"You MUST include this EXACT tag:\n"
+                f"[UI_ACTION:{action}:{path}]\n"
+                f"Acknowledge naturally. No graph actions."
+            )
+
+        # Use MINIMAL context for file commands
+        # Skip conversation history, memory, search context
+        minimal_messages = [
+            Message(
+                role="system",
+                content=JARVIS_SYSTEM_PROMPT[:500],
+                timestamp=""
+            ),
+            Message(
+                role="system",
+                content=fs_context,
+                timestamp=""
+            ),
+            Message(
+                role="user",
+                content=request.message,
+                timestamp=""
+            )
+        ]
+
+        # Override full_messages with minimal context
+        full_messages = minimal_messages
+        search_needed = False
+        print(f"[FILE_SYSTEM] Regular - Using minimal context")
+    else:
+        # Check for automation intent
+        if needs_automation(request.message) and settings.GROQ_API_KEY:
+            automation_results = await generate_automation_command(
+                request.message,
+                settings.GROQ_API_KEY
+            )
+
+        if automation_results:
+            automation_context = await get_automation_context_str(automation_results)
+            full_messages.insert(-1, Message(
+                role="system",
+                content=automation_context,
+                timestamp=""
+            ))
 
     # Check foreground search
     foreground_result = None
@@ -836,7 +1192,11 @@ async def chat_endpoint(request: ChatRequest):
             print(f"Search error: {e}")
 
     try:
-        if automation_results:
+        # For file commands, use first available provider
+        # No need for complex provider selection
+        if is_file_cmd:
+            providers_to_try = provider_manager.providers
+        elif automation_results:
             providers_to_try = sorted(
                 provider_manager.providers,
                 key=lambda p: 0 if p.name == "openrouter" else 1 if p.name == "groq" else 2 if p.name == "ollama" else 3
@@ -957,21 +1317,79 @@ async def chat_stream_endpoint(
     if search_needed:
         search_query_used = extract_search_query(request.message)
 
-    # Check for automation intent
+    # Check file system commands first
+    is_file_cmd, file_action = is_file_system_command(request.message)
     automation_results = []
-    if needs_automation(request.message) and settings.GROQ_API_KEY:
-      automation_results = await generate_automation_command(
-        request.message,
-        settings.GROQ_API_KEY
-      )
 
-    if automation_results:
-      automation_context = await get_automation_context_str(automation_results)
-      full_messages.insert(-1, Message(
-        role="system",
-        content=automation_context,
-        timestamp=""
-      ))
+    if is_file_cmd:
+        action = file_action["action"]
+        path = file_action.get("path", "")
+        description = file_action.get("description", "")
+        requires_confirm = file_action.get("requires_confirmation", False)
+
+        # Enhanced safety check
+        is_destructive = is_destructive_action(request.message)
+
+        print(f"[FILE_SYSTEM] Stream - Detected: {action} at {path}")
+        print(f"[SAFETY] Destructive: {is_destructive}, Requires confirm: {requires_confirm}")
+
+        if requires_confirm or is_destructive:
+            fs_context = (
+                f"[SAFETY CHECK REQUIRED]\n"
+                f"This action is destructive and irreversible.\n"
+                f"You MUST ask the user to confirm.\n"
+                f"Say EXACTLY what will be deleted/affected.\n"
+                f"Ask: 'Are you sure? Reply YES to confirm or NO to cancel.'\n"
+                f"Include: [UI_ACTION:confirm_action:{action}:{path}]\n"
+                f"DO NOT execute the action yet."
+            )
+        else:
+            fs_context = (
+                f"[FILE SYSTEM COMMAND DETECTED]\n"
+                f"You MUST include this EXACT tag:\n"
+                f"[UI_ACTION:{action}:{path}]\n"
+                f"Acknowledge naturally. No graph actions."
+            )
+
+        # Use MINIMAL context for file commands
+        # Skip conversation history, memory, search context
+        minimal_messages = [
+            Message(
+                role="system",
+                content=JARVIS_SYSTEM_PROMPT[:500],
+                timestamp=""
+            ),
+            Message(
+                role="system",
+                content=fs_context,
+                timestamp=""
+            ),
+            Message(
+                role="user",
+                content=request.message,
+                timestamp=""
+            )
+        ]
+
+        # Override full_messages with minimal context
+        full_messages = minimal_messages
+        search_needed = False
+        print(f"[FILE_SYSTEM] Stream - Using minimal context")
+    else:
+        # Check for automation intent
+        if needs_automation(request.message) and settings.GROQ_API_KEY:
+            automation_results = await generate_automation_command(
+                request.message,
+                settings.GROQ_API_KEY
+            )
+
+        if automation_results:
+            automation_context = await get_automation_context_str(automation_results)
+            full_messages.insert(-1, Message(
+                role="system",
+                content=automation_context,
+                timestamp=""
+            ))
 
     # Check foreground search
     foreground_result = None
@@ -1100,7 +1518,11 @@ async def chat_stream_endpoint(
         model_used_name = "unknown"
 
         try:
-          if automation_results:
+          # For file commands, use first available provider
+          # No need for complex provider selection
+          if is_file_cmd:
+            providers_to_try = provider_manager.providers
+          elif automation_results:
             providers_to_try = sorted(
               provider_manager.providers,
               key=lambda p: 0 if p.name == "openrouter" else 1 if p.name == "groq" else 2 if p.name == "ollama" else 3
@@ -1164,6 +1586,8 @@ async def chat_stream_endpoint(
           "type": "done",
           "conversation_id": conversation_id,
           "full_response": complete_response,
+          "provider_used": provider_used_name,
+          "model_used": model_used_name,
           "sources": [
             {
               "title": str(s.get("title", "")),

@@ -1,12 +1,12 @@
 # JARVIS Current Status
 
-Last updated: 2026-08-11
+Last updated: 2026-08-17
 
 ## Current phase
 
-Phase 4 - Milestone 1: Desktop Automation
+Phase 4 - Milestone 4: Safety Layer
 Status: Complete
-Next: Phase 4 - Milestone 2
+Next: Phase 4 - Milestone 5
 
 **Phase 3 - External Integrations**
 
@@ -57,6 +57,9 @@ Validation passed: cargo build, pnpm build, pnpm test, pnpm lint, and manual tes
 | Phase 3 - Milestone 5: Background Search                      | Complete                  | Integrated parallel background search and injected results directly into conversation history for real-time live context.                                     |
 | Phase 4 - Milestone 0: Groq Provider                          | Complete                  | Integrated Groq API for blazing-fast inference using Llama 3.3 70B models.                                                                                  |
 | Phase 4 - Milestone 1: Desktop Automation                     | Complete                  | Implemented a Dynamic Command Execution System using Rust/Tauri to securely generate and execute PowerShell commands based on user intent.                  |
+| Phase 4 - Milestone 2: Foreground Search                      | Complete                  | Implemented robust intent matching to intelligently open URLs visually in the user's browser, replacing background search when visual results are preferred. |
+| Phase 4 - Milestone 3: File System Operations                 | Complete                  | Extended Rust backend with directory listing, file reading, file deletion, and folder creation, integrated safely into JARVIS's command generation prompts. |
+| Phase 4 - Milestone 4: Safety Layer                           | Complete                  | Implemented comprehensive safety system with destructive action detection, user confirmation UI, and shutdown/restart commands with mandatory confirmation. |
 
 **Phase 4 - Additional Capabilities**
 

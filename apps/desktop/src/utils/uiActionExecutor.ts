@@ -1,5 +1,11 @@
 import { useAppStore } from "../stores/useAppStore"
 import type { UIAction } from "./uiActionParser"
+import {
+  listDirectory,
+  createFolder,
+  openFile,
+  showInExplorer
+} from "../services/systemApi"
 
 export function executeUIActions(
   actions: UIAction[]
@@ -224,7 +230,148 @@ export function executeUIActions(
           
         case "confirm_action":
           if (action.payload) {
-            store.setPendingCommand(action.payload)
+            const colonIdx = action.payload.indexOf(":")
+            if (colonIdx > -1) {
+              const actionType = action.payload.substring(0, colonIdx)
+              const path = action.payload.substring(colonIdx + 1)
+              
+              useAppStore.getState().setPendingCommand(
+                `${actionType}:${path}`
+              )
+              store.showActionFeedback(
+                `Waiting for confirmation...`
+              )
+            } else {
+              useAppStore.getState().setPendingCommand(
+                action.payload
+              )
+            }
+          }
+          break
+          
+        case "list_dir":
+          if (action.payload) {
+            listDirectory(action.payload)
+              .then((result: any) => {
+                const lines: string[] = []
+                lines.push(
+                  `📁 **${result.path}**`
+                )
+                lines.push(
+                  `${result.folders.length} folders · ` +
+                  `${result.files.length} files`
+                )
+                lines.push("")
+
+                // Show folders first (max 10)
+                result.folders.slice(0, 10).forEach(
+                  (f: any) => lines.push(`📁 ${f.name}`)
+                )
+
+                // Then files (max 15)
+                result.files.slice(0, 15).forEach(
+                  (f: any) => {
+                    const size = f.size > 1048576
+                      ? `${(f.size/1048576).toFixed(1)}MB`
+                      : f.size > 1024
+                      ? `${(f.size/1024).toFixed(0)}KB`
+                      : `${f.size}B`
+                    lines.push(`📄 ${f.name} (${size})`)
+                  }
+                )
+
+                if (result.total > 25) {
+                  lines.push(
+                    `\n... and ${result.total - 25} more items`
+                  )
+                }
+
+                const summary = lines.join('\n')
+
+                store.setInspectorMessage(
+                  `${result.folders.length} folders, ` +
+                  `${result.files.length} files`
+                )
+                store.showActionFeedback(
+                  `Listed ${result.total} items, sir.`
+                )
+
+                import("../stores/useConversationStore")
+                  .then(m => {
+                    m.useConversationStore.getState()
+                      .addMessage({
+                        id: window.crypto?.randomUUID() || Math.random().toString(),
+                        role: "assistant",
+                        content: summary,
+                        timestamp: new Date()
+                          .toLocaleTimeString([],{
+                            hour:"2-digit",
+                            minute:"2-digit"
+                          })
+                      })
+                  })
+              })
+              .catch((err: Error) => {
+                store.showActionFeedback(
+                  `Cannot list: ${err.message}`
+                )
+              })
+          }
+          break
+
+        case "create_folder":
+          if (action.payload) {
+            createFolder(action.payload)
+              .then((result: string) => {
+                store.showActionFeedback(result)
+                store.setInspectorMessage(result)
+              })
+              .catch((err: Error) => {
+                store.showActionFeedback(
+                  `Failed: ${err.message}`
+                )
+              })
+          }
+          break
+
+        case "open_file":
+          if (action.payload) {
+            openFile(action.payload)
+              .then((result: string) => {
+                store.showActionFeedback(result)
+              })
+              .catch((err: Error) => {
+                store.showActionFeedback(
+                  `Cannot open: ${err.message}`
+                )
+              })
+          }
+          break
+
+        case "show_explorer":
+          if (action.payload) {
+            showInExplorer(action.payload)
+              .then((result: string) => {
+                store.showActionFeedback(result)
+              })
+              .catch((err: Error) => {
+                store.showActionFeedback(
+                  `Failed: ${err.message}`
+                )
+              })
+          }
+          break
+
+        case "delete_file":
+          if (action.payload) {
+            const { setPendingCommand } = 
+              useAppStore.getState()
+            setPendingCommand(
+              `delete_file:${action.payload}`
+            )
+            store.showActionFeedback(
+              `Delete ${action.payload}? Reply 'yes' to confirm.`
+            )
           }
           break
           
