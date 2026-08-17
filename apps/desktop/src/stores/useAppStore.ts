@@ -45,9 +45,13 @@ export const useAppStore = create<AppState>((set) => ({
   setChatMode: (enabled) => set({ chatMode: enabled }),
   setGraphLevel: (level) => set({ graphLevel: level }),
   showActionFeedback: (message) => {
+    if ((window as any)._feedbackTimer) {
+      clearTimeout((window as any)._feedbackTimer);
+    }
     set({ actionFeedback: message, actionFeedbackVisible: true });
-    setTimeout(() => {
+    (window as any)._feedbackTimer = setTimeout(() => {
       set({ actionFeedback: "", actionFeedbackVisible: false });
+      (window as any)._feedbackTimer = null;
     }, 5000);
   },
   clearActionFeedback: () => set({ actionFeedback: "", actionFeedbackVisible: false }),

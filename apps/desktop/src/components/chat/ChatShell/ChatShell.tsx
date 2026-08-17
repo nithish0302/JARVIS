@@ -6,6 +6,7 @@ import { useConversationStore } from "../../../stores/useConversationStore";
 
 export function ChatShell() {
   const { messages, sendUserMessage, isTyping, streamingMessageId, streamingContent, streamingSearchQuery } = useJarvisChat();
+  const { isStreaming } = useConversationStore();
   const clearConversation = useConversationStore(state => state.clearConversation);
   const graphFocused = useAppStore(state => state.graphFocused);
   const [inputValue, setInputValue] = useState("");
@@ -68,8 +69,13 @@ export function ChatShell() {
         {messages.length > 0 && (
           <button
             onClick={() => clearConversation()}
+            disabled={isStreaming}
             className="h-[36px] px-3 rounded-[10px] border border-transparent flex items-center gap-1.5 cursor-pointer transition-colors hover:bg-[rgba(82,236,227,0.08)] hover:text-[var(--color-cyan)] hover:border-[var(--color-line)] text-[11px] font-mono text-[var(--color-muted-dim)]"
             title="Start new conversation"
+            style={{ 
+              opacity: isStreaming ? 0.5 : 1,
+              cursor: isStreaming ? 'not-allowed' : 'pointer'
+            }}
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-3.5 h-3.5">
               <path d="M12 5v14M5 12h14" />

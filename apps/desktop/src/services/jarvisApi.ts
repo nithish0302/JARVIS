@@ -106,6 +106,8 @@ export async function updateConversationTitle(conversationId: string, title: str
 export async function sendMessageStream(
   request: ChatRequest,
   onMeta: (meta: { conversationId: string, searchPerformed: boolean, searchQuery: string, sources: SearchSource[] }) => void,
+  onSearchStarted: (query: string) => void,
+  onSearchComplete: (sources: SearchSource[]) => void,
   onToken: (token: string) => void,
   onDone: (
     conversationId: string, 
@@ -152,6 +154,18 @@ export async function sendMessageStream(
               searchQuery: data.search_query || "",
               sources: data.sources || []
             })
+          } else if (data.type === "search_started") {
+            if (onSearchStarted) {
+              onSearchStarted(data.query || "")
+            }
+          } else if (data.type === "search_complete") {
+            if (onSearchComplete) {
+              onSearchComplete(
+                Array.isArray(data.sources) ? data.sources : []
+              )
+            }
+          } else if (data.type === "search_timeout") {
+            console.log("Search timed out, AI answering from training")
           } else if (data.type === "token") {
             onToken(data.content)
           } else if (data.type === "done") {

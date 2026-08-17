@@ -1,12 +1,8 @@
+import asyncio
+from urllib.parse import urlparse
 from tavily import TavilyClient
 from duckduckgo_search import DDGS
 from typing import List, Dict
-
-class SearchResult:
-  title: str
-  url: str
-  snippet: str
-  source: str  # domain name only e.g. "theverge.com"
 
 async def search_tavily(
   query: str,
@@ -15,17 +11,21 @@ async def search_tavily(
 ) -> List[Dict]:
   try:
     client = TavilyClient(api_key=api_key)
-    response = client.search(
+    
+    # Run sync client on thread pool
+    response = await asyncio.to_thread(
+      client.search,
       query=query,
       max_results=max_results,
       search_depth="basic"
     )
+    
     results = []
     for r in response.get("results", []):
       url = r.get("url", "")
-      from urllib.parse import urlparse
-      domain = urlparse(url).netloc
-      domain = domain.replace("www.", "")
+      domain = urlparse(url).netloc.replace(
+        "www.", ""
+      )
       results.append({
         "title": r.get("title", ""),
         "url": url,
@@ -34,7 +34,7 @@ async def search_tavily(
       })
     return results
   except Exception as e:
-    print(f"Tavily search error: {e}")
+    print(f"Tavily error: {e}")
     return []
 
 async def search_duckduckgo(
@@ -42,25 +42,30 @@ async def search_duckduckgo(
   max_results: int = 5
 ) -> List[Dict]:
   try:
+    def _sync_search(q, n):
+      with DDGS() as ddgs:
+        return list(ddgs.text(q, max_results=n))
+    
+    # Run sync DDG on thread pool
+    raw_results = await asyncio.to_thread(
+      _sync_search, query, max_results
+    )
+    
     results = []
-    with DDGS() as ddgs:
-      for r in ddgs.text(
-        query,
-        max_results=max_results
-      ):
-        url = r.get("href", "")
-        from urllib.parse import urlparse
-        domain = urlparse(url).netloc
-        domain = domain.replace("www.", "")
-        results.append({
-          "title": r.get("title", ""),
-          "url": url,
-          "snippet": r.get("body", "")[:300],
-          "source": domain
-        })
+    for r in raw_results:
+      url = r.get("href", "")
+      domain = urlparse(url).netloc.replace(
+        "www.", ""
+      )
+      results.append({
+        "title": r.get("title", ""),
+        "url": url,
+        "snippet": r.get("body", "")[:300],
+        "source": domain
+      })
     return results
   except Exception as e:
-    print(f"DuckDuckGo search error: {e}")
+    print(f"DuckDuckGo error: {e}")
     return []
 
 async def search_web(

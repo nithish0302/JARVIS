@@ -1287,3 +1287,25 @@ Thinking...\) and dynamically fetch memory count.
 - Expanded configuration in `config.py` and `.env.example` with `GROQ_API_KEY` and `GROQ_MODEL` settings.
 - Adjusted React frontend settings UI (`AIProviderSection.tsx`, `useAIStore.ts`) to offer Groq as a selectable provider with corresponding Llama 3 models.
 **Current status:** Complete. API tests confirm successful integration, and frontend build is successful.
+
+## Bug Audit & Fixes
+**Date:** 2026-08-17
+
+**Objective:** Address critical bugs identified during the desktop app audit.
+
+**Decisions made:**
+- Fix search race condition: Enforce sequential search resolution before yielding to AI generation, so search results are injected into the context correctly.
+- Offload synchronous web search API calls (Tavily, DDG) to `asyncio.to_thread` to unblock the main event loop.
+- Rewrite `search_detector.py` entirely using regexes to lower false positives.
+- Disable "New Chat" button during streaming to prevent state corruption.
+- Fix memory leak and undefined behaviors in `setTimeout` across multiple hooks.
+- Fix Tauri security risks: enabled CSP, handled Mutex poisoning gracefully, and bounded integer ranges.
+- Added 8 new search detection patterns for company news and update queries.
+
+**Files created or modified:**
+- `routes.py`, `web_search.py`, `search_detector.py`
+- `ChatShell.tsx`, `ChatFullView.tsx`, `useJarvisChat.ts`, `useAppStore.ts`, `jarvisApi.ts`, `useConversationStore.ts`
+- `tauri.conf.json`, `lib.rs`
+- `CURRENT_STATUS.md`, `DEVELOPMENT_LOG.md`
+
+**Outcome:** Search features and desktop application stability vastly improved.

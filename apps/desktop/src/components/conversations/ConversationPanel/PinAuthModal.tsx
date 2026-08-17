@@ -4,7 +4,8 @@ import './PinAuthModal.css';
 
 interface PinAuthModalProps {
   onCancel: () => void;
-  onConfirm: (pin: string) => Promise<void>;
+  // eslint-disable-next-line no-unused-vars
+  onConfirm: (val: string) => Promise<void>;
   isOpen: boolean;
 }
 
@@ -22,7 +23,7 @@ export function PinAuthModal({ onCancel, onConfirm, isOpen }: PinAuthModalProps)
   }, [isOpen]);
 
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
+    const handleKeyDown = (e: globalThis.KeyboardEvent) => {
       if (!isOpen) return;
       if (e.key === 'Escape') {
         onCancel();
@@ -32,6 +33,7 @@ export function PinAuthModal({ onCancel, onConfirm, isOpen }: PinAuthModalProps)
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, pin, isDeleting, onCancel]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -45,7 +47,7 @@ export function PinAuthModal({ onCancel, onConfirm, isOpen }: PinAuthModalProps)
     setIsDeleting(true);
     try {
       await onConfirm(pin);
-    } catch (err) {
+    } catch {
       // Trigger error animation
       setError(true);
       setTimeout(() => {

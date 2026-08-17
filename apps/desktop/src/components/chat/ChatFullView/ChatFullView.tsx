@@ -8,6 +8,7 @@ import { SourcesList } from "../SourcesList/SourcesList";
 export function ChatFullView() {
   const { messages, sendUserMessage, isTyping, streamingMessageId, streamingContent, streamingSearchQuery } = useJarvisChat();
   const currentConversationTitle = useConversationStore((state) => state.currentConversationTitle);
+  const { isStreaming, isSearching, searchingQuery } = useConversationStore();
   const [inputValue, setInputValue] = useState("");
   const logRef = useRef<HTMLDivElement>(null);
 
@@ -80,7 +81,12 @@ export function ChatFullView() {
         <div className="w-[100px] flex justify-end">
           <button 
             onClick={handleNewChat}
-            className="flex items-center gap-2 h-[28px] px-3 rounded-md border border-[var(--color-line)] bg-transparent text-[11px] font-mono text-[var(--color-muted)] cursor-pointer transition-colors hover:text-[var(--color-cyan)] hover:border-[var(--color-line-strong)]"
+            disabled={isStreaming}
+            className="flex items-center gap-2 h-[28px] px-3 rounded-md border border-[var(--color-line)] bg-transparent text-[11px] font-mono text-[var(--color-muted)] transition-colors hover:text-[var(--color-cyan)] hover:border-[var(--color-line-strong)]"
+            style={{ 
+              opacity: isStreaming ? 0.5 : 1,
+              cursor: isStreaming ? 'not-allowed' : 'pointer'
+            }}
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-3 h-3">
               <path d="M12 5v14M5 12h14" />
@@ -127,6 +133,18 @@ export function ChatFullView() {
             </div>
           </div>
         ))}
+        {isSearching && (
+          <div style={{
+            fontFamily: "JetBrains Mono, monospace",
+            fontSize: "11px",
+            color: "var(--color-cyan)",
+            padding: "4px 8px",
+            marginBottom: "4px",
+            animation: "pulse 1.5s infinite"
+          }}>
+            🌐 Searching: "{searchingQuery}"...
+          </div>
+        )}
       </div>
       
       <div className="flex items-center gap-2 rounded-xl p-[8px_8px_8px_18px] shadow-[0_8px_30px_rgba(0,0,0,0.4)] flex-shrink-0"

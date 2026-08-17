@@ -191,15 +191,33 @@ async def chat_endpoint(request: ChatRequest):
     
     if needs_web_search(request.message):
         search_query_used = extract_search_query(request.message)
-        search_results, ai_response = await asyncio.gather(
-            search_web(search_query_used, max_results=4),
-            provider_manager.chat(full_messages),
-            return_exceptions=True
-        )
-        if isinstance(search_results, list):
-            search_sources = search_results
-            search_performed = True
-            if search_sources:
+        try:
+            search_results = await asyncio.wait_for(
+                search_web(search_query_used, max_results=5),
+                timeout=10.0
+            )
+            if search_results:
+                search_context = (
+                    f"\n\nCurrent web search results for "
+                    f"'{search_query_used}':\n\n"
+                )
+                for i, r in enumerate(search_results, 1):
+                    search_context += (
+                        f"{i}. {r['title']}\n"
+                        f"   {r['snippet']}\n"
+                        f"   URL: {r['url']}\n\n"
+                    )
+                search_context += (
+                    "Use ONLY these results. Cite sources."
+                )
+                full_messages.insert(-1, Message(
+                    role="system",
+                    content=search_context,
+                    timestamp=""
+                ))
+                search_sources = search_results
+                search_performed = True
+                
                 search_context_note = (
                     f"[Search results for: {search_query_used}]\n"
                 )
@@ -212,14 +230,15 @@ async def chat_endpoint(request: ChatRequest):
                     role="system",
                     content=search_context_note
                 )
-        if isinstance(ai_response, Exception):
-            response_text = "I encountered an error."
-            provider_used = "error"
-            model_used = "error"
-        else:
-            response_text, provider_used, model_used = ai_response
-    else:
+        except (asyncio.TimeoutError, Exception) as e:
+            print(f"Search error: {e}")
+
+    try:
         response_text, provider_used, model_used = await provider_manager.chat(full_messages)
+    except Exception as e:
+        response_text = "I encountered an error."
+        provider_used = "error"
+        model_used = "error"
     
     # Save assistant message to DB
     await save_message(
@@ -313,13 +332,8 @@ async def chat_stream_endpoint(
       content=request.message
     )
     
-    search_task = None
     if search_needed:
         search_query_used = extract_search_query(request.message)
-        search_task = asyncio.create_task(
-            search_web(search_query_used, max_results=4)
-        )
-        search_performed = True
 
     async def generate():
       nonlocal search_sources
@@ -329,21 +343,91 @@ async def chat_stream_endpoint(
           yield json_module.dumps({
             "type": "meta",
             "conversation_id": conversation_id,
-            "search_performed": search_performed,
+            "search_performed": search_needed,
             "search_query": search_query_used,
             "sources": []
           }) + "\n"
         except Exception as meta_err:
           print(f"Meta chunk error: {meta_err}")
-          yield json_module.dumps({
-            "type": "meta",
-            "conversation_id": conversation_id,
-            "search_performed": False,
-            "search_query": "",
-            "sources": []
-          }) + "\n"
 
-        # Stream tokens with fallback
+        # STEP 1: If search needed, do it FIRST
+        if search_needed:
+          yield json_module.dumps({
+            "type": "search_started",
+            "query": search_query_used
+          }) + "\n"
+          
+          try:
+            search_results = await asyncio.wait_for(
+              search_web(search_query_used, max_results=5),
+              timeout=10.0
+            )
+            if search_results:
+              search_sources.extend(search_results)
+              
+              # Full snippets - not just titles
+              search_context = (
+                f"\n\nCurrent web search results for "
+                f"'{search_query_used}':\n\n"
+              )
+              for i, r in enumerate(search_results, 1):
+                search_context += (
+                  f"{i}. {r['title']}\n"
+                  f"   {r['snippet']}\n"
+                  f"   URL: {r['url']}\n\n"
+                )
+              search_context += (
+                "Use ONLY the above search results to "
+                "answer. Cite sources by website name. "
+                "Do NOT add facts from training data."
+              )
+              
+              # Inject BEFORE user message
+              full_messages.insert(-1, Message(
+                role="system",
+                content=search_context,
+                timestamp=""
+              ))
+              
+              yield json_module.dumps({
+                "type": "search_complete",
+                "sources": [
+                  {
+                    "title": str(s.get("title", "")),
+                    "url": str(s.get("url", "")),
+                    "snippet": str(
+                      s.get("snippet", "")[:200]
+                    ),
+                    "source": str(s.get("source", ""))
+                  }
+                  for s in search_results
+                ]
+              }) + "\n"
+              
+              # Save context note to db
+              search_context_note = (
+                f"[Search results for: {search_query_used}]\n"
+              )
+              for r in search_results[:3]:
+                search_context_note += (
+                  f"- {r['title']} ({r.get('source', '')})\n"
+                )
+              await save_message(
+                conversation_id=conversation_id,
+                role="system",
+                content=search_context_note
+              )
+              
+          except asyncio.TimeoutError:
+            print(f"Search timed out: {search_query_used}")
+            yield json_module.dumps({
+              "type": "search_timeout",
+              "message": "Web search timed out after 10s"
+            }) + "\n"
+          except Exception as e:
+            print(f"Search error: {e}")
+
+        # STEP 2: Stream AI with full context
         full_response_parts = []
         provider_used_name = "unknown"
         model_used_name = "unknown"
@@ -376,31 +460,7 @@ async def chat_stream_endpoint(
         except Exception as e:
           print(f"Streaming failed across providers: {e}")
 
-        if search_task is not None:
-          try:
-            search_results = await asyncio.wait_for(
-              search_task, timeout=10.0
-            )
-            if search_results:
-              search_sources = search_results
-              search_context_note = (
-                f"[Search results for: {search_query_used}]\n"
-              )
-              for r in search_results[:3]:
-                search_context_note += (
-                  f"- {r['title']} ({r.get('source', '')})\n"
-                )
-              await save_message(
-                conversation_id=conversation_id,
-                role="system",
-                content=search_context_note
-              )
-          except asyncio.TimeoutError:
-            print("Background search timed out")
-          except Exception as e:
-            print(f"Background search error: {e}")
-
-        # Save complete response
+        # STEP 3: Save and send done
         complete_response = "".join(full_response_parts)
         
         if complete_response:

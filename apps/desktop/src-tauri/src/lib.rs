@@ -5,14 +5,22 @@ pub struct SysState(pub Mutex<System>);
 
 #[tauri::command]
 fn get_system_info(state: tauri::State<SysState>) -> serde_json::Value {
-    let mut sys = state.0.lock().unwrap();
+    let mut sys = match state.0.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            eprintln!("Mutex poisoned, recovering");
+            poisoned.into_inner()
+        }
+    };
     sys.refresh_all();
     
     let cpu_usage = sys.global_cpu_info().cpu_usage();
     let total_mem = sys.total_memory();
     let used_mem = sys.used_memory();
     let ram_pct = if total_mem > 0 {
-        (used_mem as f64 / total_mem as f64 * 100.0) as u32
+        (used_mem as f64 / total_mem as f64 * 100.0)
+            .min(100.0)
+            .max(0.0) as u32
     } else {
         0
     };

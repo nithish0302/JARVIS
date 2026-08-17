@@ -94,5 +94,6 @@ export function useConversationLoader() {
 
     load()
     
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status, messages.length, addMessage, setConversationId])
 }

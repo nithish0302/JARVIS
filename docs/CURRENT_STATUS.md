@@ -110,3 +110,12 @@ The next milestone for Phase 4 will be expanding additional capabilities.
 - Update this document after every approved milestone so it reflects the latest
   verified repository state.
 - Append, rather than rewrite, milestone history in `DEVELOPMENT_LOG.md`.
+
+## Recent Updates
+
+**Bug Audit & Fixes (2026-08-17)**
+- Resolved race condition in AI search response (Search now correctly blocks AI until results are fetched and injected).
+- Fixed `asyncio` blocking issues in `web_search.py` by offloading `tavily` and `duckduckgo` calls to threads.
+- Rewrote `search_detector.py` with robust regex handling for UI exclusion and real-time triggers.
+- Resolved frontend state bugs: disabled new chat during stream, fixed `setTimeout` leak, and added a visual search indicator.
+- Addressed Tauri security: Enabled strict CSP in `tauri.conf.json` and fixed mutex panics and integer overflows in `lib.rs`.

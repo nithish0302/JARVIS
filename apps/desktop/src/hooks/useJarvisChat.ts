@@ -1,4 +1,4 @@
-import { useRef } from "react"
+import { useRef, useEffect } from "react"
 import { useConversationStore } from "../stores/useConversationStore"
 import { useAIStore } from "../stores/useAIStore"
 import { sendMessageStream } from "../services/jarvisApi"
@@ -34,6 +34,16 @@ export function useJarvisChat() {
     searchQuery: "",
     sources: []
   })
+
+  const uiActionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (uiActionTimerRef.current) {
+        clearTimeout(uiActionTimerRef.current)
+      }
+    }
+  }, [])
 
   const sendUserMessage = async (text: string) => {
     if (!text.trim()) return
@@ -73,6 +83,14 @@ export function useJarvisChat() {
           if (meta.searchQuery) {
             useConversationStore.getState().setStreamingMeta(meta.searchQuery)
           }
+        },
+        // onSearchStarted
+        (query) => {
+          useConversationStore.getState().setSearching(true, query)
+        },
+        // onSearchComplete
+        () => {
+          useConversationStore.getState().setSearching(false)
         },
         // onToken — append each word
         (token) => {
@@ -119,8 +137,12 @@ export function useJarvisChat() {
 
             // Execute UI actions after message renders
             if (actions.length > 0) {
-              setTimeout(() => {
+              if (uiActionTimerRef.current) {
+                clearTimeout(uiActionTimerRef.current)
+              }
+              uiActionTimerRef.current = setTimeout(() => {
                 executeUIActions(actions)
+                uiActionTimerRef.current = null
               }, 500)
             }
 
