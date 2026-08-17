@@ -248,6 +248,202 @@ Common searchable URLs:
 Replace spaces with + in QUERY.
 """
 
+FOREGROUND_TRIGGERS = [
+  "show me", "show me on",
+  "in the foreground", "foreground search",
+  "search on youtube", "search on google",
+  "search youtube for", "search google for",
+  "find on youtube", "look up on youtube",
+  "play on youtube", "watch on youtube",
+  "youtube for", "on youtube",
+  "on google", "google for",
+  "in firefox", "in chrome", "in edge",
+  "in browser", "open browser and search",
+  "open google", "open amazon", "open youtube",
+  "open netflix", "open twitter",
+  "open instagram", "open facebook",
+  "open linkedin", "open github",
+  "open reddit", "open stackoverflow",
+  "open whatsapp web", "open gmail",
+  "open maps", "open google maps",
+]
+
+def needs_foreground_search(
+  message: str
+) -> bool:
+  msg_lower = message.lower().strip()
+  
+  # Don't trigger for graph UI commands
+  ui_words = [
+    "graph", "skills", "tools", "notes",
+    "models", "chat mode", "graph mode",
+    "conversations"
+  ]
+  for ui in ui_words:
+    if ui in msg_lower:
+      return False
+  
+  # Don't trigger if automation handles it
+  # (open_app already handles specific apps)
+  if needs_automation(msg_lower):
+    # But DO trigger if it's a URL/search
+    # in a browser
+    for trigger in FOREGROUND_TRIGGERS:
+      if trigger in msg_lower:
+        return True
+    return False
+  
+  for trigger in FOREGROUND_TRIGGERS:
+    if trigger in msg_lower:
+      return True
+  return False
+
+def build_foreground_url(
+  message: str
+) -> dict:
+  msg_lower = message.lower().strip()
+  
+  # YouTube patterns
+  yt_triggers = [
+    "on youtube", "youtube for",
+    "search youtube", "find on youtube",
+    "play on youtube", "watch on youtube",
+    "search on youtube", "search youtube for",
+    "open youtube",
+  ]
+  for t in yt_triggers:
+    if t in msg_lower:
+      # Start with original message
+      query = message.strip()
+      
+      # Remove these phrases in order
+      phrases_to_remove = [
+        "open youtube and search ",
+        "open youtube and search",
+        "open youtube to search ",
+        "open youtube to find ",
+        "and search ",
+        "and find ",
+        "and play ",
+        "and watch ",
+        "search youtube for ", "search youtube for",
+        "search on youtube for ", 
+        "search on youtube ",
+        "search on youtube",
+        "find on youtube ", "find on youtube",
+        "play on youtube ", "play on youtube",
+        "watch on youtube ", "watch on youtube",
+        "look up on youtube ", 
+        "youtube for ", "youtube for",
+        "on youtube", "youtube",
+        "show me ", "search for ",
+        "search ", "find ", "play ",
+        "watch ", "look up ",
+        "open youtube ",
+      ]
+      
+      query_lower = query.lower()
+      for phrase in phrases_to_remove:
+        # Case insensitive replacement
+        import re
+        query = re.sub(
+          re.escape(phrase),
+          "",
+          query,
+          flags=re.IGNORECASE
+        ).strip()
+      
+      # Clean up extra spaces and punctuation
+      query = query.strip(" .,!?").strip()
+      
+      # Replace spaces with + for URL
+      query_encoded = query.replace(" ", "+")
+      
+      print(f"YouTube query extracted: '{query}'")
+      
+      if not query_encoded:
+        return {
+          "url": "https://youtube.com",
+          "browser": "firefox",
+          "description": "Opening YouTube"
+        }
+      return {
+        "url": f"https://youtube.com/results?search_query={query_encoded}",
+        "browser": "firefox",
+        "description": f"Searching YouTube for {query}"
+      }
+  
+  # Google patterns
+  google_triggers = [
+    "on google", "google for",
+    "search on google", "search google for",
+    "open google",
+  ]
+  for t in google_triggers:
+    if t in msg_lower:
+      query = msg_lower
+      for remove in [
+        "show me ", "search ", "find ",
+        "on google", "google for ",
+        "search on google ", "search google for ",
+        "open google and search ",
+        "open google",
+      ]:
+        query = query.replace(remove, "")
+      query = query.strip().replace(" ", "+")
+      if not query:
+        return {
+          "url": "https://google.com",
+          "browser": "firefox",
+          "description": "Opening Google"
+        }
+      return {
+        "url": f"https://google.com/search?q={query}",
+        "browser": "firefox",
+        "description": f"Searching Google for {query.replace('+', ' ')}"
+      }
+  
+  # Common websites
+  site_map = {
+    "gmail": "https://gmail.com",
+    "amazon": "https://amazon.in",
+    "netflix": "https://netflix.com",
+    "twitter": "https://twitter.com",
+    "instagram": "https://instagram.com",
+    "facebook": "https://facebook.com",
+    "linkedin": "https://linkedin.com",
+    "github": "https://github.com",
+    "reddit": "https://reddit.com",
+    "stackoverflow": "https://stackoverflow.com",
+    "whatsapp": "https://web.whatsapp.com",
+    "maps": "https://maps.google.com",
+    "google maps": "https://maps.google.com",
+  }
+  for site, url in site_map.items():
+    if site in msg_lower:
+      return {
+        "url": url,
+        "browser": "firefox",
+        "description": f"Opening {site.title()}"
+      }
+  
+  # "show me X" - generic Google search
+  if msg_lower.startswith("show me "):
+    query = message[8:].strip().replace(" ", "+")
+    return {
+      "url": f"https://google.com/search?q={query}",
+      "browser": "firefox",
+      "description": f"Showing {message[8:].strip()} in browser"
+    }
+  
+  # Default - Google search
+  query = message.strip().replace(" ", "+")
+  return {
+    "url": f"https://google.com/search?q={query}",
+    "browser": "firefox",
+    "description": f"Searching for {message.strip()}"
+  }
+
 def needs_automation(message: str) -> bool:
   msg_lower = message.lower().strip()
   
@@ -566,8 +762,34 @@ async def chat_endpoint(request: ChatRequest):
         timestamp=""
       ))
 
+    # Check foreground search
+    foreground_result = None
+    if needs_foreground_search(request.message):
+      foreground_result = build_foreground_url(
+        request.message
+      )
+
+    search_needed = needs_web_search(request.message)
+
+    if foreground_result:
+      url = foreground_result["url"]
+      browser = foreground_result["browser"]
+      description = foreground_result["description"]
+      full_messages.insert(-1, Message(
+        role="system",
+        content=(
+          f"[FOREGROUND BROWSER ACTION]\n"
+          f"Open this URL for the user: {url}\n"
+          f"Include exactly: "
+          f"[UI_ACTION:open_url:{browser}:{url}]\n"
+          f"Say: {description}"
+        ),
+        timestamp=""
+      ))
+      # Skip background search when foreground search is happening
+      search_needed = False
     
-    if needs_web_search(request.message):
+    if search_needed:
         search_query_used = extract_search_query(request.message)
         try:
             search_results = await asyncio.wait_for(
@@ -750,6 +972,32 @@ async def chat_stream_endpoint(
         content=automation_context,
         timestamp=""
       ))
+
+    # Check foreground search
+    foreground_result = None
+    if needs_foreground_search(request.message):
+      foreground_result = build_foreground_url(
+        request.message
+      )
+
+    if foreground_result:
+      url = foreground_result["url"]
+      browser = foreground_result["browser"]
+      description = foreground_result["description"]
+      full_messages.insert(-1, Message(
+        role="system",
+        content=(
+          f"[FOREGROUND BROWSER ACTION]\n"
+          f"Open this URL for the user: {url}\n"
+          f"Include exactly: "
+          f"[UI_ACTION:open_url:{browser}:{url}]\n"
+          f"Say: {description}"
+        ),
+        timestamp=""
+      ))
+      # Skip background search when
+      # foreground search is happening
+      search_needed = False
 
     async def generate():
       nonlocal search_sources
