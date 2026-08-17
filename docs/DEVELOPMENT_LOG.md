@@ -798,6 +798,38 @@ Status: Complete and approved.
 - Updated `docs/CURRENT_STATUS.md`
 - Appended this entry to `docs/DEVELOPMENT_LOG.md`
 
+## Phase 4 - Milestone 1: Desktop Automation Refinements & Bug Fixes
+
+**Date:** 2026-08-17
+
+**Objective:** Refine automation parsing, handle multiple actions safely, fix URL handling, and improve application search accuracy.
+
+**Decisions made:**
+- Changed LLM response format for automation from single JSON objects to JSON arrays to support multiple simultaneous actions (e.g. opening two apps).
+- Integrated `react-markdown` to safely render markdown output in `ChatFullView` and `StreamingMessage`.
+- Allowed `open_url` UI Actions to be parsed safely and routed to the correct system browsers via a Rust `open_url_in_browser` command.
+- Expanded Rust `find_application` search parameters to include `%APPDATA%` and `%LOCALAPPDATA%\Programs`.
+- Cleaned PowerShell output from cluttering chat history.
+
+**Outcome:** JARVIS reliably processes multi-step automation commands.
+
+**Validation:** 63/63 desktop tests pass. `cargo build`, `pnpm build`, and `pnpm lint` succeed.
+
+## Phase 4 - Milestone 1: Fixes before Milestone 2
+
+**Date:** 2026-08-17
+
+**Objective:** Prevent automation false positives for web search queries and support searchable URLs (like Microsoft Store).
+
+**Decisions made:**
+- Updated `needs_automation()` in `routes.py` with smarter exclusions to ignore questions containing words like "is", "available", "exist" even if they contain automation trigger words like "store".
+- Added `ms-windows-store://` protocol handling in `open_url_in_browser` in `lib.rs` to allow searching inside the Microsoft Store.
+- Updated `COMMAND_GENERATION_PROMPT` with searchable URL patterns (YouTube, Google, Amazon India, Microsoft Store, GitHub, Stack Overflow) to allow opening an app/website and immediately searching a query.
+
+**Outcome:** JARVIS can now differentiate between asking about an app (which triggers web search) and commanding to open it and search within it (which triggers an `OPEN_URL` UI Action).
+
+**Validation:** Python API routes tested successfully. `cargo build` in `src-tauri` will compile the new Windows Store handler.
+
 **Outcome:** The user can now seamlessly toggle between the Chat View and the newly built Settings View using the AppHeader icons. Settings view features a functional left sidebar that switches out the main content sections. Everything is presentational but well-structured for future integrations.
 
 **Validation:** Tests passing, lint clean, production build successful.
@@ -1309,3 +1341,62 @@ Thinking...\) and dynamically fetch memory count.
 - `CURRENT_STATUS.md`, `DEVELOPMENT_LOG.md`
 
 **Outcome:** Search features and desktop application stability vastly improved.
+
+---
+
+## Phase 4 - Milestone 1: Desktop Automation
+
+**Date:** 2026-08-17
+
+**Objective:** Implement Dynamic Command Execution System.
+
+**Decisions made:**
+- Add powershell and dynamic app finding commands in lib.rs.
+- Generate JSON automation schemas in Groq API within routes.py.
+- Add systemApi.ts bindings.
+- Intercept UI actions for automation commands and store pending commands.
+- Add real battery and disk usage components to LeftColumn.tsx.
+
+**Outcome:** JARVIS can now control the Windows PC dynamically and safely.
+
+**Status:** Complete and approved.
+
+---
+
+## Phase 4 - Desktop Automation Fixes
+
+**Date:** 2026-08-17
+
+**Objective:** Optimize automation context and fallback logic.
+
+**Decisions made:**
+- Changed the automation context injection from a long detailed prompt to a concise string of just the required UI_ACTION tags (max 300 characters). This avoids context limit errors on Gemini and saves Groq tokens.
+- Applied the shortened automation context format identically to both the `/chat/stream` and the `/chat` endpoints.
+- Updated provider selection logic when `automation_results` is present: prioritize structured-response-friendly models (OpenRouter, Groq) over others.
+
+**Files created or modified:**
+- Modified `routes.py`
+
+**Outcome:** Automation prompts are highly efficient, API tokens are saved, and the engine correctly falls back to models better suited for structured JSON and short text.
+
+**Status:** Complete and tested.
+
+---
+
+## Phase 4 - Desktop Automation Fixes
+
+**Date:** 2026-08-17
+
+**Objective:** Prevent duplicate windows when opening URLs.
+
+**Decisions made:**
+- Added a `CRITICAL DEDUPLICATION RULE` to `COMMAND_GENERATION_PROMPT` so the LLM doesn't emit both `OPEN_APP` and `OPEN_URL` for the same browser in a single request.
+- Implemented `deduplicate_actions()` in `routes.py` to filter out redundant `OPEN_APP` commands if an `OPEN_URL` action exists for the same browser (handling aliases like "firefox", "mozilla").
+- Called `deduplicate_actions()` within `generate_automation_command()` after parsing the LLM output.
+
+**Files created or modified:**
+- Modified `routes.py`
+
+**Outcome:** Requests like "open firefox and search youtube" now open exactly one window with the requested URL, while "open firefox and notepad" still opens two separate apps correctly.
+
+**Status:** Complete and tested.

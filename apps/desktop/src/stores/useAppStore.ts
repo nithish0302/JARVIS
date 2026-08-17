@@ -24,6 +24,8 @@ export interface AppState {
   setInspectorMessage: (msg: string) => void;
   deletingConversationId: string | null;
   setDeletingConversationId: (id: string | null) => void;
+  pendingCommand: string | null;
+  setPendingCommand: (cmd: string | null) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -63,4 +65,6 @@ export const useAppStore = create<AppState>((set) => ({
   },
   deletingConversationId: null,
   setDeletingConversationId: (id) => set({ deletingConversationId: id }),
+  pendingCommand: null,
+  setPendingCommand: (cmd) => set({ pendingCommand: cmd }),
 }));

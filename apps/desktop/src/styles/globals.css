@@ -113,3 +113,44 @@
   background: rgba(82,236,227,0.2);
   border-radius: 2px;
 }
+
+/* Markdown Styles */
+.markdown-content p {
+  margin-bottom: 0.75em;
+}
+.markdown-content p:last-child {
+  margin-bottom: 0;
+}
+.markdown-content pre {
+  background: rgba(0, 0, 0, 0.3);
+  padding: 12px;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 1em 0;
+  border: 1px solid var(--color-line);
+}
+.markdown-content code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.9em;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+.markdown-content pre code {
+  background: transparent;
+  padding: 0;
+}
+.markdown-content ul, .markdown-content ol {
+  padding-left: 1.5em;
+  margin-bottom: 1em;
+}
+.markdown-content li {
+  margin-bottom: 0.25em;
+}
+.markdown-content a {
+  color: var(--color-cyan);
+  text-decoration: none;
+}
+.markdown-content a:hover {
+  text-decoration: underline;
+}

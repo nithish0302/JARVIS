@@ -5,6 +5,8 @@ import { sendMessageStream } from "../services/jarvisApi"
 import type { Message } from "../types/chat.types"
 import { parseUIActions } from "../utils/uiActionParser"
 import { executeUIActions } from "../utils/uiActionExecutor"
+import { useAppStore } from "../stores/useAppStore"
+import { executePowerShell } from "../services/systemApi"
 
 export function useJarvisChat() {
   const { 
@@ -47,6 +49,50 @@ export function useJarvisChat() {
 
   const sendUserMessage = async (text: string) => {
     if (!text.trim()) return
+
+    const { pendingCommand, setPendingCommand } = useAppStore.getState()
+
+    if (pendingCommand && 
+        ["yes","confirm","ok","do it","go ahead"]
+          .includes(text.toLowerCase().trim())) {
+      
+      const userMessage: Message = {
+        id: window.crypto.randomUUID(),
+        role: "user",
+        content: text,
+        timestamp: new Date().toLocaleTimeString(
+          [], { hour: "2-digit", minute: "2-digit" }
+        ),
+      }
+      addMessage(userMessage)
+
+      executePowerShell(pendingCommand, true)
+        .then(result => {
+          addMessage({
+            id: window.crypto.randomUUID(),
+            role: "assistant",
+            content: `Done. Command output:\n${result}`,
+            timestamp: new Date().toLocaleTimeString(
+              [], {hour:"2-digit",minute:"2-digit"}
+            )
+          })
+        })
+        .catch(err => {
+          addMessage({
+            id: window.crypto.randomUUID(),
+            role: "assistant",
+            content: `Failed. Error:\n${err}`,
+            timestamp: new Date().toLocaleTimeString(
+              [], {hour:"2-digit",minute:"2-digit"}
+            )
+          })
+        })
+        
+      setPendingCommand(null)
+      return // Don't send to AI
+    } else if (pendingCommand && ["no", "cancel", "stop"].includes(text.toLowerCase().trim())) {
+      setPendingCommand(null)
+    }
 
     const userMessage: Message = {
       id: window.crypto.randomUUID(),

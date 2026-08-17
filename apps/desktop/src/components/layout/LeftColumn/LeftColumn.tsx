@@ -18,6 +18,11 @@ export function LeftColumn() {
   const [ramUsed, setRamUsed] = useState("0");
   const [ramTotal, setRamTotal] = useState("0");
   const [gpus, setGpus] = useState<any[]>([]);
+  const [batteryLevel, setBatteryLevel] = useState(100);
+  const [batteryStatus, setBatteryStatus] = useState("Unknown");
+  const [diskPct, setDiskPct] = useState(0);
+  const [diskUsed, setDiskUsed] = useState("0");
+  const [diskTotal, setDiskTotal] = useState("0");
 
   useEffect(() => {
     let mounted = true;
@@ -38,11 +43,32 @@ export function LeftColumn() {
       }
     };
 
+    const fetchLongStats = async () => {
+      try {
+        if (!('__TAURI_INTERNALS__' in window)) return;
+        const [batt, disk] = await Promise.all([
+          invoke<any>("get_battery_info"),
+          invoke<any>("get_disk_info")
+        ]);
+        if (!mounted) return;
+        setBatteryLevel(batt.level);
+        setBatteryStatus(batt.status);
+        setDiskPct(disk.pct);
+        setDiskUsed(disk.used_gb);
+        setDiskTotal(disk.total_gb);
+      } catch (e) {
+        console.error("Failed to fetch long stats", e);
+      }
+    };
+
     fetchStats();
+    fetchLongStats();
     const interval = setInterval(fetchStats, 3000);
+    const longInterval = setInterval(fetchLongStats, 60000);
     return () => {
       mounted = false;
       clearInterval(interval);
+      clearInterval(longInterval);
     };
   }, []);
 
@@ -160,6 +186,40 @@ export function LeftColumn() {
               <div className="sys-detail">{gpu.name} <span className="opacity-50">(static)</span></div>
             </div>
           ))}
+          
+          <div className="sys-metric mt-4">
+            <div className="sys-row">
+              <span className="lbl">DISK (C:)</span>
+              <span className={cn("pct", diskPct > 90 && "warn")}>{diskPct}%</span>
+            </div>
+            <div className="sys-bar">
+              <div
+                className="sys-bar-fill"
+                style={{
+                  width: `${diskPct}%`,
+                  background: diskPct > 90 ? "var(--color-amber)" : "var(--color-cyan)",
+                }}
+              ></div>
+            </div>
+            <div className="sys-detail">{diskUsed} / {diskTotal} GB</div>
+          </div>
+          
+          <div className="sys-metric mt-4">
+            <div className="sys-row">
+              <span className="lbl">BATTERY</span>
+              <span className={cn("pct", batteryLevel < 20 && "warn")}>{batteryLevel}%</span>
+            </div>
+            <div className="sys-bar">
+              <div
+                className="sys-bar-fill"
+                style={{
+                  width: `${batteryLevel}%`,
+                  background: batteryLevel < 20 ? "var(--color-amber)" : "#52d68a",
+                }}
+              ></div>
+            </div>
+            <div className="sys-detail">{batteryStatus}</div>
+          </div>
         </div>
       </div>
 

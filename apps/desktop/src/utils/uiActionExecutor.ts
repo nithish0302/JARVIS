@@ -169,6 +169,65 @@ export function executeUIActions(
           }
           break
           
+          case "open_app":
+          if (action.payload) {
+            import("../services/systemApi").then(api => {
+              api.openApplication(action.payload!).then(res => {
+                store.setInspectorMessage(res)
+              }).catch(err => {
+                store.setInspectorMessage(`Error opening app: ${err}`)
+              })
+            })
+          }
+          break
+          
+        case "open_url":
+          if (action.payload) {
+            const firstColon = action.payload.indexOf(":")
+            if (firstColon !== -1) {
+              const browser = action.payload.substring(0, firstColon)
+              const url = action.payload.substring(firstColon + 1)
+              import("../services/systemApi").then(api => {
+                api.openUrlInBrowser(url, browser).then(res => {
+                  store.setInspectorMessage(res)
+                }).catch(err => {
+                  store.setInspectorMessage(`Error opening url: ${err}`)
+                })
+              })
+            }
+          }
+          break
+          
+        case "run_powershell":
+          if (action.payload) {
+            import("../services/systemApi").then(api => {
+              api.executePowerShell(action.payload!, false).then(res => {
+                store.setInspectorMessage(`PowerShell Output:\n${res}`)
+              }).catch(err => {
+                if (typeof err === "string" && err.startsWith("REQUIRES_CONFIRMATION:")) {
+                  const cmd = err.replace("REQUIRES_CONFIRMATION:", "")
+                  store.setPendingCommand(cmd)
+                  store.setInspectorMessage(`Command requires confirmation.`)
+                } else {
+                  store.setInspectorMessage(`Error: ${err}`)
+                }
+              })
+            })
+          }
+          break
+          
+        case "lock_screen":
+          import("../services/systemApi").then(api => {
+            api.lockScreen()
+          })
+          break
+          
+        case "confirm_action":
+          if (action.payload) {
+            store.setPendingCommand(action.payload)
+          }
+          break
+          
         default:
           console.log(
             "Unknown UI action:", action.type
@@ -209,6 +268,30 @@ export function executeUIActions(
 
       if (action.type === "switch_provider" && action.payload) {
         feedbackMessages[`switch_provider:${action.payload}`] = `Switching AI brain to ${action.payload.toUpperCase()}, sir.`
+      }
+      
+      if (action.type === "open_app" && action.payload) {
+        feedbackMessages[`open_app:${action.payload}`] = `Opening ${action.payload}, sir.`
+      }
+
+      if (action.type === "open_url" && action.payload) {
+        const firstColon = action.payload.indexOf(":")
+        if (firstColon !== -1) {
+          const url = action.payload.substring(firstColon + 1)
+          feedbackMessages[`open_url:${action.payload}`] = `Opening URL ${url}, sir.`
+        }
+      }
+
+      if (action.type === "run_powershell" && action.payload) {
+        feedbackMessages[`run_powershell:${action.payload}`] = `Executing automation task, sir.`
+      }
+
+      if (action.type === "lock_screen") {
+        feedbackMessages["lock_screen"] = `Locking screen, sir.`
+      }
+
+      if (action.type === "confirm_action" && action.payload) {
+        feedbackMessages[`confirm_action:${action.payload}`] = `Awaiting confirmation for command, sir.`
       }
 
       const key = action.payload 

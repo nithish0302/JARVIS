@@ -128,6 +128,303 @@ When web search results are provided:
 - Cite which source the information came from
 """
 
+COMMAND_GENERATION_PROMPT = """You are a Windows 
+automation expert for JARVIS.
+
+The user wants to do something on their Windows PC.
+Generate the exact PowerShell command to do it.
+
+User request: "{request}"
+
+Rules:
+1. Return ONLY a JSON object or JSON ARRAY, nothing else
+2. Format:
+{{
+  "action_type": "OPEN_APP|OPEN_URL|SYSTEM_QUERY|FILE_OP|SYSTEM_CONTROL|UNSAFE",
+  "command": "the powershell command, app name, or url",
+  "description": "what this will do in plain English",
+  "requires_confirmation": true/false,
+  "display_output": true/false
+}}
+
+If the user wants to open MULTIPLE apps,
+return a JSON ARRAY:
+[
+  {{"action_type":"OPEN_APP","command":"Firefox","description":"Opening Firefox","requires_confirmation":false,"display_output":false}},
+  {{"action_type":"OPEN_APP","command":"Code","description":"Opening VS Code","requires_confirmation":false,"display_output":false}}
+]
+
+CRITICAL DEDUPLICATION RULE:
+If you are opening a URL in a browser,
+do NOT also generate a separate OPEN_APP
+action for that same browser.
+
+WRONG (creates 2 windows):
+[
+  {{"action_type":"OPEN_APP","command":"Firefox"}},
+  {{"action_type":"OPEN_URL","command":"https://youtube.com","browser":"firefox"}}
+]
+
+CORRECT (opens Firefox once with YouTube):
+[
+  {{"action_type":"OPEN_URL","command":"https://youtube.com","browser":"firefox","description":"Opening YouTube in Firefox","requires_confirmation":false,"display_output":false}}
+]
+
+Rule: OPEN_URL already opens the browser.
+Never combine OPEN_APP + OPEN_URL for the same browser.
+
+More examples:
+'open firefox and go to youtube'
+→ [{{"action_type":"OPEN_URL","command":"https://youtube.com","browser":"firefox"}}]
+
+'open firefox and search cats'
+→ [{{"action_type":"OPEN_URL","command":"https://google.com/search?q=cats","browser":"firefox"}}]
+
+'open firefox and search youtube for tamil songs'
+→ [{{"action_type":"OPEN_URL","command":"https://youtube.com/results?search_query=tamil+songs","browser":"firefox"}}]
+
+'open firefox and notepad'
+→ [
+    {{"action_type":"OPEN_URL","command":"https://www.google.com","browser":"firefox"}},
+    {{"action_type":"OPEN_APP","command":"notepad"}}
+  ]
+(Firefox opens with Google, notepad opens separately)
+
+CRITICAL: For locking the screen, ALWAYS return:
+{{"action_type":"SYSTEM_CONTROL","command":"lock_screen","description":"Locking Windows screen","requires_confirmation":false,"display_output":false}}
+NEVER generate a PowerShell script to lock screen.
+
+For disk space queries use this exact command:
+Get-PSDrive C | Select-Object @{{N='Used GB';E={{[math]::Round($_.Used/1GB,1)}}}},@{{N='Free GB';E={{[math]::Round($_.Free/1GB,1)}}}},@{{N='Total GB';E={{[math]::Round(($_.Used+$_.Free)/1GB,1)}}}},@{{N='Used %';E={{[math]::Round($_.Used/($_.Used+$_.Free)*100,1)}}}} | Format-Table -AutoSize
+
+User's preferred browsers:
+1. Firefox (primary - use by default)
+2. Edge (secondary)
+When opening any URL without browser specified,
+always use Firefox.
+
+Examples:
+Request: "open chrome"
+{{"action_type":"OPEN_APP","command":"Chrome","description":"Opening Google Chrome","requires_confirmation":false,"display_output":false}}
+
+Request: "open youtube in firefox"
+{{"action_type":"OPEN_URL","command":"https://youtube.com","browser":"firefox","description":"Opening YouTube in Firefox","requires_confirmation":false,"display_output":false}}
+
+Request: "search cats on youtube"
+{{"action_type":"OPEN_URL","command":"https://youtube.com/results?search_query=cats","browser":"firefox","description":"Searching cats on YouTube","requires_confirmation":false,"display_output":false}}
+
+Request: "open gmail"
+{{"action_type":"OPEN_URL","command":"https://gmail.com","browser":"firefox","description":"Opening Gmail in Firefox","requires_confirmation":false,"display_output":false}}
+
+Request: "what processes are using most CPU"
+{{"action_type":"SYSTEM_QUERY","command":"Get-Process | Sort-Object CPU -Descending | Select-Object -First 5 Name,CPU | Format-Table","description":"Showing top 5 CPU-consuming processes","requires_confirmation":false,"display_output":true}}
+
+Request: "delete all files in Downloads"
+{{"action_type":"FILE_OP","command":"Remove-Item $HOME\\Downloads\\* -Recurse","description":"This will permanently delete ALL files in Downloads","requires_confirmation":true,"display_output":false}}
+
+Request: "lock my screen"
+{{"action_type":"SYSTEM_CONTROL","command":"lock_screen","description":"Locking your Windows screen","requires_confirmation":false,"display_output":false}}
+
+Request: "open google and search JARVIS AI"
+{"action_type":"OPEN_URL","command":"https://google.com/search?q=JARVIS+AI","browser":"firefox","description":"Searching JARVIS AI on Google","requires_confirmation":false,"display_output":false}
+
+Request: "open store and search forza 6"
+{"action_type":"OPEN_URL","command":"ms-windows-store://search?query=forza+6","browser":"default","description":"Opening Microsoft Store and searching for Forza 6","requires_confirmation":false,"display_output":false}
+
+Request: "open youtube and search tamil songs"
+{"action_type":"OPEN_URL","command":"https://youtube.com/results?search_query=tamil+songs","browser":"firefox","description":"Searching Tamil songs on YouTube","requires_confirmation":false,"display_output":false}
+
+Request: "open amazon and search laptop"
+{"action_type":"OPEN_URL","command":"https://amazon.in/s?k=laptop","browser":"firefox","description":"Searching laptop on Amazon","requires_confirmation":false,"display_output":false}
+
+Common searchable URLs:
+- YouTube: https://youtube.com/results?search_query=QUERY
+- Google: https://google.com/search?q=QUERY
+- Amazon India: https://amazon.in/s?k=QUERY
+- Microsoft Store: ms-windows-store://search?query=QUERY
+- GitHub: https://github.com/search?q=QUERY
+- Stack Overflow: https://stackoverflow.com/search?q=QUERY
+
+Replace spaces with + in QUERY.
+"""
+
+def needs_automation(message: str) -> bool:
+  msg_lower = message.lower().strip()
+  
+  # Never trigger automation for questions
+  # about availability or information
+  question_patterns = [
+    "is ", "are ", "does ", "do ",
+    "can ", "will ", "should ",
+    "what is", "how much", "how many",
+    "available", "exist", "support",
+  ]
+  
+  # If message starts with question word
+  # and contains "store" or "available"
+  # it's a search query not automation
+  for q in question_patterns:
+    if msg_lower.startswith(q) and (
+      "available" in msg_lower or
+      "exist" in msg_lower or
+      "support" in msg_lower
+    ):
+      return False
+  
+  # Existing automation triggers
+  automation_triggers = [
+    "open ", "launch ", "start ", "run ",
+    "close ", "kill ", "stop ",
+    "lock ", "unlock ",
+    "create ", "make ", "new folder",
+    "delete ", "remove ", "move ", "copy ",
+    "what processes", "cpu usage",
+    "ip address", "disk space",
+    "volume ", "mute ", "unmute ",
+    "screenshot", "restart ", "shutdown ",
+    "install ", "uninstall ",
+  ]
+  
+  # Don't trigger for graph/UI commands
+  ui_words = [
+    "graph", "skills", "tools", "notes",
+    "models", "chat mode", "graph mode",
+    "conversations panel",
+  ]
+  for ui in ui_words:
+    if ui in msg_lower:
+      return False
+  
+  for trigger in automation_triggers:
+    if trigger in msg_lower:
+      return True
+  return False
+
+async def get_automation_context_str(automation_results: list[dict]) -> str:
+    automation_context = (
+        f"[TASK] Include these exact tags in your "
+        f"response and describe the action naturally:\n"
+    )
+    for result in automation_results:
+        action_type = result.get("action_type", "")
+        command = result.get("command", "")
+        browser = result.get("browser", "firefox")
+        description = result.get("description", "")
+        requires_confirm = result.get("requires_confirmation", False)
+
+        if action_type == "OPEN_APP":
+            automation_context += (
+                f"[UI_ACTION:open_app:{command}] "
+                f"({description})\n"
+            )
+        elif action_type == "OPEN_URL":
+            automation_context += (
+                f"[UI_ACTION:open_url:{browser}:{command}] "
+                f"({description})\n"
+            )
+        elif action_type == "SYSTEM_CONTROL" and command == "lock_screen":
+            automation_context += (
+                f"[UI_ACTION:lock_screen] "
+                f"(Lock the Windows screen)\n"
+            )
+        elif action_type == "SYSTEM_QUERY":
+            automation_context += (
+                f"[UI_ACTION:run_powershell:{command}] "
+                f"(Run system query)\n"
+            )
+        elif requires_confirm:
+            automation_context += (
+                f"[UI_ACTION:confirm_action:{command}] "
+                f"(Ask user to confirm: {description})\n"
+            )
+        elif action_type in ("SYSTEM_CONTROL", "FILE_OP") and not requires_confirm:
+            automation_context += (
+                f"[UI_ACTION:run_powershell:{command}] "
+                f"({description})\n"
+            )
+    return automation_context[:300]
+
+
+def deduplicate_actions(
+  results: list[dict]
+) -> list[dict]:
+  
+  # If any OPEN_URL exists for a browser,
+  # remove OPEN_APP for that same browser
+  browsers_with_url = set()
+  for r in results:
+    if r.get("action_type") == "OPEN_URL":
+      browser = r.get("browser", "").lower()
+      browsers_with_url.add(browser)
+  
+  # Browser name to app name mapping
+  browser_app_names = {
+    "firefox": ["firefox", "mozilla firefox",
+                "mozilla"],
+    "edge": ["edge", "microsoft edge"],
+    "chrome": ["chrome", "google chrome"],
+  }
+  
+  filtered = []
+  for r in results:
+    if r.get("action_type") == "OPEN_APP":
+      app = r.get("command", "").lower()
+      skip = False
+      for browser, names in \
+          browser_app_names.items():
+        if browser in browsers_with_url and \
+           any(n in app for n in names):
+          skip = True
+          break
+      if not skip:
+        filtered.append(r)
+    else:
+      filtered.append(r)
+  
+  return filtered
+
+
+async def generate_automation_command(
+  message: str,
+  groq_api_key: str
+) -> list[dict]:
+  try:
+    from groq import Groq
+    client = Groq(api_key=groq_api_key)
+    
+    response = await asyncio.to_thread(
+      client.chat.completions.create,
+      model="llama-3.3-70b-versatile",
+      messages=[{
+        "role": "user",
+        "content": COMMAND_GENERATION_PROMPT.format(
+          request=message
+        )
+      }],
+      max_tokens=500,
+      temperature=0
+    )
+    
+    text = response.choices[0].message.content.strip()
+    import re
+    # Try array first
+    arr_match = re.search(r'\[.*\]', text, re.DOTALL)
+    if arr_match:
+      parsed = json_module.loads(arr_match.group())
+      if isinstance(parsed, list):
+        return deduplicate_actions(parsed)
+    # Try single object
+    obj_match = re.search(r'\{.*\}', text, re.DOTALL)
+    if obj_match:
+      parsed = [json_module.loads(obj_match.group())]
+      return deduplicate_actions(parsed)
+    return []
+    
+  except Exception as e:
+    print(f"Command generation error: {e}")
+    return []
+
+
 @router.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest):
     conversation_id_exists = request.conversation_id is not None
@@ -189,6 +486,23 @@ async def chat_endpoint(request: ChatRequest):
         content=request.message
     )
     
+    # Check for automation intent
+    automation_results = []
+    if needs_automation(request.message) and settings.GROQ_API_KEY:
+      automation_results = await generate_automation_command(
+        request.message,
+        settings.GROQ_API_KEY
+      )
+
+    if automation_results:
+      automation_context = await get_automation_context_str(automation_results)
+      full_messages.insert(-1, Message(
+        role="system",
+        content=automation_context,
+        timestamp=""
+      ))
+
+    
     if needs_web_search(request.message):
         search_query_used = extract_search_query(request.message)
         try:
@@ -210,6 +524,8 @@ async def chat_endpoint(request: ChatRequest):
                 search_context += (
                     "Use ONLY these results. Cite sources."
                 )
+                if search_context:
+                    search_context = search_context[:1000]
                 full_messages.insert(-1, Message(
                     role="system",
                     content=search_context,
@@ -234,7 +550,27 @@ async def chat_endpoint(request: ChatRequest):
             print(f"Search error: {e}")
 
     try:
-        response_text, provider_used, model_used = await provider_manager.chat(full_messages)
+        if automation_results:
+            providers_to_try = sorted(
+                provider_manager.providers,
+                key=lambda p: 0 if p.name == "openrouter" else 1 if p.name == "groq" else 2 if p.name == "ollama" else 3
+            )
+        else:
+            providers_to_try = provider_manager.providers
+
+        response_text = ""
+        for provider in providers_to_try:
+            if not await provider.is_available():
+                continue
+            try:
+                response_text = await provider.chat(full_messages)
+                provider_used = provider.name
+                model_used = provider.model
+                break
+            except Exception:
+                continue
+        if not response_text:
+            raise Exception("All providers failed")
     except Exception as e:
         response_text = "I encountered an error."
         provider_used = "error"
@@ -335,6 +671,22 @@ async def chat_stream_endpoint(
     if search_needed:
         search_query_used = extract_search_query(request.message)
 
+    # Check for automation intent
+    automation_results = []
+    if needs_automation(request.message) and settings.GROQ_API_KEY:
+      automation_results = await generate_automation_command(
+        request.message,
+        settings.GROQ_API_KEY
+      )
+
+    if automation_results:
+      automation_context = await get_automation_context_str(automation_results)
+      full_messages.insert(-1, Message(
+        role="system",
+        content=automation_context,
+        timestamp=""
+      ))
+
     async def generate():
       nonlocal search_sources
       try:
@@ -381,6 +733,9 @@ async def chat_stream_endpoint(
                 "answer. Cite sources by website name. "
                 "Do NOT add facts from training data."
               )
+              
+              if search_context:
+                search_context = search_context[:1000]
               
               # Inject BEFORE user message
               full_messages.insert(-1, Message(
@@ -433,7 +788,15 @@ async def chat_stream_endpoint(
         model_used_name = "unknown"
 
         try:
-          for provider in provider_manager.providers:
+          if automation_results:
+            providers_to_try = sorted(
+              provider_manager.providers,
+              key=lambda p: 0 if p.name == "openrouter" else 1 if p.name == "groq" else 2 if p.name == "ollama" else 3
+            )
+          else:
+            providers_to_try = provider_manager.providers
+
+          for provider in providers_to_try:
             if not await provider.is_available():
                 continue
 

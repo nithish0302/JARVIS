@@ -4,9 +4,9 @@ Last updated: 2026-08-11
 
 ## Current phase
 
-Phase 3 - Milestone 4: [UI_ACTION] Protocol
+Phase 4 - Milestone 1: Desktop Automation
 Status: Complete
-Next: Phase 3 - Milestone 5
+Next: Phase 4 - Milestone 2
 
 **Phase 3 - External Integrations**
 
@@ -14,13 +14,13 @@ The project has integrated DuckDuckGo web search capability.
 
 ## Current milestone
 
-**Milestone 4 - [UI_ACTION] Protocol**
+**Milestone 1 - Desktop Automation**
 
 Status: **Complete**
 
-The fourth milestone of Phase 3 is complete. The JARVIS system now supports the `[UI_ACTION]` protocol, allowing the AI model to directly control the desktop application's UI by emitting special command tags (e.g., `[UI_ACTION:chat_mode_on]`). The frontend robustly parses and strips these tags during both streaming and completion phases so they are never visible to the user. An executor utility securely translates these actions into Zustand state updates, enabling JARVIS to expand the graph, navigate into specific data hubs (Skills, Tools, etc.), and toggle the conversation panel automatically. We also added UI feedback components that display floating text near the orb and log to the inspector when actions execute, supporting future voice features.
+The first milestone of Phase 4 is complete. The JARVIS system now features a Dynamic Command Execution System, allowing JARVIS to control the Windows PC via Rust and Tauri. The system classifies user intent, dynamically generates PowerShell commands using Groq's LLM, and securely executes them. A robust safety mechanism is in place to intercept destructive commands and prompt the user for confirmation. Additionally, JARVIS provides real-time system feedback, such as actual battery status and disk capacity, directly to the HUD.
 
-Validation passed: parser tests succeed and the frontend and backend interact as expected.
+Validation passed: cargo build, pnpm build, pnpm test, pnpm lint, and manual tests succeed.
 
 ## Completed milestones
 
@@ -54,8 +54,11 @@ Validation passed: parser tests succeed and the frontend and backend interact as
 | Phase 3 - Milestone 3: Tavily Search + Sources UI                       | Complete                  | Migrated to Tavily Search API and integrated `SearchBadge` and `SourcesList` HUD UI to display live search context and clickable source citations. |
 
 | Phase 3 - Milestone 4: [UI_ACTION] Protocol                   | Complete                  | Introduced the UI Action protocol, letting JARVIS command the React frontend (opening hubs, switching views) via invisible tags safely parsed from its streaming responses. |
+| Phase 3 - Milestone 5: Background Search                      | Complete                  | Integrated parallel background search and injected results directly into conversation history for real-time live context.                                     |
+| Phase 4 - Milestone 0: Groq Provider                          | Complete                  | Integrated Groq API for blazing-fast inference using Llama 3.3 70B models.                                                                                  |
+| Phase 4 - Milestone 1: Desktop Automation                     | Complete                  | Implemented a Dynamic Command Execution System using Rust/Tauri to securely generate and execute PowerShell commands based on user intent.                  |
 
-**Phase 3 - Milestone 5: Background Search**
+**Phase 4 - Additional Capabilities**
 
 Status: **Complete**
 
@@ -63,11 +66,11 @@ The fifth milestone of Phase 3 is complete. The JARVIS system now supports paral
 
 **Phase 4 - Additional Providers**
 
-**Milestone 1 - Groq Provider**
+**Milestone 1 - Desktop Automation**
 
 Status: **Complete**
 
-The first milestone of Phase 4 is complete. The JARVIS system now supports the Groq API provider for blazing-fast inference using Llama 3.3 70B models. The UI has been updated to reflect the new provider options (OpenRouter, Groq, Ollama) and connection priority is appropriately configured.
+JARVIS can now execute dynamic automation commands generated via LLM through a safe Rust execution engine.
 
 The next milestone for Phase 4 will be expanding additional capabilities.
 
@@ -119,3 +122,4 @@ The next milestone for Phase 4 will be expanding additional capabilities.
 - Rewrote `search_detector.py` with robust regex handling for UI exclusion and real-time triggers.
 - Resolved frontend state bugs: disabled new chat during stream, fixed `setTimeout` leak, and added a visual search indicator.
 - Addressed Tauri security: Enabled strict CSP in `tauri.conf.json` and fixed mutex panics and integer overflows in `lib.rs`.
+- Desktop Automation refinements: Supported multiple app openings via JSON arrays, fixed browser URL opening, expanded AppData search logic in Rust, and added ReactMarkdown to chat for clean display.

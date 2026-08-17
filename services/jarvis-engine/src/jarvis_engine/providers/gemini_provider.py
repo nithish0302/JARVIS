@@ -22,6 +22,11 @@ class GeminiProvider(BaseProvider):
     return True
 
   def _format_messages(self, messages: list[Message]) -> list[dict]:
+    if len(messages) > 20:
+      system_msgs = [m for m in messages if m.role == "system"]
+      other_msgs = [m for m in messages if m.role != "system"]
+      messages = system_msgs + other_msgs[-10:]
+      
     formatted = []
     
     system_msg = next((m for m in messages if m.role == "system"), None)

@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import List
+from typing import List, AsyncGenerator
 from ..core.models import Message
 
 class BaseProvider(ABC):
@@ -22,5 +22,5 @@ class BaseProvider(ABC):
         pass
 
     @abstractmethod
-    async def stream(self, messages: List[Message]) -> 'typing.AsyncGenerator[str, None]':
+    async def stream(self, messages: List[Message]) -> AsyncGenerator[str, None]:
         pass

@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>J.A.R.V.I.S. — Orb V2</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=Orbitron:wght@400;600;700;900&display=swap');
+  *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+  body{background:#020a14;overflow:hidden;width:100vw;height:100vh;display:flex;align-items:center;justify-content:center;font-family:'Rajdhani',sans-serif}
+  canvas#orb{position:absolute;top:0;left:0;width:100%;height:100%}
+  .ct{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;pointer-events:none;z-index:10}
+  .tt{font-family:'Orbitron',sans-serif;font-weight:900;font-size:clamp(26px,3.8vw,50px);letter-spacing:8px;color:#fff;text-shadow:0 0 24px rgba(79,195,247,.7),0 0 60px rgba(79,195,247,.3);font-style:italic;animation:tp 4s ease-in-out infinite}
+  .st{font-family:'Rajdhani',sans-serif;font-weight:600;font-size:clamp(11px,1.5vw,18px);letter-spacing:6px;color:rgba(79,195,247,.8);margin-top:4px;text-shadow:0 0 14px rgba(79,195,247,.5);animation:sb 2.5s ease-in-out infinite}
+  @keyframes tp{0%,100%{opacity:1}50%{opacity:.9;text-shadow:0 0 30px rgba(79,195,247,.9),0 0 80px rgba(79,195,247,.4)}}
+  @keyframes sb{0%,100%{opacity:.8}50%{opacity:1}}
+</style>
+</head>
+<body>
+<canvas id="orb"></canvas>
+<div class="ct"><div class="tt">J.A.R.V.I.S.</div><div class="st">INITIALIZING...</div></div>
+<script>
+(()=>{
+const C=document.getElementById('orb'),X=C.getContext('2d'),D=window.devicePixelRatio||1;
+const TAU=Math.PI*2,DEG=Math.PI/180;
+function resize(){C.width=innerWidth*D;C.height=innerHeight*D;C.style.width=innerWidth+'px';C.style.height=innerHeight+'px';X.setTransform(D,0,0,D,0,0)}
+addEventListener('resize',resize);resize();
+
+// ── Drawing primitives ──
+
+function arc(cx,cy,r,s,e,w,c,a=1){
+  X.save();X.globalAlpha=a;X.beginPath();X.arc(cx,cy,r,s*DEG,e*DEG);
+  X.strokeStyle=c;X.lineWidth=w;X.lineCap='butt';X.stroke();X.restore();
+}
+
+function arcGlow(cx,cy,r,s,e,w,c,g=14,a=1){
+  X.save();X.globalAlpha=a;X.beginPath();X.arc(cx,cy,r,s*DEG,e*DEG);
+  X.strokeStyle=c;X.lineWidth=w;X.lineCap='round';
+  X.shadowColor=c;X.shadowBlur=g;X.stroke();X.shadowBlur=0;X.restore();
+}
+
+function ticks(cx,cy,ri,ro,n,off,w,c,a=1,skip=null){
+  X.save();X.globalAlpha=a;X.strokeStyle=c;X.lineWidth=w;X.lineCap='butt';
+  for(let i=0;i<n;i++){
+    if(skip&&skip(i))continue;
+    const ang=(i/n)*TAU+off*DEG;
+    X.beginPath();X.moveTo(cx+Math.cos(ang)*ri,cy+Math.sin(ang)*ri);
+    X.lineTo(cx+Math.cos(ang)*ro,cy+Math.sin(ang)*ro);X.stroke();
+  }
+  X.restore();
+}
+
+function dot(x,y,r,c,g=10){
+  X.save();X.beginPath();X.arc(x,y,r,0,TAU);X.fillStyle=c;
+  X.shadowColor=c;X.shadowBlur=g;X.fill();X.shadowBlur=0;X.restore();
+}
+
+function sweep(cx,cy,r,startDeg,lenDeg,w,c,a=1){
+  X.save();X.globalAlpha=a;
+  const s=startDeg*DEG, e=(startDeg+lenDeg)*DEG;
+  // Draw a gradient that fades in along the arc
+  for(let i=0;i<lenDeg;i+=1){
+    const frac=i/lenDeg;
+    const alpha=frac*frac; // quadratic fade-in
+    const a1=(startDeg+i)*DEG, a2=(startDeg+i+1.5)*DEG;
+    X.globalAlpha=a*alpha;
+    X.beginPath();X.arc(cx,cy,r,a1,a2);
+    X.strokeStyle=c;X.lineWidth=w;X.lineCap='butt';
+    X.shadowColor=c;X.shadowBlur=alpha*16;
+    X.stroke();
+  }
+  X.shadowBlur=0;X.restore();
+}
+
+// bracket decoration — small L-shaped notch
+function bracket(cx,cy,r,angleDeg,size,w,c,a=1,flip=false){
+  X.save();X.globalAlpha=a;
+  const ang=angleDeg*DEG;
+  const cos=Math.cos(ang),sin=Math.sin(ang);
+  const px=cx+cos*r, py=cy+sin*r;
+  // perpendicular
+  const nx=-sin, ny=cos;
+  const dir=flip?-1:1;
+  X.beginPath();
+  X.moveTo(px+nx*size*dir, py+ny*size*dir);
+  X.lineTo(px, py);
+  X.lineTo(px+cos*size, py+sin*size);
+  X.strokeStyle=c;X.lineWidth=w;X.lineCap='butt';X.stroke();
+  X.restore();
+}
+
+// ── Main loop (time-based for constant speed) ──
+const startTime=performance.now();
+
+function draw(){
+  const w=innerWidth,h=innerHeight,cx=w/2,cy=h/2;
+  const R=Math.min(w,h)*0.38;
+  X.clearRect(0,0,w,h);
+
+  // Background
+  const bg=X.createRadialGradient(cx,cy,0,cx,cy,Math.max(w,h)*.7);
+  bg.addColorStop(0,'#0a1a2e');bg.addColorStop(.35,'#051220');bg.addColorStop(1,'#020a14');
+  X.fillStyle=bg;X.fillRect(0,0,w,h);
+
+  // Ambient glow behind orb
+  X.save();
+  const ag=X.createRadialGradient(cx,cy,R*0.3,cx,cy,R*1.3);
+  ag.addColorStop(0,'rgba(30,140,220,0.08)');ag.addColorStop(.5,'rgba(20,90,170,0.04)');ag.addColorStop(1,'transparent');
+  X.fillStyle=ag;X.beginPath();X.arc(cx,cy,R*1.3,0,TAU);X.fill();
+  X.restore();
+
+  // Constant-speed time (seconds since start)
+  const time=(performance.now()-startTime)/1000*0.6;
+  const cyan='rgba(100,210,255,';
+  const amber='rgba(255,193,7,';
+
+  // ═══════════════════════════════════════
+  // LAYER 1 — OUTERMOST CLEAN RING (no ticks)
+  // ═══════════════════════════════════════
+  const r1=R*1.02;
+  const rot1=time*10;
+
+  // Clean outer ring — brighter, no tick marks
+  arc(cx,cy,r1, 0,360, 2, cyan+'0.4)', 1);
+
+  // Sweeping bright trail on outer ring
+  sweep(cx,cy, r1, rot1*3, 100, 3, cyan+'1)', 0.75);
+
+  // Faint outer halo
+  arc(cx,cy, r1+16, 0,360, 0.5, cyan+'0.06)', 1);
+
+
+  // ═══════════════════════════════════════
+  // LAYER 2 — THICK BRIGHT CYAN BAND (FIXED)
+  // ═══════════════════════════════════════
+  const r2=R*0.92;
+  // FIXED — no rotation
+
+  // Thick band (wide stroke, brighter)
+  arc(cx,cy, r2, 0,360, 6, cyan+'0.18)', 1);
+
+  // Fixed bright arc segments on the band
+  arcGlow(cx,cy, r2, 0, 85, 6, cyan+'0.6)', 20, 0.9);
+  arcGlow(cx,cy, r2, 120, 210, 6, cyan+'0.45)', 16, 0.7);
+  arcGlow(cx,cy, r2, 250, 320, 5, cyan+'0.4)', 14, 0.6);
+
+  // Small bright notch marks on band (8 evenly spaced, fixed)
+  for(let i=0;i<8;i++){
+    const a=(i/8)*360;
+    arc(cx,cy, r2, a, a+4, 9, cyan+'0.55)', 0.7);
+  }
+
+  // Bracket decorations (fixed positions)
+  [45,135,225,315].forEach((d,i)=>{
+    bracket(cx,cy,r2+4, d, 6, 1.5, cyan+'0.45)', 0.6, i%2===0);
+  });
+
+
+  // ═══════════════════════════════════════
+  // LAYER 3 — THIN SEPARATOR RING
+  // ═══════════════════════════════════════
+  const r3=R*0.84;
+  arc(cx,cy, r3, 0,360, 1, cyan+'0.2)', 1);
+
+  // Decorative dashes
+  X.save();X.setLineDash([3,9]);
+  arc(cx,cy, r3, 0,360, 0.8, cyan+'0.12)', 1);
+  X.setLineDash([]);X.restore();
+
+
+  // ═══════════════════════════════════════
+  // LAYER 4 — DENSE GAUGE TICK RING
+  // ═══════════════════════════════════════
+  const r4=R*0.78;
+  const rot4=time*4;
+
+  // Base ring
+  arc(cx,cy, r4, 0,360, 1.2, cyan+'0.15)', 1);
+
+  // Dense inward ticks (100)
+  ticks(cx,cy, r4-10, r4, 100, rot4, 1.0, cyan+'0.3)', 1);
+
+  // Micro ticks (250)
+  ticks(cx,cy, r4-5, r4, 250, rot4, 0.4, cyan+'0.12)', 1);
+
+  // Highlighted section (brighter ticks in one quadrant)
+  const hlStart=rot4*2;
+  for(let i=0;i<25;i++){
+    const a=(hlStart+i*1.4)*DEG;
+    X.save();X.globalAlpha=0.5;X.strokeStyle=cyan+'0.7)';X.lineWidth=1.2;
+    X.beginPath();
+    X.moveTo(cx+Math.cos(a)*(r4-10), cy+Math.sin(a)*(r4-10));
+    X.lineTo(cx+Math.cos(a)*r4, cy+Math.sin(a)*r4);
+    X.stroke();X.restore();
+  }
+
+
+  // ═══════════════════════════════════════
+  // AMBER ACCENT ARC (SPINNING)
+  // ═══════════════════════════════════════
+  const rAmber=R*0.85;
+  const amberCenter=time*25; // constant-speed spin
+  const amberHalf=32;
+
+  // Thick amber bar
+  arcGlow(cx,cy, rAmber, amberCenter-amberHalf, amberCenter+amberHalf, 7, amber+'0.9)', 22, 0.95);
+
+  // Inner echo
+  arcGlow(cx,cy, rAmber-8, amberCenter-amberHalf+8, amberCenter+amberHalf-8, 3, amber+'0.45)', 10, 0.55);
+
+  // Outer faint halo of amber
+  arcGlow(cx,cy, rAmber+5, amberCenter-amberHalf+3, amberCenter+amberHalf-3, 1.5, amber+'0.2)', 8, 0.3);
+
+  // 3 amber indicator dots along the arc outer edge
+  [amberCenter-20, amberCenter, amberCenter+20].forEach((deg,i)=>{
+    const a=deg*DEG;
+    const x=cx+Math.cos(a)*(rAmber+12);
+    const y=cy+Math.sin(a)*(rAmber+12);
+    dot(x,y, 3, `rgba(255,220,50,0.85)`, 12);
+  });
+
+
+  // ═══════════════════════════════════════
+  // LAYER 5 — INNER THICK SEGMENTED RING
+  // ═══════════════════════════════════════
+  const r5=R*0.65;
+  const rot5=-time*12;
+
+  // Base faint ring
+  arc(cx,cy, r5, 0,360, 1, cyan+'0.08)', 1);
+
+  // 16 block segments with gaps
+  const segCount=16;
+  const segGap=4; // degrees gap
+  const segArc=360/segCount-segGap;
+  for(let i=0;i<segCount;i++){
+    const start=(i/segCount)*360+rot5;
+    // Vary brightness: every 4th is brighter
+    const bright=i%4===0?0.45:i%2===0?0.25:0.15;
+    arc(cx,cy, r5, start, start+segArc, 10, cyan+bright+')', 1);
+  }
+
+  // Sweeping highlight across segments
+  const segHL=(time*25)%360;
+  arcGlow(cx,cy, r5, segHL+rot5, segHL+rot5+45, 10, cyan+'0.55)', 12, 0.7);
+
+  // Second sweeping highlight (opposite side)
+  arcGlow(cx,cy, r5, segHL+rot5+180, segHL+rot5+210, 10, cyan+'0.3)', 8, 0.4);
+
+
+  // ═══════════════════════════════════════
+  // LAYER 6 — THIN INNER RING + TICKS
+  // ═══════════════════════════════════════
+  const r6=R*0.54;
+  const rot6=time*3;
+
+  arc(cx,cy, r6, 0,360, 1, cyan+'0.15)', 1);
+
+  // Small outward ticks (30)
+  ticks(cx,cy, r6, r6+6, 30, rot6, 0.8, cyan+'0.25)', 1);
+
+  // Sweeping glow
+  sweep(cx,cy, r6, -time*18, 70, 1.8, cyan+'0.8)', 0.5);
+
+
+  // ═══════════════════════════════════════
+  // LAYER 7 — INNERMOST DECORATIVE RING
+  // ═══════════════════════════════════════
+  const r7=R*0.47;
+
+  arc(cx,cy, r7, 0,360, 0.8, cyan+'0.1)', 1);
+
+  // Dashed
+  X.save();X.setLineDash([2,6]);
+  arc(cx,cy, r7, 0,360, 0.7, cyan+'0.12)', 1);
+  X.setLineDash([]);X.restore();
+
+  // Partial bright arcs
+  arcGlow(cx,cy, r7, 30, 90, 1.5, cyan+'0.3)', 6, 0.4);
+  arcGlow(cx,cy, r7, 210, 260, 1.5, cyan+'0.25)', 6, 0.35);
+
+
+  // ═══════════════════════════════════════
+  // CENTER DISC — Dark with circuit pattern
+  // ═══════════════════════════════════════
+  const rC=R*0.44;
+
+  // Dark fill
+  X.save();
+  const cg=X.createRadialGradient(cx,cy,0,cx,cy,rC);
+  cg.addColorStop(0,'rgba(6,16,32,0.96)');cg.addColorStop(0.7,'rgba(4,12,26,0.93)');cg.addColorStop(1,'rgba(3,10,22,0.88)');
+  X.beginPath();X.arc(cx,cy,rC,0,TAU);X.fillStyle=cg;X.fill();
+  X.restore();
+
+  // Circuit grid pattern
+  X.save();
+  const gridAlpha=0.07+Math.sin(time*0.5)*0.02;
+  X.globalAlpha=gridAlpha;
+  X.strokeStyle=cyan+'1)';X.lineWidth=0.5;
+
+  // Horizontal lines
+  const gridStep=rC/7;
+  for(let i=-6;i<=6;i++){
+    const y=cy+i*gridStep;
+    const dx=Math.sqrt(Math.max(0,rC*rC-(i*gridStep)**2));
+    if(dx<4)continue;
+    X.beginPath();X.moveTo(cx-dx*0.88,y);X.lineTo(cx+dx*0.88,y);X.stroke();
+  }
+  // Vertical lines
+  for(let i=-6;i<=6;i++){
+    const x=cx+i*gridStep;
+    const dy=Math.sqrt(Math.max(0,rC*rC-(i*gridStep)**2));
+    if(dy<4)continue;
+    X.beginPath();X.moveTo(x,cy-dy*0.88);X.lineTo(x,cy+dy*0.88);X.stroke();
+  }
+
+  // Random circuit traces
+  X.globalAlpha=0.1+Math.sin(time*0.8)*0.03;
+  X.lineWidth=0.8;
+  const seed=Math.floor(time*0.2)*137;
+  for(let i=0;i<18;i++){
+    const sx=cx+Math.cos(seed+i*41)*rC*0.55;
+    const sy=cy+Math.sin(seed+i*67)*rC*0.35;
+    const ex=sx+(Math.cos(seed+i*23)>0?1:-1)*(8+(i%5)*7);
+    const ey=sy;
+    if(Math.hypot(sx-cx,sy-cy)>rC*0.82)continue;
+    X.beginPath();X.moveTo(sx,sy);X.lineTo(ex,ey);
+    X.lineTo(ex,ey+(Math.sin(seed+i*31)>0?1:-1)*(5+(i%4)*4));
+    X.stroke();
+    // Small dot at junction
+    X.beginPath();X.arc(ex,ey,1,0,TAU);X.fillStyle=cyan+'0.15)';X.fill();
+  }
+  X.restore();
+
+  // Ring glow around center disc
+  X.save();X.beginPath();X.arc(cx,cy,rC,0,TAU);
+  X.strokeStyle=cyan+'0.2)';X.lineWidth=1.5;
+  X.shadowColor='rgba(79,195,247,0.35)';X.shadowBlur=12;X.stroke();X.shadowBlur=0;
+  X.restore();
+
+  // Loading bar inside center (horizontal)
+  const barW=rC*1.0;
+  const barH=3;
+  const barY=cy+28;
+  const barX=cx-barW/2;
+  const progress=(time*0.3)%1; // constant-speed linear sweep
+
+  X.save();X.globalAlpha=0.15;
+  X.fillStyle=cyan+'0.3)';
+  X.fillRect(barX,barY,barW,barH);
+  X.globalAlpha=0.4;
+  X.fillStyle=cyan+'0.7)';
+  X.fillRect(barX,barY,barW*progress,barH);
+  // Glow on progress edge
+  X.shadowColor='rgba(79,195,247,0.8)';X.shadowBlur=8;
+  X.fillRect(barX+barW*progress-3,barY-1,6,barH+2);
+  X.shadowBlur=0;
+  X.restore();
+
+
+  // ═══════════════════════════════════════
+  // DECORATIVE ELEMENTS
+  // ═══════════════════════════════════════
+
+  // Cardinal dots on ring 2 (fixed positions since ring 2 is fixed)
+  [0,90,180,270].forEach((deg,i)=>{
+    const a=deg*DEG;
+    const x=cx+Math.cos(a)*(r2+2);
+    const y=cy+Math.sin(a)*(r2+2);
+    dot(x,y, 2.5, `rgba(100,210,255,0.65)`, 10);
+  });
+
+  // Beacon dot (bright, orbiting outer ring)
+  const bAng=(-90+rot1*0.7)*DEG;
+  const bx=cx+Math.cos(bAng)*(r1+4);
+  const by=cy+Math.sin(bAng)*(r1+4);
+  dot(bx,by, 3.5, `rgba(120,230,255,0.85)`, 18);
+
+  // Small amber accent on right side of ring 5 (spinning with segments)
+  const amberR2=time*15;
+  arcGlow(cx,cy, r5+2, amberR2, amberR2+20, 2.5, amber+'0.5)', 8, 0.5);
+
+
+  // ═══════════════════════════════════════
+  // FLOATING PARTICLES
+  // ═══════════════════════════════════════
+  X.save();
+  for(let i=0;i<35;i++){
+    const angle=(i/35)*TAU+time*0.25+i*0.8;
+    const dist=R*(0.45+0.65*((Math.sin(time*0.18+i*2.3)+1)/2));
+    const px=cx+Math.cos(angle)*dist;
+    const py=cy+Math.sin(angle)*dist;
+    const pa=0.05+Math.sin(time*1.3+i*3.1)*0.04;
+    const ps=0.6+Math.sin(time+i)*0.5;
+    X.globalAlpha=pa;X.beginPath();X.arc(px,py,ps,0,TAU);
+    X.fillStyle=cyan+'1)';X.fill();
+  }
+  X.restore();
+
+
+  // ═══════════════════════════════════════
+  // OUTER DECORATIVE ARCS (faint partial halos)
+  // ═══════════════════════════════════════
+  const rH=R*1.12;
+  arc(cx,cy, rH, 0,360, 0.4, cyan+'0.04)', 1);
+  arcGlow(cx,cy, rH, rot1*0.4+20, rot1*0.4+55, 1.2, cyan+'0.2)', 5, 0.3);
+  arcGlow(cx,cy, rH, rot1*0.4+190, rot1*0.4+235, 1.2, cyan+'0.15)', 5, 0.25);
+
+  // Very faint outermost whisper ring
+  const rH2=R*1.18;
+  arc(cx,cy, rH2, 0,360, 0.3, cyan+'0.025)', 1);
+
+
+  requestAnimationFrame(draw);
+}
+requestAnimationFrame(draw);
+})();
+</script>
+</body>
+</html>

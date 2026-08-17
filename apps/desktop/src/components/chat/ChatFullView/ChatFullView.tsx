@@ -4,6 +4,7 @@ import { useJarvisChat } from "../../../hooks/useJarvisChat";
 import { useConversationStore } from "../../../stores/useConversationStore";
 import { SearchBadge } from "../SearchBadge/SearchBadge";
 import { SourcesList } from "../SourcesList/SourcesList";
+import ReactMarkdown from 'react-markdown';
 
 export function ChatFullView() {
   const { messages, sendUserMessage, isTyping, streamingMessageId, streamingContent, streamingSearchQuery } = useJarvisChat();
@@ -123,7 +124,9 @@ export function ChatFullView() {
                   </div>
                 </div>
               )}
-              <div className="whitespace-pre-wrap font-sans text-[var(--text)]">{msg.content}</div>
+              <div className="markdown-content">
+                <ReactMarkdown>{msg.content}</ReactMarkdown>
+              </div>
               {msg.role === "assistant" && (
                 <SourcesList sources={msg.sources || []} visible={msg.searchPerformed === true} />
               )}

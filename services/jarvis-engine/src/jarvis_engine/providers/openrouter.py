@@ -1,5 +1,5 @@
 import httpx
-from typing import List
+from typing import List, AsyncGenerator
 from .base import BaseProvider
 from ..core.models import Message
 
@@ -75,7 +75,7 @@ class OpenRouterProvider(BaseProvider):
   async def stream(
     self,
     messages: list[Message]
-  ) -> 'typing.AsyncGenerator[str, None]':
+  ) -> AsyncGenerator[str, None]:
     import json
     from ..core.config import settings
     payload = {
