@@ -1,8 +1,10 @@
 import "./Topbar.css";
 import { useAIStore } from "../../../stores/useAIStore";
+import { useAppStore } from "../../../stores/useAppStore";
 
 export function Topbar() {
   const { provider, model, memoryCount, status } = useAIStore();
+  const { graphMode, isCharging } = useAppStore();
 
   const getStatusLabel = () => {
     switch (status) {
@@ -30,6 +32,25 @@ export function Topbar() {
         <div className="topbar-pill">
           <span className="pd"></span>
           {`${model} · ${provider}`}
+        </div>
+        <div style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "4px",
+          padding: "2px 8px",
+          background: "rgba(82,236,227,0.06)",
+          border: "1px solid rgba(82,236,227,0.15)",
+          borderRadius: "4px",
+          fontFamily: "var(--font-mono)",
+          fontSize: "10px",
+          color: isCharging 
+            ? "var(--color-cyan)" 
+            : "var(--color-amber)",
+          letterSpacing: "0.5px"
+        }}>
+          {isCharging ? "⚡" : "🔋"}
+          &nbsp;
+          {graphMode.toUpperCase()}
         </div>
         <div className="topbar-pill amber">
           <span className="pd"></span>

@@ -1,10 +1,10 @@
 import uuid
 import asyncio
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, WebSocket
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import json as json_module
-from typing import List
+from typing import List, Set
 import aiosqlite
 
 from ..core.models import ChatRequest, ChatResponse, HealthResponse, Message, Memory, CreateMemoryRequest
@@ -18,8 +18,12 @@ from ..tools.web_search import (
 from ..tools.search_detector import (
   needs_web_search, extract_search_query
 )
+from ..voice.voice_manager import voice_manager
 
 router = APIRouter()
+
+# WebSocket connections for voice events
+connected_clients: Set[WebSocket] = set()
 
 @router.post("/search")
 async def search_endpoint(request: dict):
@@ -38,6 +42,251 @@ async def search_endpoint(request: dict):
     "results": results,
     "formatted": formatted
   }
+
+@router.post("/voice/start")
+async def start_voice():
+  def on_transcription(text: str):
+    print(f"Voice input received: {text}")
+    # This will be connected to chat in M2
+  
+  voice_manager.initialize(on_transcription)
+  return {"status": "voice_started"}
+
+@router.post("/voice/stop")
+async def stop_voice():
+  voice_manager.shutdown()
+  return {"status": "voice_stopped"}
+
+@router.get("/voice/status")
+async def voice_status():
+  return {
+    "is_listening": voice_manager.is_listening,
+    "wake_word_model": "wake_up_jarvis",
+    "status": "active" if
+      voice_manager.wake_word_detector
+      else "inactive"
+  }
+
+@router.post("/tts/stop")
+async def stop_tts():
+  from ..voice.tts_engine import tts_engine
+  tts_engine.stop()
+  return {"status": "stopped"}
+
+@router.get("/tts/status")
+async def tts_status():
+  from ..voice.tts_engine import tts_engine
+  return {
+    "is_speaking": tts_engine.is_speaking,
+    "voice": tts_engine.voice
+  }
+
+@router.post("/voice/input")
+async def voice_input_endpoint(request: dict):
+  text = request.get("text", "").strip()
+  direct_response = request.get("direct_response")
+
+  print(f"[VOICE INPUT ENDPOINT] Received: {text}")
+  if not text:
+    raise HTTPException(
+      status_code=400,
+      detail="No text provided"
+    )
+
+  # Broadcast processing status
+  await broadcast_voice_event({
+    "type": "voice_status",
+    "status": "processing"
+  })
+
+  # Handle direct command - already executed, broadcast (TTS happens in main.py)
+  if direct_response:
+    print(f"[VOICE] Direct command executed: {direct_response}")
+    await broadcast_voice_event({
+      "type": "voice_input",
+      "text": text
+    })
+    await broadcast_voice_event({
+      "type": "voice_response",
+      "text": direct_response
+    })
+    # Note: TTS status (speaking->idle) is handled in main.py callback
+    return {
+      "response": direct_response,
+      "conversation_id": "",
+      "provider_used": "direct",
+      "model_used": "direct"
+    }
+
+  import os
+  username = os.environ.get("USERNAME", "")
+
+  # Run automation detection first
+  automation_results = []
+  if needs_automation(text) and settings.GROQ_API_KEY:
+    automation_results = await generate_automation_command(
+      text, settings.GROQ_API_KEY
+    )
+    automation_results = deduplicate_actions(
+      automation_results
+    )
+    automation_results = remove_duplicate_apps(
+      automation_results
+    )
+
+  # Check file system commands
+  is_file_cmd, file_action = is_file_system_command(text)
+
+  # Build automation context
+  automation_context = ""
+
+  if is_file_cmd:
+    action = file_action["action"]
+    path = file_action.get("path", "")
+    description = file_action.get("description", "")
+    requires_confirm = file_action.get(
+      "requires_confirmation", False
+    )
+    if requires_confirm:
+      automation_context = (
+        f"[FILE SYSTEM COMMAND DETECTED]\n"
+        f"You MUST include: "
+        f"[UI_ACTION:confirm_action:{action}:{path}]\n"
+        f"Ask confirmation naturally."
+      )
+    else:
+      automation_context = (
+        f"[FILE SYSTEM COMMAND DETECTED]\n"
+        f"You MUST include: "
+        f"[UI_ACTION:{action}:{path}]\n"
+        f"Acknowledge naturally."
+      )
+
+  elif automation_results:
+    for result in automation_results:
+      action_type = result.get("action_type", "")
+      command = result.get("command", "")
+      browser = result.get("browser", "firefox")
+      requires_confirm = result.get(
+        "requires_confirmation", False
+      )
+      if action_type == "OPEN_APP":
+        automation_context += (
+          f"Open {command} → "
+          f"[UI_ACTION:open_app:{command}]\n"
+        )
+      elif action_type == "OPEN_URL":
+        automation_context += (
+          f"Open {command} in {browser} → "
+          f"[UI_ACTION:open_url:{browser}:{command}]\n"
+        )
+      elif action_type == "SYSTEM_CONTROL" and \
+           command == "lock_screen":
+        automation_context += (
+          f"Lock screen → [UI_ACTION:lock_screen]\n"
+        )
+      elif action_type == "SYSTEM_QUERY":
+        automation_context += (
+          f"Run query → "
+          f"[UI_ACTION:run_powershell:{command}]\n"
+        )
+      elif requires_confirm:
+        automation_context += (
+          f"Ask confirmation → "
+          f"[UI_ACTION:confirm_action:{command}]\n"
+        )
+    automation_context = automation_context[:300]
+
+  # Build minimal messages WITH automation context
+  system_content = JARVIS_SYSTEM_PROMPT[:500]
+  if automation_context:
+    system_content += (
+      f"\n\n{automation_context}\n"
+      f"Include ALL action tags in response.\n"
+      f"Do NOT ask permission - just execute."
+    )
+  else:
+    system_content += f"\n\n{UI_ACTION_INSTRUCTION[:300]}"
+
+  minimal_messages = [
+    Message(
+      role="system",
+      content=system_content,
+      timestamp=""
+    ),
+    Message(
+      role="user",
+      content=text,
+      timestamp=""
+    )
+  ]
+
+  # Use ollama first for voice
+  voice_providers = sorted(
+    [p for p in provider_manager.providers
+     if p.name in ["ollama","groq","openrouter"]],
+    key=lambda p: (
+      0 if p.name == "ollama" else
+      1 if p.name == "groq" else 2
+    )
+  )
+
+  response_text = ""
+  provider_used = "unknown"
+  for provider in voice_providers:
+    try:
+      if await provider.is_available():
+        response_text = await provider.chat(
+          minimal_messages
+        )
+        provider_used = provider.name
+        print(f"[VOICE] Used provider: {provider.name}")
+        break
+    except Exception as e:
+      print(f"[VOICE] {provider.name} failed: {e}")
+      continue
+
+  if not response_text:
+    response_text = "All voice providers unavailable."
+
+  print(f"[JARVIS VOICE RESPONSE] {response_text}")
+
+  # Broadcast via WebSocket
+  await broadcast_voice_event({
+    "type": "voice_input",
+    "text": text
+  })
+  await broadcast_voice_event({
+    "type": "voice_response",
+    "text": response_text
+  })
+  # Note: TTS status (speaking->idle) is handled in main.py callback
+
+  return {
+    "response": response_text,
+    "conversation_id": "",
+    "provider_used": provider_used,
+    "model_used": "voice"
+  }
+
+@router.websocket("/ws/voice")
+async def voice_websocket(websocket: WebSocket):
+  await websocket.accept()
+  connected_clients.add(websocket)
+  try:
+    while True:
+      await websocket.receive_text()
+  except:
+    connected_clients.discard(websocket)
+
+async def broadcast_voice_event(event: dict):
+  dead = set()
+  for client in connected_clients:
+    try:
+      await client.send_json(event)
+    except:
+      dead.add(client)
+  connected_clients.difference_update(dead)
 
 JARVIS_SYSTEM_PROMPT = """You are JARVIS, a premium 
 AI desktop assistant for Nithish. You are intelligent,
@@ -557,8 +806,6 @@ def is_file_system_command(
   username = os.environ.get("USERNAME", "")
   msg_lower = message.lower().strip()
 
-  print(f"[FILE_SYSTEM] Checking: '{msg_lower}'")
-  
   # Common paths
   desktop = f"C:\\Users\\{username}\\Desktop"
   downloads = f"C:\\Users\\{username}\\Downloads"
@@ -587,11 +834,9 @@ def is_file_system_command(
   
   for trigger in list_triggers:
     if trigger in msg_lower:
-      print(f"[FILE_SYSTEM] Matched list trigger: '{trigger}'")
       for folder_name, folder_path in \
           list_patterns.items():
         if folder_name in msg_lower:
-          print(f"[FILE_SYSTEM] Matched folder: '{folder_name}' -> {folder_path}")
           return True, {
             "action": "list_dir",
             "path": folder_path,
@@ -632,35 +877,76 @@ def is_file_system_command(
           "description": f"Creating folder '{folder_name}'"
         }
   
-  # DELETE FILE patterns
+  # DELETE FILE/FOLDER patterns - ENHANCED
   delete_triggers = [
-    "delete ", "remove the file",
-    "delete the file", "delete the folder",
+    "delete ", "remove ", "delete the ",
+    "remove the ", "delete my ", "remove my ",
+    "delete this ", "remove this ",
   ]
   for trigger in delete_triggers:
     if trigger in msg_lower:
-      # Try to find file location
-      for folder_name, folder_path in \
-          list_patterns.items():
-        if folder_name in msg_lower:
-          # Extract filename
-          import re
-          # Look for filename with extension
-          file_match = re.search(
-            r'([\w\-\.]+\.\w+)',
-            message
-          )
-          if file_match:
-            filename = file_match.group(1)
-            full_path = f"{folder_path}\\{filename}"
-            return True, {
-              "action": "delete_file",
-              "path": full_path,
-              "description": f"Delete {filename}",
-              "requires_confirmation": True
-            }
+      # Try to extract item name and location
+      import re
 
-  print(f"[FILE_SYSTEM] No match found for: '{msg_lower}'")
+      # Pattern 1: "delete X in/from/on location"
+      match1 = re.search(
+        r'(?:delete|remove)\s+(?:the\s+|my\s+|this\s+)?'
+        r'(?:file\s+|folder\s+)?'
+        r'([\'"]?)([\w][\w\s\.\-]+?)\1'
+        r'\s+(?:in|from|on|at)\s+(\w+)',
+        message,
+        re.IGNORECASE
+      )
+
+      # Pattern 2: "delete X" (search all common locations)
+      match2 = re.search(
+        r'(?:delete|remove)\s+(?:the\s+|my\s+|this\s+)?'
+        r'(?:file\s+|folder\s+)?'
+        r'([\'"]?)([\w][\w\s\.\-]+?)\1',
+        message,
+        re.IGNORECASE
+      )
+
+      item_name = None
+      location = None
+
+      if match1:
+        item_name = match1.group(2).strip()
+        location = match1.group(3).strip().lower()
+      elif match2:
+        item_name = match2.group(2).strip()
+
+      if not item_name:
+        continue
+
+      # Search locations
+      search_locations = []
+      if location and location in list_patterns:
+        # Specific location requested
+        search_locations = [(location, list_patterns[location])]
+      else:
+        # Search all common locations
+        search_locations = list(list_patterns.items())
+
+      # Search for the item
+      for loc_name, loc_path in search_locations:
+        full_path = f"{loc_path}\\{item_name}"
+
+        # Check if exists (file or folder)
+        import os
+        if os.path.exists(full_path):
+          is_dir = os.path.isdir(full_path)
+          item_type = "folder" if is_dir else "file"
+          return True, {
+            "action": "delete_file",
+            "path": full_path,
+            "description": f"Delete {item_type} '{item_name}' from {loc_name}",
+            "requires_confirmation": True
+          }
+
+      # Not found - let LLM handle it
+      continue
+
   return False, {}
 
 def needs_automation(message: str) -> bool:
@@ -734,10 +1020,15 @@ def needs_automation(message: str) -> bool:
   return False
 
 async def get_automation_context_str(automation_results: list[dict]) -> str:
-    automation_context = (
-        f"[TASK] Include these exact tags in your "
-        f"response and describe the action naturally:\n"
-    )
+    """
+    Build automation context string with intelligent trimming
+    to keep total size under 400 chars.
+    """
+    import os
+
+    lines = []
+    username = os.environ.get("USERNAME", "")
+
     for result in automation_results:
         action_type = result.get("action_type", "")
         command = result.get("command", "")
@@ -746,96 +1037,55 @@ async def get_automation_context_str(automation_results: list[dict]) -> str:
         requires_confirm = result.get("requires_confirmation", False)
 
         if action_type == "OPEN_APP":
-            automation_context += (
-                f"[UI_ACTION:open_app:{command}] "
-                f"({description})\n"
-            )
+            lines.append(f"[UI_ACTION:open_app:{command}]")
         elif action_type == "OPEN_URL":
-            automation_context += (
-                f"[UI_ACTION:open_url:{browser}:{command}] "
-                f"({description})\n"
-            )
+            lines.append(f"[UI_ACTION:open_url:{browser}:{command}]")
         elif action_type == "SYSTEM_CONTROL" and command == "lock_screen":
-            automation_context += (
-                f"[UI_ACTION:lock_screen] "
-                f"(Lock the Windows screen)\n"
-            )
+            lines.append("[UI_ACTION:lock_screen]")
         elif action_type == "SYSTEM_QUERY":
             cmd = result.get("command", "")
             if cmd.startswith("list_dir:"):
-                path = cmd.replace("list_dir:", "")
-                # Expand %USERNAME%
-                import os
-                path = path.replace(
-                    "%USERNAME%", 
-                    os.environ.get("USERNAME", "")
-                )
-                automation_context += (
-                    f"List files in {path} "
-                    f"→ [UI_ACTION:list_dir:{path}]\n"
-                )
+                path = cmd.replace("list_dir:", "").replace("%USERNAME%", username)
+                lines.append(f"[UI_ACTION:list_dir:{path}]")
             else:
-                automation_context += (
-                    f"Run: {cmd} "
-                    f"→ [UI_ACTION:run_powershell:{cmd}]\n"
-                )
+                # Trim long powershell commands
+                trimmed_cmd = cmd[:60] + "..." if len(cmd) > 60 else cmd
+                lines.append(f"[UI_ACTION:run_powershell:{trimmed_cmd}]")
         elif action_type == "FILE_OP":
             cmd = result.get("command", "")
-            requires_confirm = result.get("requires_confirmation", False)
             if cmd.startswith("create_folder:"):
-                path = cmd.replace("create_folder:", "")
-                import os
-                path = path.replace(
-                    "%USERNAME%",
-                    os.environ.get("USERNAME", "")
-                )
-                automation_context += (
-                    f"Create folder {path} "
-                    f"→ [UI_ACTION:create_folder:{path}]\n"
-                )
+                path = cmd.replace("create_folder:", "").replace("%USERNAME%", username)
+                lines.append(f"[UI_ACTION:create_folder:{path}]")
             elif cmd.startswith("delete_file:"):
-                path = cmd.replace("delete_file:", "")
-                import os
-                path = path.replace(
-                    "%USERNAME%",
-                    os.environ.get("USERNAME", "")
-                )
-                automation_context += (
-                    f"Delete {path} (ask confirmation) "
-                    f"→ [UI_ACTION:delete_file:{path}]\n"
-                )
+                path = cmd.replace("delete_file:", "").replace("%USERNAME%", username)
+                lines.append(f"[UI_ACTION:delete_file:{path}]")
             elif cmd.startswith("open_file:"):
                 path = cmd.replace("open_file:", "")
-                automation_context += (
-                    f"Open file {path} "
-                    f"→ [UI_ACTION:open_file:{path}]\n"
-                )
+                lines.append(f"[UI_ACTION:open_file:{path}]")
             elif cmd.startswith("show_explorer:"):
                 path = cmd.replace("show_explorer:", "")
-                automation_context += (
-                    f"Show in Explorer {path} "
-                    f"→ [UI_ACTION:show_explorer:{path}]\n"
-                )
+                lines.append(f"[UI_ACTION:show_explorer:{path}]")
             elif requires_confirm:
-                automation_context += (
-                    f"[UI_ACTION:confirm_action:{cmd}] "
-                    f"(Ask user to confirm: {description})\n"
-                )
+                lines.append(f"[UI_ACTION:confirm_action:{cmd[:40]}]")
             else:
-                automation_context += (
-                    f"[UI_ACTION:run_powershell:{cmd}] "
-                    f"({description})\n"
-                )
+                lines.append(f"[UI_ACTION:run_powershell:{cmd[:40]}]")
         elif requires_confirm:
-            automation_context += (
-                f"[UI_ACTION:confirm_action:{command}] "
-                f"(Ask user to confirm: {description})\n"
-            )
-        elif action_type in ("SYSTEM_CONTROL", "FILE_OP") and not requires_confirm:
-            automation_context += (
-                f"[UI_ACTION:run_powershell:{command}] "
-                f"({description})\n"
-            )
+            lines.append(f"[UI_ACTION:confirm_action:{command[:40]}]")
+        elif action_type in ("SYSTEM_CONTROL", "FILE_OP"):
+            lines.append(f"[UI_ACTION:run_powershell:{command[:40]}]")
+
+    # Build context with header
+    automation_context = "[TASK] Include these tags:\n" + "\n".join(lines)
+
+    # Trim to 380 chars max (leaving room for variation)
+    if len(automation_context) > 380:
+        # Keep first action and indicate more
+        first_line = lines[0] if lines else ""
+        automation_context = (
+            f"[TASK] Include: {first_line}"
+            f" (+{len(lines)-1} more)"
+        )
+
     return automation_context
 
 
@@ -947,8 +1197,8 @@ async def generate_automation_command(
       model="groq/compound",
       messages=[{
         "role": "user",
-        "content": COMMAND_GENERATION_PROMPT.format(
-          request=message
+        "content": COMMAND_GENERATION_PROMPT.replace(
+          "{request}", message
         )
       }],
       max_tokens=500,
@@ -1057,9 +1307,6 @@ async def chat_endpoint(request: ChatRequest):
         # Enhanced safety check
         is_destructive = is_destructive_action(request.message)
 
-        print(f"[FILE_SYSTEM] Regular - Detected: {action} at {path}")
-        print(f"[SAFETY] Destructive: {is_destructive}, Requires confirm: {requires_confirm}")
-
         if requires_confirm or is_destructive:
             fs_context = (
                 f"[SAFETY CHECK REQUIRED]\n"
@@ -1101,7 +1348,6 @@ async def chat_endpoint(request: ChatRequest):
         # Override full_messages with minimal context
         full_messages = minimal_messages
         search_needed = False
-        print(f"[FILE_SYSTEM] Regular - Using minimal context")
     else:
         # Check for automation intent
         if needs_automation(request.message) and settings.GROQ_API_KEY:
@@ -1204,21 +1450,35 @@ async def chat_endpoint(request: ChatRequest):
         else:
             providers_to_try = provider_manager.providers
 
+        print(f"[CHAT] Attempting providers: {[p.name for p in providers_to_try]}")
+
         response_text = ""
+        provider_used = "unknown"
+        model_used = "unknown"
+
         for provider in providers_to_try:
             if not await provider.is_available():
+                print(f"[CHAT] Provider {provider.name} not available, skipping")
                 continue
+
             try:
+                print(f"[CHAT] Using provider: {provider.name}, model: {provider.model}")
                 response_text = await provider.chat(full_messages)
                 provider_used = provider.name
                 model_used = provider.model
+                print(f"[CHAT] Successfully got response from {provider.name}")
                 break
-            except Exception:
+            except Exception as provider_err:
+                print(f"[CHAT] Provider {provider.name} failed: {provider_err}")
                 continue
+
         if not response_text:
-            raise Exception("All providers failed")
+            print(f"[CHAT] All providers failed")
+            raise Exception("All AI providers are currently unavailable")
+
     except Exception as e:
-        response_text = "I encountered an error."
+        print(f"[CHAT] Error: {e}")
+        response_text = "I apologize, but all AI providers are currently unavailable."
         provider_used = "error"
         model_used = "error"
     
@@ -1330,9 +1590,6 @@ async def chat_stream_endpoint(
         # Enhanced safety check
         is_destructive = is_destructive_action(request.message)
 
-        print(f"[FILE_SYSTEM] Stream - Detected: {action} at {path}")
-        print(f"[SAFETY] Destructive: {is_destructive}, Requires confirm: {requires_confirm}")
-
         if requires_confirm or is_destructive:
             fs_context = (
                 f"[SAFETY CHECK REQUIRED]\n"
@@ -1374,7 +1631,6 @@ async def chat_stream_endpoint(
         # Override full_messages with minimal context
         full_messages = minimal_messages
         search_needed = False
-        print(f"[FILE_SYSTEM] Stream - Using minimal context")
     else:
         # Check for automation intent
         if needs_automation(request.message) and settings.GROQ_API_KEY:
@@ -1516,6 +1772,7 @@ async def chat_stream_endpoint(
         full_response_parts = []
         provider_used_name = "unknown"
         model_used_name = "unknown"
+        stream_started = False
 
         try:
           # For file commands, use first available provider
@@ -1530,36 +1787,58 @@ async def chat_stream_endpoint(
           else:
             providers_to_try = provider_manager.providers
 
+          print(f"[STREAM] Attempting providers: {[p.name for p in providers_to_try]}")
+
           for provider in providers_to_try:
             if not await provider.is_available():
+                print(f"[STREAM] Provider {provider.name} not available, skipping")
                 continue
 
             provider_used_name = provider.name
             model_used_name = provider.model
+            print(f"[STREAM] Using provider: {provider.name}, model: {provider.model}")
 
             try:
               async for token in provider.stream(full_messages):
                 full_response_parts.append(token)
+                stream_started = True
                 yield json_module.dumps({
                   "type": "token",
                   "content": token
                 }) + "\n"
-              
+
               # Stream completed successfully
+              print(f"[STREAM] Successfully completed with {provider.name}")
               break
             except Exception as stream_err:
-              print(f"Stream error for {provider.name}: {stream_err}")
-              if full_response_parts:
-                # Already yielded parts, can't cleanly fallback
+              print(f"[STREAM] Error with {provider.name}: {stream_err}")
+              if stream_started:
+                # Already yielded tokens - complete with what we have
+                print(f"[STREAM] Completing with partial response from {provider.name}")
                 break
-              # Fallback to the next provider
+              # No tokens sent yet - try next provider
+              print(f"[STREAM] Falling back to next provider")
+              full_response_parts = []  # Reset
               continue
+
+          # If no provider succeeded at all
+          if not stream_started and not full_response_parts:
+            print(f"[STREAM] All providers failed, sending error token")
+            error_msg = "I apologize, but all AI providers are currently unavailable."
+            full_response_parts = [error_msg]
+            yield json_module.dumps({
+              "type": "token",
+              "content": error_msg
+            }) + "\n"
+
         except Exception as e:
-          print(f"Streaming failed across providers: {e}")
+          print(f"[STREAM] Fatal streaming error: {e}")
+          import traceback
+          traceback.print_exc()
 
         # STEP 3: Save and send done
         complete_response = "".join(full_response_parts)
-        
+
         if complete_response:
           try:
             await save_message(
@@ -1580,6 +1859,46 @@ async def chat_stream_endpoint(
             )
           except Exception as mem_err:
             print(f"Memory extraction error: {mem_err}")
+
+          # Speak response via TTS (non-blocking)
+          try:
+            from ..voice.tts_engine import tts_engine
+            import threading
+            import re
+
+            async def speak_and_broadcast():
+              # Strip UI_ACTION tags before speaking
+              clean = re.sub(
+                r'\[UI_ACTION:[^\]]*\]',
+                '', complete_response
+              ).strip()
+
+              if clean and len(clean) > 10:
+                # Broadcast speaking status
+                await broadcast_voice_event({
+                  "type": "voice_status",
+                  "status": "speaking"
+                })
+
+                # Speak in separate thread (blocking call)
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                  await asyncio.get_event_loop().run_in_executor(
+                    executor,
+                    tts_engine.speak_sync,
+                    clean
+                  )
+
+                # Broadcast idle status after speaking
+                await broadcast_voice_event({
+                  "type": "voice_status",
+                  "status": "idle"
+                })
+
+            # Schedule TTS as background task
+            asyncio.create_task(speak_and_broadcast())
+          except Exception as e:
+            print(f"TTS speak error: {e}")
 
         # Send done chunk
         yield json_module.dumps({

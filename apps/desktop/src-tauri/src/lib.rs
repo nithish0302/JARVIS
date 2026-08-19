@@ -624,19 +624,50 @@ fn delete_file(
       "REQUIRES_CONFIRMATION:Delete {}?", path
     ));
   }
-  
+
   let p = std::path::Path::new(&path);
-  let result = if p.is_dir() {
+
+  // CRITICAL: Verify path exists before attempting delete
+  if !p.exists() {
+    return Err(format!(
+      "Path does not exist: {}", path
+    ));
+  }
+
+  // Determine if it's a file or folder
+  let is_dir = p.is_dir();
+  let item_type = if is_dir { "folder" } else { "file" };
+  let item_name = p.file_name()
+    .and_then(|n| n.to_str())
+    .unwrap_or("item");
+
+  // Perform deletion with appropriate method
+  let result = if is_dir {
     fs::remove_dir_all(&path)
   } else {
     fs::remove_file(&path)
   };
-  
+
   match result {
-    Ok(_) => Ok(format!("Deleted: {}", path)),
-    Err(e) => Err(format!(
-      "Delete failed: {}", e
-    ))
+    Ok(_) => Ok(format!(
+      "Deleted {} '{}' successfully",
+      item_type,
+      item_name
+    )),
+    Err(e) => {
+      // Return detailed error message
+      let error_msg = e.to_string();
+      Err(format!(
+        "Failed to delete {} '{}': {}",
+        item_type,
+        item_name,
+        if error_msg.is_empty() {
+          "Permission denied or file in use"
+        } else {
+          error_msg.as_str()
+        }
+      ))
+    }
   }
 }
 
@@ -688,6 +719,64 @@ fn restart_computer(confirmed: bool)
     .map_err(|e| format!("Failed: {}", e))
 }
 
+#[tauri::command]
+fn get_power_status() 
+  -> Result<serde_json::Value, String> {
+  let output = Command::new("powershell")
+    .args([
+      "-Command",
+      "Get-WmiObject Win32_Battery | \
+       Select-Object BatteryStatus | \
+       ConvertTo-Json -Compress"
+    ])
+    .output();
+  
+  match output {
+    Ok(out) => {
+      let raw = String::from_utf8_lossy(
+        &out.stdout
+      ).trim().to_string();
+      
+      if raw.is_empty() || 
+         raw == "null" || 
+         raw == "{}" {
+        // Desktop PC - always AC power
+        return Ok(serde_json::json!({
+          "is_charging": true,
+          "has_battery": false,
+          "mode": "3d"
+        }));
+      }
+      
+      if let Ok(parsed) = 
+        serde_json::from_str::<serde_json::Value>(
+          &raw
+        ) {
+        // BatteryStatus 2 = AC Power (charging)
+        // BatteryStatus 1 = Discharging
+        let status = parsed["BatteryStatus"]
+          .as_u64().unwrap_or(1);
+        let is_charging = status == 2;
+        
+        return Ok(serde_json::json!({
+          "is_charging": is_charging,
+          "has_battery": true,
+          "mode": if is_charging { "3d" } else { "2d" }
+        }));
+      }
+      
+      Ok(serde_json::json!({
+        "is_charging": true,
+        "has_battery": false,
+        "mode": "3d"
+      }))
+    }
+    Err(e) => Err(format!(
+      "Power query failed: {}", e
+    ))
+  }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let sys = System::new_all();
@@ -714,6 +803,7 @@ pub fn run() {
             shutdown_computer,
             cancel_shutdown,
             restart_computer,
+            get_power_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

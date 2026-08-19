@@ -1,7 +1,7 @@
 import { useRef, useEffect } from "react"
 import { useConversationStore } from "../stores/useConversationStore"
 import { useAIStore } from "../stores/useAIStore"
-import { sendMessageStream } from "../services/jarvisApi"
+import { sendMessageStream, connectVoiceWebSocket } from "../services/jarvisApi"
 import type { Message } from "../types/chat.types"
 import { parseUIActions } from "../utils/uiActionParser"
 import { executeUIActions } from "../utils/uiActionExecutor"
@@ -39,6 +39,42 @@ export function useJarvisChat() {
 
   const uiActionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // Connect to voice WebSocket
+  useEffect(() => {
+    connectVoiceWebSocket(
+      // Voice input received - add as user message
+      (text: string) => {
+        const userMessage: Message = {
+          id: crypto.randomUUID(),
+          role: "user",
+          content: `🎤 ${text}`,
+          timestamp: new Date().toLocaleTimeString(
+            [], {hour:"2-digit", minute:"2-digit"}
+          )
+        }
+        addMessage(userMessage)
+      },
+      // Voice response received - add as assistant message
+      (text: string) => {
+        const assistantMessage: Message = {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: text,
+          timestamp: new Date().toLocaleTimeString(
+            [], {hour:"2-digit", minute:"2-digit"}
+          )
+        }
+        addMessage(assistantMessage)
+        setStatus("idle")
+      },
+      // Voice status received - sync orb
+      (status: string) => {
+        const { setVoiceStatus } = useAIStore.getState()
+        setVoiceStatus(status as any)
+      }
+    )
+  }, [])
+
   useEffect(() => {
     return () => {
       if (uiActionTimerRef.current) {
@@ -52,10 +88,11 @@ export function useJarvisChat() {
 
     const { pendingCommand, setPendingCommand } = useAppStore.getState()
 
-    if (pendingCommand && 
+    // Handle confirmation responses
+    if (pendingCommand &&
         ["yes","confirm","ok","do it","go ahead","sure","proceed"]
           .includes(text.toLowerCase().trim())) {
-      
+
       const userMessage: Message = {
         id: window.crypto.randomUUID(),
         role: "user",
@@ -69,7 +106,7 @@ export function useJarvisChat() {
       const colonIdx = pendingCommand.indexOf(":")
       const cmdType = pendingCommand.substring(0, colonIdx)
       const cmdPayload = pendingCommand.substring(colonIdx + 1)
-      
+
       if (cmdType === "delete_file") {
         import("../services/systemApi").then(s => {
           s.deleteFile(cmdPayload, true)
@@ -85,17 +122,28 @@ export function useJarvisChat() {
                   })
               })
             })
-            .catch((err: Error) => {
+            .catch((err: unknown) => {
+              // Handle both Error objects and string errors
+              const errorMsg = err instanceof Error
+                ? err.message
+                : typeof err === 'string'
+                ? err
+                : 'Unknown error occurred'
+
               addMessage({
                 id: window.crypto.randomUUID(),
-                role: "assistant", 
-                content: `❌ Failed: ${err.message}`,
+                role: "assistant",
+                content: `❌ ${errorMsg}`,
                 timestamp: new Date()
                   .toLocaleTimeString([],{
                     hour:"2-digit",
                     minute:"2-digit"
                   })
               })
+            })
+            .finally(() => {
+              // Always clear pending command after execution
+              setPendingCommand(null)
             })
         })
       } else {
@@ -111,20 +159,61 @@ export function useJarvisChat() {
             })
           })
           .catch(err => {
+            // Handle both Error objects and string errors
+            const errorMsg = err instanceof Error
+              ? err.message
+              : typeof err === 'string'
+              ? err
+              : 'Command execution failed'
+
             addMessage({
               id: window.crypto.randomUUID(),
               role: "assistant",
-              content: `Failed. Error:\n${err}`,
+              content: `Failed: ${errorMsg}`,
               timestamp: new Date().toLocaleTimeString(
                 [], {hour:"2-digit",minute:"2-digit"}
               )
             })
           })
+          .finally(() => {
+            // Always clear pending command after execution
+            setPendingCommand(null)
+          })
       }
-        
+
+      // Don't clear here - let finally() blocks handle it
+      return // Don't send to AI
+    }
+
+    // Handle cancellation
+    if (pendingCommand && ["no", "cancel", "stop"].includes(text.toLowerCase().trim())) {
+      const userMessage: Message = {
+        id: window.crypto.randomUUID(),
+        role: "user",
+        content: text,
+        timestamp: new Date().toLocaleTimeString(
+          [], { hour: "2-digit", minute: "2-digit" }
+        ),
+      }
+      addMessage(userMessage)
+
+      addMessage({
+        id: window.crypto.randomUUID(),
+        role: "assistant",
+        content: "Action cancelled, sir.",
+        timestamp: new Date().toLocaleTimeString(
+          [], { hour: "2-digit", minute: "2-digit" }
+        ),
+      })
+
       setPendingCommand(null)
       return // Don't send to AI
-    } else if (pendingCommand && ["no", "cancel", "stop"].includes(text.toLowerCase().trim())) {
+    }
+
+    // If user sends a different message while pending command exists,
+    // clear the pending command (timeout/user changed mind)
+    if (pendingCommand) {
+      console.log("[JARVIS] Clearing stale pending command due to new user message")
       setPendingCommand(null)
     }
 

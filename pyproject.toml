@@ -3,6 +3,9 @@ name = "jarvis-workspace"
 version = "0.1.0"
 description = "Project JARVIS Workspace"
 requires-python = ">=3.12"
+dependencies = [
+    "requests>=2.34.2",
+]
 
 [tool.uv]
 workspace = { members = ["services/jarvis-engine"] }

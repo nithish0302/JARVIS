@@ -1,7 +1,7 @@
 import "./Dock.css";
 import { useAppStore } from "../../../stores/useAppStore";
 import { cn } from "../../../lib/cn";
-import { useState } from "react";
+import { startVoice, stopVoice } from "../../../services/jarvisApi";
 
 export function Dock() {
   const graphOpen = useAppStore(state => state.graphOpen);
@@ -10,8 +10,8 @@ export function Dock() {
   const setConversationPanelOpen = useAppStore(state => state.setConversationPanelOpen);
   const view = useAppStore(state => state.view);
   const setView = useAppStore(state => state.setView);
-
-  const [listening, setListening] = useState(false);
+  const voiceActive = useAppStore(state => state.voiceActive);
+  const setVoiceActive = useAppStore(state => state.setVoiceActive);
 
   return (
     <div className="dock">
@@ -54,9 +54,17 @@ export function Dock() {
       </button>
 
       <button
-        className={cn("dock-mic", listening && "live")}
+        className={cn("dock-mic", voiceActive && "live")}
         title="Toggle listening"
-        onClick={() => setListening(!listening)}
+        onClick={async () => {
+          if (voiceActive) {
+            await stopVoice();
+            setVoiceActive(false);
+          } else {
+            await startVoice();
+            setVoiceActive(true);
+          }
+        }}
         style={{ position: 'absolute', bottom: '275px' }}
       >
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">

@@ -17,10 +17,10 @@ export function RightColumn() {
   const totalNodes = HUBS.length + HUBS.reduce((acc, h) => acc + h.leaves, 0);
 
   return (
-    <div className="side-col shrink-0 flex flex-col h-full justify-between pb-3">
-      <div className="panel flex-shrink min-h-0 flex flex-col !p-[10px_14px]">
+    <div className="side-col shrink-0 flex flex-col h-full gap-1 pb-1">
+      <div className="panel flex-shrink-0 flex flex-col !p-[6px_14px]">
         <h3 className="shrink-0">Filter</h3>
-        <div className="overflow-y-auto no-scrollbar flex-1 grid grid-cols-2 gap-x-1 gap-y-[2px]">
+        <div className="grid grid-cols-2 gap-x-1 gap-y-[2px]">
           {HUBS.map((h) => (
             <div className={cn("legend-row !py-[2px] pr-1 text-[11px]", h.key === "conversations" && "col-span-2")} key={h.key} title={h.label}>
               <span className="sw flex-shrink-0" style={{ background: h.color }}></span>
@@ -29,12 +29,12 @@ export function RightColumn() {
           ))}
         </div>
       </div>
-      
+
       <div className="flex-shrink-0">
         <Orb />
       </div>
 
-      <div className="panel flex-shrink-0 !p-[10px_14px]">
+      <div className="panel flex-shrink-0 !p-[6px_14px]">
         <h3>Graph</h3>
         <div className="flex gap-6 mt-1">
           <div className="flex items-baseline gap-[6px] text-[10px] font-semibold tracking-wider text-[var(--color-cyan)]">

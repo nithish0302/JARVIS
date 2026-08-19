@@ -273,3 +273,58 @@ export async function setGeminiKey(
     console.error("Failed to set Gemini key")
   }
 }
+
+export async function startVoice(): Promise<void> {
+  await window.fetch(
+    `${JARVIS_ENGINE_URL}/voice/start`,
+    { method: "POST" }
+  )
+}
+
+export async function stopVoice(): Promise<void> {
+  await window.fetch(
+    `${JARVIS_ENGINE_URL}/voice/stop`,
+    { method: "POST" }
+  )
+}
+
+export async function getVoiceStatus(): Promise<any> {
+  const r = await window.fetch(
+    `${JARVIS_ENGINE_URL}/voice/status`
+  )
+  return r.json()
+}
+
+let voiceSocket: WebSocket | null = null
+
+export function connectVoiceWebSocket(
+  onVoiceInput: (text: string) => void,
+  onVoiceResponse: (text: string) => void,
+  onVoiceStatus: (status: string) => void
+): void {
+  voiceSocket = new WebSocket(
+    "ws://localhost:8765/ws/voice"
+  )
+
+  voiceSocket.onmessage = (event) => {
+    const data = JSON.parse(event.data)
+    if (data.type === "voice_input") {
+      onVoiceInput(data.text)
+    } else if (data.type === "voice_response") {
+      onVoiceResponse(data.text)
+    } else if (data.type === "voice_status") {
+      onVoiceStatus(data.status)
+    }
+  }
+
+  voiceSocket.onclose = () => {
+    // Reconnect after 2 seconds
+    setTimeout(() => {
+      if (voiceSocket?.readyState === WebSocket.CLOSED) {
+        connectVoiceWebSocket(
+          onVoiceInput, onVoiceResponse, onVoiceStatus
+        )
+      }
+    }, 2000)
+  }
+}

@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     GROQ_MODEL: str = "compound-beta"
     GEMINI_API_KEY: str = ""
     GEMINI_MODEL: str = "gemini-2.5-flash"
+    WAKE_WORD_MODEL_PATH: str = "models/wake_up_jarvis.onnx"
     DB_PATH: str = "data/jarvis.db"
     VERSION: str = "0.1.0"
 

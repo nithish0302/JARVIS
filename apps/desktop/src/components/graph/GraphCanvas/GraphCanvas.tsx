@@ -38,6 +38,91 @@ export function GraphCanvas() {
   const setActiveHub = useAppStore(state => state.setActiveHub);
   const graphLevel = useAppStore(state => state.graphLevel);
   const setGraphLevel = useAppStore(state => state.setGraphLevel);
+  const graphMode = useAppStore(state => state.graphMode);
+
+  // Use a ref so the animation loop sees graphMode updates
+  const graphModeRef = useRef(graphMode);
+  useEffect(() => {
+    graphModeRef.current = graphMode;
+  }, [graphMode]);
+
+  const draw3DNode = (
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    radius: number,
+    color: string
+  ) => {
+    // Subtle outer glow (not too large)
+    const glow = ctx.createRadialGradient(
+      x, y, 0, x, y, radius * 2.5
+    )
+    glow.addColorStop(0, color + "30")
+    glow.addColorStop(1, "transparent")
+    ctx.fillStyle = glow
+    ctx.beginPath()
+    ctx.arc(x, y, radius * 2.5, 0, Math.PI * 2)
+    ctx.fill()
+
+    // 3D sphere gradient
+    const sphere = ctx.createRadialGradient(
+      x - radius * 0.35,
+      y - radius * 0.35,
+      0,
+      x, y,
+      radius
+    )
+    sphere.addColorStop(0, color + "ff")
+    sphere.addColorStop(0.6, color + "cc")
+    sphere.addColorStop(1, color + "55")
+    ctx.fillStyle = sphere
+    ctx.beginPath()
+    ctx.arc(x, y, radius, 0, Math.PI * 2)
+    ctx.fill()
+
+    // Subtle shine highlight
+    const shine = ctx.createRadialGradient(
+      x - radius * 0.3,
+      y - radius * 0.4,
+      0,
+      x - radius * 0.3,
+      y - radius * 0.4,
+      radius * 0.45
+    )
+    shine.addColorStop(0, "rgba(255,255,255,0.35)")
+    shine.addColorStop(1, "transparent")
+    ctx.fillStyle = shine
+    ctx.beginPath()
+    ctx.arc(x, y, radius, 0, Math.PI * 2)
+    ctx.fill()
+  }
+
+  const draw2DNode = (
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    radius: number,
+    color: string
+  ) => {
+    // FLAT 2D - simple filled circle, no gradients
+    ctx.globalAlpha = 1
+
+    // Simple flat fill
+    ctx.fillStyle = color + "99"
+    ctx.beginPath()
+    ctx.arc(x, y, radius, 0, Math.PI * 2)
+    ctx.fill()
+
+    // Simple 1px border only
+    ctx.strokeStyle = color
+    ctx.lineWidth = 1
+    ctx.beginPath()
+    ctx.arc(x, y, radius, 0, Math.PI * 2)
+    ctx.stroke()
+
+    // NO glow, NO gradient, NO shine
+    // Completely flat appearance
+  }
 
   const [showCaption, setShowCaption] = useState(true);
 
@@ -195,51 +280,90 @@ export function GraphCanvas() {
     sizeCanvas();
 
     let animationId: number;
+    let lastDrawMode = graphModeRef.current;
+    let lastExpandT = stateRef.current.expandT;
+    let lastDrillT = stateRef.current.drillT;
 
     const draw = () => {
       const w = canvas.clientWidth || 800;
       const h = canvas.clientHeight || 600;
       const cx = w / 2;
       const cy = h / 2;
+
+      // GPU OPTIMIZATION: Skip redraw in 2D mode if nothing changed
+      const currentMode = graphModeRef.current;
+      const currentExpandT = stateRef.current.expandT;
+      const currentDrillT = stateRef.current.drillT;
+      const isStatic = currentMode === "2d" &&
+                       Math.abs(currentExpandT - lastExpandT) < 0.001 &&
+                       Math.abs(currentDrillT - lastDrillT) < 0.001 &&
+                       lastDrawMode === currentMode;
+
+      if (isStatic) {
+        // Nothing changed - skip expensive redraw
+        return;
+      }
+
+      lastDrawMode = currentMode;
+      lastExpandT = currentExpandT;
+      lastDrillT = currentDrillT;
+
       ctx.clearRect(0, 0, w, h);
+
+      // Draw subtle grid in 2D mode
+      if (graphModeRef.current === "2d") {
+        ctx.strokeStyle = "rgba(82,236,227,0.04)";
+        ctx.lineWidth = 0.5;
+        const gridSize = 40;
+        for (let x = 0; x < w; x += gridSize) {
+          ctx.beginPath();
+          ctx.moveTo(x, 0);
+          ctx.lineTo(x, h);
+          ctx.stroke();
+        }
+        for (let y = 0; y < h; y += gridSize) {
+          ctx.beginPath();
+          ctx.moveTo(0, y);
+          ctx.lineTo(w, y);
+          ctx.stroke();
+        }
+      }
 
       const { expandT, drillT, selectedHub, lastSelectedHub } = stateRef.current;
       const hubNodes = hubNodesRef.current;
       
       const effectiveHub = selectedHub || lastSelectedHub;
 
+      const drawNode = graphModeRef.current === "3d" ? draw3DNode : draw2DNode;
+      const edgeWidth = graphModeRef.current === "3d" ? 1.5 : 0.8;
+      const edgeOpacity = graphModeRef.current === "3d" ? 0.7 : 0.4;
+
       // Outer ring of the core anchor fades out
-      ctx.globalAlpha = 1 - drillT;
+      ctx.globalAlpha = (1 - drillT) * edgeOpacity;
       if (ctx.globalAlpha > 0.01) {
         ctx.beginPath();
         ctx.arc(cx, cy, 14, 0, Math.PI * 2);
         ctx.strokeStyle = "rgba(79, 168, 255, 0.28)";
-        ctx.lineWidth = 1;
+        ctx.lineWidth = edgeWidth;
         ctx.stroke();
       }
       
       // Core anchor stays permanently bright
       ctx.globalAlpha = 1;
-      ctx.beginPath();
-      ctx.arc(cx, cy, 9, 0, Math.PI * 2);
-      ctx.fillStyle = "rgba(79, 168, 255, 0.95)";
-      ctx.shadowColor = "#4FA8FF";
-      ctx.shadowBlur = 14;
-      ctx.fill();
-      ctx.shadowBlur = 0;
+      drawNode(ctx, cx, cy, 9, "#4FA8FF");
 
       hubNodes.forEach((hub) => {
         const isSelected = effectiveHub === hub;
         const dim = effectiveHub && !isSelected;
         const linkAlpha = Math.max(0, 1 - (dim ? drillT : 0));
         
-        ctx.globalAlpha = linkAlpha;
-        if (linkAlpha > 0.01) {
+        ctx.globalAlpha = linkAlpha * edgeOpacity;
+        if (ctx.globalAlpha > 0.01) {
           ctx.strokeStyle =
             hub.key === "conversations"
               ? `rgba(255,180,84,${0.25 + expandT * 0.25})`
               : `rgba(79, 168, 255,${0.1 + expandT * 0.22})`;
-          ctx.lineWidth = 1;
+          ctx.lineWidth = edgeWidth;
           ctx.beginPath();
           ctx.moveTo(cx, cy);
           ctx.lineTo(hub.x, hub.y);
@@ -255,10 +379,10 @@ export function GraphCanvas() {
             const dim = effectiveHub && !isSelectedHub;
             const alpha = Math.max(0, expandT - (dim ? drillT : 0));
             
-            ctx.globalAlpha = alpha;
-            if (alpha > 0.01) {
+            ctx.globalAlpha = alpha * edgeOpacity;
+            if (ctx.globalAlpha > 0.01) {
               ctx.strokeStyle = `rgba(${hexToRgb(hub.color)},${0.22})`;
-              ctx.lineWidth = 1;
+              ctx.lineWidth = edgeWidth;
               ctx.beginPath();
               ctx.moveTo(hub.x, hub.y);
               ctx.lineTo(leaf.x, leaf.y);
@@ -275,14 +399,8 @@ export function GraphCanvas() {
             
             ctx.globalAlpha = alpha;
             if (alpha > 0.01) {
-              ctx.beginPath();
-              ctx.arc(leaf.x, leaf.y, 5, 0, Math.PI * 2);
-              ctx.fillStyle = leaf.color;
-              ctx.globalAlpha = alpha * 0.8; // slightly dimmer
-              ctx.shadowColor = leaf.color;
-              ctx.shadowBlur = 5;
-              ctx.fill();
-              ctx.shadowBlur = 0;
+              ctx.globalAlpha = alpha * (graphModeRef.current === "3d" ? 0.8 : 1.0);
+              drawNode(ctx, leaf.x, leaf.y, 5, leaf.color);
               ctx.globalAlpha = alpha;
               
               if (isSelectedHub && drillT > 0.5) {
@@ -316,17 +434,11 @@ export function GraphCanvas() {
           ctx.beginPath();
           ctx.arc(hub.x, hub.y, pulseR, 0, Math.PI * 2);
           ctx.strokeStyle = `rgba(255,180,84,${hub.pulse * 0.6})`;
-          ctx.lineWidth = 2;
+          ctx.lineWidth = edgeWidth;
           ctx.stroke();
         }
         ctx.globalAlpha = alpha;
-        ctx.beginPath();
-        ctx.arc(hub.x, hub.y, baseR, 0, Math.PI * 2);
-        ctx.fillStyle = hub.color;
-        ctx.shadowColor = hub.color;
-        ctx.shadowBlur = isConvo ? 16 : 10;
-        ctx.fill();
-        ctx.shadowBlur = 0;
+        drawNode(ctx, hub.x, hub.y, baseR, hub.color);
         ctx.globalAlpha = 1;
         if (isConvo) {
           ctx.font = "14px sans-serif";
@@ -395,7 +507,10 @@ export function GraphCanvas() {
 
         hub.leavesList.forEach((leaf: any) => {
           if (effectiveHub === hub && drillT > 0.01) {
-            leaf.angle += LEAF_ORBIT_SPEED;
+            // Only rotate in 3D mode - 2D mode is static
+            if (graphModeRef.current === "3d") {
+              leaf.angle += LEAF_ORBIT_SPEED;
+            }
             const targetDist = LEAF_ORBIT_RADIUS;
             const startDist = leaf.dist * (0.2 + expandT * 0.2); // tighter in level 0
             const currentDist = startDist + (targetDist - startDist) * drillT;
@@ -428,13 +543,13 @@ export function GraphCanvas() {
         speedMultiplier = HOVER_SPEED;
         isHovering = true;
       }
-      
+
       hubNodesRef.current.forEach(hub => {
         if (Math.hypot(mx - hub.x, my - hub.y) < HOVER_RADIUS) {
           speedMultiplier = HOVER_SPEED;
           isHovering = true;
         }
-        
+
         if (stateRef.current.expandT > 0.1) {
           hub.leavesList.forEach((leaf: any) => {
             if (Math.hypot(mx - leaf.x, my - leaf.y) < 30) {
@@ -444,26 +559,44 @@ export function GraphCanvas() {
           });
         }
       });
-      
+
       canvas.style.cursor = isHovering ? "pointer" : "default";
 
-      stateRef.current.angleBase += 0.0018 * speedMultiplier;
+      // Only animate in 3D mode - 2D mode is completely static
+      if (graphModeRef.current === "3d") {
+        stateRef.current.angleBase += 0.0018 * speedMultiplier;
+      }
+
       const targetExpand = graphOpen ? 1 : 0;
       const targetDrill = stateRef.current.selectedHub ? 1 : 0;
-      
+
       stateRef.current.expandT += (targetExpand - stateRef.current.expandT) * 0.05;
       stateRef.current.drillT += (targetDrill - stateRef.current.drillT) * 0.08;
-      
+
       layout(speedMultiplier);
       draw();
-      animationId = requestAnimationFrame(loop);
+
+      // GPU OPTIMIZATION: Adaptive frame rate based on mode
+      if (graphModeRef.current === "3d") {
+        // 3D mode: 60fps smooth animation
+        animationId = requestAnimationFrame(loop);
+      } else {
+        // 2D mode: 1fps low power mode (draw once per second)
+        animationId = window.setTimeout(loop, 1000) as unknown as number;
+      }
     };
 
-    animationId = requestAnimationFrame(loop);
+    // Start the loop
+    if (graphModeRef.current === "3d") {
+      animationId = requestAnimationFrame(loop);
+    } else {
+      animationId = window.setTimeout(loop, 1000) as unknown as number;
+    }
 
     return () => {
       window.removeEventListener("resize", sizeCanvas);
       cancelAnimationFrame(animationId);
+      clearTimeout(animationId);
     };
   }, [graphOpen]);
 

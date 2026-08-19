@@ -5,6 +5,7 @@ export interface AIState {
   provider: "ollama" | "openrouter" | "groq" | "gemini";
   model: string;
   status: "idle" | "connecting" | "streaming" | "error" | "offline";
+  voiceStatus: "idle" | "listening" | "processing" | "speaking";
   isStreaming: boolean;
   error: string | null;
   memoryCount: number;
@@ -14,6 +15,7 @@ export interface AIState {
   setProvider: (provider: AIState["provider"]) => void;
   setModel: (model: string) => void;
   setStatus: (status: AIState["status"]) => void;
+  setVoiceStatus: (status: AIState["voiceStatus"]) => void;
   setStreaming: (value: boolean) => void;
   setError: (error: string | null) => void;
   setMemoryCount: (count: number) => void;
@@ -26,6 +28,7 @@ export const useAIStore = create<AIState>((set) => ({
   provider: "ollama",
   model: "llama3.2:3b",
   status: "idle",
+  voiceStatus: "idle",
   isStreaming: false,
   error: null,
   memoryCount: 0,
@@ -35,6 +38,7 @@ export const useAIStore = create<AIState>((set) => ({
   setProvider: (provider) => set({ provider }),
   setModel: (model) => set({ model }),
   setStatus: (status) => set({ status }),
+  setVoiceStatus: (status) => set({ voiceStatus: status }),
   setStreaming: (value) => set({ isStreaming: value }),
   setError: (error) => set({ error }),
   setMemoryCount: (count) => set({ memoryCount: count }),

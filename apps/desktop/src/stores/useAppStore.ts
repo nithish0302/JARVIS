@@ -26,6 +26,12 @@ export interface AppState {
   setDeletingConversationId: (id: string | null) => void;
   pendingCommand: string | null;
   setPendingCommand: (cmd: string | null) => void;
+  graphMode: "2d" | "3d";
+  isCharging: boolean;
+  setGraphMode: (mode: "2d" | "3d") => void;
+  setIsCharging: (charging: boolean) => void;
+  voiceActive: boolean;
+  setVoiceActive: (active: boolean) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -67,4 +73,10 @@ export const useAppStore = create<AppState>((set) => ({
   setDeletingConversationId: (id) => set({ deletingConversationId: id }),
   pendingCommand: null,
   setPendingCommand: (cmd) => set({ pendingCommand: cmd }),
+  graphMode: "3d",
+  isCharging: true,
+  setGraphMode: (mode) => set({ graphMode: mode }),
+  setIsCharging: (charging) => set({ isCharging: charging }),
+  voiceActive: false,
+  setVoiceActive: (active) => set({ voiceActive: active }),
 }));

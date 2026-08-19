@@ -311,10 +311,13 @@ export function executeUIActions(
                       })
                   })
               })
-              .catch((err: Error) => {
-                store.showActionFeedback(
-                  `Cannot list: ${err.message}`
-                )
+              .catch((err: unknown) => {
+                const errorMsg = err instanceof Error
+                  ? err.message
+                  : typeof err === 'string'
+                  ? err
+                  : 'Cannot list directory'
+                store.showActionFeedback(errorMsg)
               })
           }
           break
@@ -326,10 +329,13 @@ export function executeUIActions(
                 store.showActionFeedback(result)
                 store.setInspectorMessage(result)
               })
-              .catch((err: Error) => {
-                store.showActionFeedback(
-                  `Failed: ${err.message}`
-                )
+              .catch((err: unknown) => {
+                const errorMsg = err instanceof Error
+                  ? err.message
+                  : typeof err === 'string'
+                  ? err
+                  : 'Failed to create folder'
+                store.showActionFeedback(errorMsg)
               })
           }
           break
@@ -340,10 +346,13 @@ export function executeUIActions(
               .then((result: string) => {
                 store.showActionFeedback(result)
               })
-              .catch((err: Error) => {
-                store.showActionFeedback(
-                  `Cannot open: ${err.message}`
-                )
+              .catch((err: unknown) => {
+                const errorMsg = err instanceof Error
+                  ? err.message
+                  : typeof err === 'string'
+                  ? err
+                  : 'Cannot open file'
+                store.showActionFeedback(errorMsg)
               })
           }
           break
@@ -354,10 +363,13 @@ export function executeUIActions(
               .then((result: string) => {
                 store.showActionFeedback(result)
               })
-              .catch((err: Error) => {
-                store.showActionFeedback(
-                  `Failed: ${err.message}`
-                )
+              .catch((err: unknown) => {
+                const errorMsg = err instanceof Error
+                  ? err.message
+                  : typeof err === 'string'
+                  ? err
+                  : 'Failed to open explorer'
+                store.showActionFeedback(errorMsg)
               })
           }
           break

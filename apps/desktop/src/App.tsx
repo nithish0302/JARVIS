@@ -4,6 +4,7 @@ import { AnimatePresence, motion, useReducedMotion, easeInOut } from "framer-mot
 import { useAppStore } from "./stores/useAppStore";
 import { useEngineStatus } from "./hooks/useEngineStatus";
 import { useConversationLoader } from "./hooks/useConversationLoader";
+import { usePowerMode } from "./hooks/usePowerMode";
 
 // New HUD Components
 import { Stage, Scene } from "./components/layout/Stage/Stage";
@@ -24,6 +25,7 @@ function App() {
 
   useEngineStatus();
   useConversationLoader();
+  usePowerMode();
 
   return (
     <LayoutProvider>

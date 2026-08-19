@@ -16,7 +16,7 @@ class OllamaProvider(BaseProvider):
     async def is_available(self) -> bool:
         try:
             async with httpx.AsyncClient(timeout=3.0) as c:
-                r = await c.get("http://localhost:11434/api/tags")
+                r = await c.get(f"{settings.OLLAMA_HOST}/api/tags")
                 return r.status_code == 200
         except Exception:
             return False

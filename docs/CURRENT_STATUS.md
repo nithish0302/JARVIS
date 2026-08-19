@@ -1,26 +1,25 @@
 # JARVIS Current Status
 
-Last updated: 2026-08-17
+Last updated: 2026-08-19
 
 ## Current phase
 
-Phase 4 - Milestone 4: Safety Layer
-Status: Complete
-Next: Phase 4 - Milestone 5
+Phase 5 - Milestone 4: Advanced Voice Features
+Status: In Planning
+Previous: Text-to-Speech (TTS) - Complete
 
-**Phase 3 - External Integrations**
+**Phase 5 - Voice Capabilities**
 
-The project has integrated DuckDuckGo web search capability.
+The system can now detect the "wake up jarvis" wake word via openWakeWord in a background thread, and record speech.
 
 ## Current milestone
 
-**Milestone 1 - Desktop Automation**
+**Milestone 1 - Wake Word Detection**
 
 Status: **Complete**
 
-The first milestone of Phase 4 is complete. The JARVIS system now features a Dynamic Command Execution System, allowing JARVIS to control the Windows PC via Rust and Tauri. The system classifies user intent, dynamically generates PowerShell commands using Groq's LLM, and securely executes them. A robust safety mechanism is in place to intercept destructive commands and prompt the user for confirmation. Additionally, JARVIS provides real-time system feedback, such as actual battery status and disk capacity, directly to the HUD.
+JARVIS is now capable of listening for the "wake up jarvis" wake word continuously without blocking the backend. When triggered, it records the user's speech and transcribes it locally using faster-whisper. The UI microphone button connects to the FastAPI backend to start/stop the background voice service.
 
-Validation passed: cargo build, pnpm build, pnpm test, pnpm lint, and manual tests succeed.
 
 ## Completed milestones
 
@@ -60,6 +59,10 @@ Validation passed: cargo build, pnpm build, pnpm test, pnpm lint, and manual tes
 | Phase 4 - Milestone 2: Foreground Search                      | Complete                  | Implemented robust intent matching to intelligently open URLs visually in the user's browser, replacing background search when visual results are preferred. |
 | Phase 4 - Milestone 3: File System Operations                 | Complete                  | Extended Rust backend with directory listing, file reading, file deletion, and folder creation, integrated safely into JARVIS's command generation prompts. |
 | Phase 4 - Milestone 4: Safety Layer                           | Complete                  | Implemented comprehensive safety system with destructive action detection, user confirmation UI, and shutdown/restart commands with mandatory confirmation. |
+| Phase 4 - Milestone 5: 3D/2D Power Mode                       | Complete                  | Integrated power status polling to dynamically switch the graph between 3D mode (charging) and 2D mode (battery), along with a power indicator pill in the Topbar. |
+| Phase 5 - Milestone 1: Wake Word Detection                    | Complete                  | Integrated openWakeWord and faster-whisper to continuously listen for "wake up jarvis", record user speech, and transcribe it.                              |
+| Phase 5 - Milestone 2: Voice Chat Pipeline                    | Complete                  | Connected voice transcription to chat pipeline via WebSocket, enabling voice input to appear in chat with 🎤 prefix and receive JARVIS responses.           |
+| Phase 5 - Milestone 3: TTS Voice Output                       | Complete                  | Integrated edge-tts with en-GB-RyanNeural voice, TTS interrupt detection via microphone energy threshold, speaking status orb synchronization (violet), and UI_ACTION tag stripping before speech. |
 
 **Phase 4 - Additional Capabilities**
 
@@ -126,3 +129,27 @@ The next milestone for Phase 4 will be expanding additional capabilities.
 - Resolved frontend state bugs: disabled new chat during stream, fixed `setTimeout` leak, and added a visual search indicator.
 - Addressed Tauri security: Enabled strict CSP in `tauri.conf.json` and fixed mutex panics and integer overflows in `lib.rs`.
 - Desktop Automation refinements: Supported multiple app openings via JSON arrays, fixed browser URL opening, expanded AppData search logic in Rust, and added ReactMarkdown to chat for clean display.
+
+**Phase 5 Updates (2026-08-19)**
+- **Milestone 1**: Implemented continuous background wake word detection using openWakeWord and faster-whisper. 
+- Integrated a daemonized background thread in `jarvis-engine` to prevent blocking the FastAPI server.
+- Added `/voice/start`, `/voice/stop`, and `/voice/status` endpoints.
+- Connected the microphone button in the React UI (`Dock.tsx`) to toggle the backend listening state.
+- **Milestone 2**: Connected voice transcription to chat pipeline via WebSocket and `/voice/input` endpoint.
+- Voice inputs now appear in chat with 🎤 prefix and receive full JARVIS responses.
+- Added WebSocket endpoint `/ws/voice` for real-time voice events with auto-reconnect.
+- Fixed multiple wake word detections with is_processing flag.
+- Improved transcription accuracy by upgrading from base.en to small.en Whisper model.
+- **Milestone 3**: Voice pipeline optimization and performance fixes.
+- Implemented direct command mapper for instant execution of common commands (open apps, lock screen, volume control) without LLM.
+- Fixed GPU usage: Adaptive frame rate (60fps in 3D mode, 1fps in 2D mode) reduces iGPU from 100% to near-zero when idle.
+- Removed double transcription bug and excessive debug logging.
+- Configured Ollama as primary provider for voice commands on HP laptop (http://10.79.209.37:11434).
+- **Milestone 4**: Text-to-Speech (TTS) Voice Output.
+- Integrated edge-tts library with en-GB-RyanNeural voice for natural British accent speech output at +10% speed.
+- Implemented TTSEngine class with pygame for audio playback, async/threading for non-blocking operation.
+- Added TTS interrupt detection: when user speaks (audio energy > 0.02), TTS immediately stops to prevent overlap.
+- Enhanced orb visualization with violet (#a78bfa) "speaking" status that syncs via WebSocket voice_status events.
+- Implemented UI_ACTION tag stripping before TTS to prevent JARVIS from reading technical tags aloud.
+- Added /tts/stop and /tts/status control endpoints for manual TTS management.
+- JARVIS now speaks every chat response and direct voice command result automatically.
