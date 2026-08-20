@@ -29,11 +29,11 @@ export function Topbar() {
         <span className="dot"></span>J.A.R.V.I.S
       </div>
       <div className="topbar-pills">
-        <div className="topbar-pill">
+        <div className="topbar-pill topbar-model-pill">
           <span className="pd"></span>
           {`${model} · ${provider}`}
         </div>
-        <div style={{
+        <div className="topbar-mode-pill" style={{
           display: "inline-flex",
           alignItems: "center",
           gap: "4px",
@@ -43,8 +43,8 @@ export function Topbar() {
           borderRadius: "4px",
           fontFamily: "var(--font-mono)",
           fontSize: "10px",
-          color: isCharging 
-            ? "var(--color-cyan)" 
+          color: isCharging
+            ? "var(--color-cyan)"
             : "var(--color-amber)",
           letterSpacing: "0.5px"
         }}>
@@ -52,7 +52,7 @@ export function Topbar() {
           &nbsp;
           {graphMode.toUpperCase()}
         </div>
-        <div className="topbar-pill amber">
+        <div className="topbar-pill amber topbar-memory-pill">
           <span className="pd"></span>
           {memoryCount} MEMORIES
         </div>

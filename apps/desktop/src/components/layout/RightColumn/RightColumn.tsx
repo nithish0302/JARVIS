@@ -17,8 +17,14 @@ export function RightColumn() {
   const totalNodes = HUBS.length + HUBS.reduce((acc, h) => acc + h.leaves, 0);
 
   return (
-    <div className="side-col shrink-0 flex flex-col h-full gap-1 pb-1">
-      <div className="panel flex-shrink-0 flex flex-col !p-[6px_14px]">
+    <div
+      className="side-col shrink-0 flex flex-col h-full gap-1 pb-1"
+      style={{
+        width: "var(--right-col-width)",
+        minWidth: "var(--right-col-width)"
+      }}
+    >
+      <div className="panel flex-shrink-0 flex flex-col !p-[6px_14px] filter-panel">
         <h3 className="shrink-0">Filter</h3>
         <div className="grid grid-cols-2 gap-x-1 gap-y-[2px]">
           {HUBS.map((h) => (

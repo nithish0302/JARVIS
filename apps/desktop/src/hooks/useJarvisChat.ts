@@ -56,10 +56,12 @@ export function useJarvisChat() {
       },
       // Voice response received - add as assistant message
       (text: string) => {
+        // Strip UI_ACTION tags before displaying
+        const { cleanText } = parseUIActions(text)
         const assistantMessage: Message = {
           id: crypto.randomUUID(),
           role: "assistant",
-          content: text,
+          content: cleanText,
           timestamp: new Date().toLocaleTimeString(
             [], {hour:"2-digit", minute:"2-digit"}
           )

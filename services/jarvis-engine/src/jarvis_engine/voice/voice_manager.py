@@ -8,6 +8,13 @@ from .wake_word import WakeWordDetector
 from .speech_recorder import SpeechRecorder
 from ..core.config import settings
 
+# Whitelisted applications for voice commands (SECURITY: prevents command injection)
+ALLOWED_APPS = {
+  "notepad.exe", "calc.exe", "firefox", "chrome", "explorer.exe",
+  "code", "spotify", "discord", "taskmgr.exe",
+  "ms-settings:", "ms-windows-store:"
+}
+
 # Direct command mapping for instant execution without LLM
 VOICE_COMMAND_MAP = {
   "open notepad": ("open_app", "notepad.exe"),
@@ -59,6 +66,11 @@ def execute_voice_command(text: str) -> str | None:
 def _execute_action(action: str, param: str | None) -> str:
   """Execute a direct voice action and return response."""
   if action == "open_app":
+    # SECURITY: Whitelist validation to prevent command injection
+    if param not in ALLOWED_APPS:
+      print(f"[SECURITY] Blocked attempt to open non-whitelisted app: {param}")
+      return f"Application '{param}' is not whitelisted for voice commands, sir."
+
     try:
       subprocess.Popen(
         ["cmd", "/C", "start", "", param],
@@ -156,7 +168,30 @@ class VoiceManager:
     if self.is_listening:
       return
     self.is_listening = True
-    print("Wake word detected - recording...")
+
+    # Respond immediately
+    print("[VOICE] Wake word detected - responding")
+    from .tts_engine import tts_engine
+
+    def say_yes():
+      tts_engine.speak_sync("Yes sir?")
+
+    t = threading.Thread(target=say_yes, daemon=True)
+    t.start()
+    t.join(timeout=3)  # Wait max 3 seconds
+
+    print("[VOICE] Recording command...")
+
+    # Broadcast listening status
+    import requests
+    try:
+      requests.post(
+        "http://localhost:8765/voice/status/update",
+        json={"status": "listening"},
+        timeout=2
+      )
+    except:
+      pass
 
     def process_voice():
         try:
@@ -181,9 +216,19 @@ class VoiceManager:
           print(f"Voice processing error: {e}")
         finally:
           self.is_listening = False
+          # Broadcast idle status
+          import requests
+          try:
+            requests.post(
+              "http://localhost:8765/voice/status/update",
+              json={"status": "idle"},
+              timeout=2
+            )
+          except:
+            pass
 
-    t = threading.Thread(target=process_voice, daemon=True)
-    t.start()
+    t2 = threading.Thread(target=process_voice, daemon=True)
+    t2.start()
   
   def _transcribe(
     self, audio: np.ndarray
@@ -220,7 +265,20 @@ class VoiceManager:
       return ""
   
   def shutdown(self):
+    """Clean up resources on shutdown."""
     if self.wake_word_detector:
       self.wake_word_detector.stop()
+      self.wake_word_detector = None
+
+    # Clean up Whisper model to free memory (~140MB)
+    if self.whisper_model:
+      print("Cleaning up Whisper model...")
+      del self.whisper_model
+      self.whisper_model = None
+
+      # Force garbage collection to free memory immediately
+      import gc
+      gc.collect()
+      print("Voice manager shutdown complete")
 
 voice_manager = VoiceManager()

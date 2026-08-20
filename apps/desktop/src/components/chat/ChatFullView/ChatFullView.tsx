@@ -108,9 +108,12 @@ export function ChatFullView() {
             {msg.role === "assistant" && (
               <SearchBadge query={msg.searchQuery || ""} visible={msg.searchPerformed === true} />
             )}
-            <div 
+            <div
               className={cn(
-                "max-w-[82%] px-[15px] py-[11px] rounded-xl text-[14px] leading-[1.6] backdrop-blur-[8px] border"
+                msg.role === "user"
+                  ? "max-w-[85%] sm:max-w-[70%]"
+                  : "max-w-[90%] sm:max-w-[85%]",
+                "px-[15px] py-[11px] rounded-xl text-[14px] leading-[1.6] backdrop-blur-[8px] border"
               )}
               style={{ 
                 background: 'var(--color-panel)', 

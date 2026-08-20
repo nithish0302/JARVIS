@@ -18,6 +18,11 @@ class Settings(BaseSettings):
     DB_PATH: str = "data/jarvis.db"
     VERSION: str = "0.1.0"
 
+    # TTS Configuration
+    EDGE_TTS_VOICE: str = "en-US-AndrewMultilingualNeural"
+    EDGE_TTS_RATE: str = "+5%"
+    TTS_KOKORO_VOICE: str = "am_michael"
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
 settings = Settings()

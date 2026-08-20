@@ -21,24 +21,36 @@ class GeminiProvider(BaseProvider):
       return False
     return True
 
-  def _format_messages(self, messages: list[Message]) -> list[dict]:
-    if len(messages) > 20:
-      system_msgs = [m for m in messages if m.role == "system"]
-      other_msgs = [m for m in messages if m.role != "system"]
-      messages = system_msgs + other_msgs[-10:]
-      
+  def _format_messages(self, messages: list[Message]) -> tuple[list[dict], Message | None]:
+    system_msgs = [m for m in messages if m.role == "system"]
+    system_instruction_text = "\n\n---\n\n".join(m.content for m in system_msgs)
+    system_msg = Message(role="system", content=system_instruction_text, timestamp="") if system_instruction_text else None
+    
+    other_msgs = [m for m in messages if m.role != "system"]
+    
+    while other_msgs:
+        total_len = sum(len(m.content) for m in other_msgs) + (len(system_instruction_text) if system_instruction_text else 0)
+        estimated_tokens = total_len // 4
+        if estimated_tokens > 6000:
+            print(f"[WARNING] Gemini token budget exceeded ({estimated_tokens} > 6000). Trimming oldest message.")
+            other_msgs.pop(0)
+        else:
+            break
+            
+    # Gemini requires the conversation to start with a 'user' message
+    if other_msgs and other_msgs[0].role == "assistant":
+        other_msgs.pop(0)
+            
     formatted = []
-    
-    system_msg = next((m for m in messages if m.role == "system"), None)
-    
-    for m in messages:
-        if m.role == "system":
-            continue
+    for m in other_msgs:
         role = "model" if m.role == "assistant" else "user"
-        formatted.append({
-            "role": role,
-            "parts": [{"text": m.content}]
-        })
+        if formatted and formatted[-1]["role"] == role:
+            formatted[-1]["parts"][0]["text"] += "\n\n" + m.content
+        else:
+            formatted.append({
+                "role": role,
+                "parts": [{"text": m.content}]
+            })
     return formatted, system_msg
 
   def _build_payload(self, formatted: list[dict], system_msg: Message = None) -> dict:

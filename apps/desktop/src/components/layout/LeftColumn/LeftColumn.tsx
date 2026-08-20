@@ -110,7 +110,13 @@ export function LeftColumn() {
   };
 
   return (
-    <div className="side-col shrink-0 flex flex-col h-full overflow-hidden">
+    <div
+      className="side-col shrink-0 flex-col h-full"
+      style={{
+        width: "var(--left-col-width)",
+        minWidth: "var(--left-col-width)"
+      }}
+    >
       <div className="flex-1 overflow-y-auto no-scrollbar flex flex-col gap-[14px] pb-4">
       <div className={cn("panel", activeHub ? "flex-[0_0_auto]" : "flex-[0_0_auto]")} id="inspector">
         <h3 className="flex items-center justify-between">
@@ -172,18 +178,8 @@ export function LeftColumn() {
             <div className="sys-metric" key={`gpu-${idx}`}>
               <div className="sys-row">
                 <span className="lbl">{gpu.type === "discrete" ? "dGPU" : "iGPU"}</span>
-                <span className="pct">{gpu.usage}%</span>
               </div>
-              <div className="sys-bar">
-                <div
-                  className="sys-bar-fill"
-                  style={{
-                    width: `${Math.max(1, gpu.usage)}%`,
-                    background: gpu.name.includes("GTX") ? "#52d68a" : "#5aa9e6",
-                  }}
-                ></div>
-              </div>
-              <div className="sys-detail">{gpu.name} <span className="opacity-50">(static)</span></div>
+              <div className="sys-detail">{gpu.name}</div>
             </div>
           ))}
           

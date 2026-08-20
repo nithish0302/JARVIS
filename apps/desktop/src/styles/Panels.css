@@ -1,10 +1,12 @@
 .side-col {
-  width: 224px;
+  /* Width controlled by CSS variables for responsive behavior */
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
   gap: 14px;
   z-index: 5;
+  overflow: hidden;
+  transition: width 0.3s ease, min-width 0.3s ease;
 }
 
 .panel {

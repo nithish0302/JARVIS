@@ -55,11 +55,14 @@ class WakeWordDetector:
     # Check if user is speaking (interrupt TTS)
     audio_level = np.sqrt(np.mean(indata**2))
 
-    if audio_level > 0.02:  # Speaking threshold
+    if audio_level > 0.08:  # Speaking threshold (increased to reduce false positives)
       try:
         from .tts_engine import tts_engine
-        if tts_engine.is_speaking:
-          print("[INTERRUPT] User speaking - stopping TTS")
+        tts_start = getattr(tts_engine, 'speak_start_time', 0)
+        # Only interrupt if TTS has been speaking for more than 1 second
+        if (tts_engine.is_speaking and
+            time.time() - tts_start > 1.0):
+          print(f"[INTERRUPT] Level: {audio_level:.3f} - Stopping TTS")
           tts_engine.stop()
           return  # Don't process as wake word yet
       except:

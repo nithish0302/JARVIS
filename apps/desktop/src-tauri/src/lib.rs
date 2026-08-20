@@ -33,25 +33,9 @@ fn get_system_info(state: tauri::State<SysState>) -> serde_json::Value {
         .first()
         .map(|c| c.brand().to_string())
         .unwrap_or("Unknown CPU".to_string());
-    
+
     let cpu_cores = sys.cpus().len();
-    
-    // GPU info - detect both GPUs
-    let gpus = vec![
-        serde_json::json!({
-            "name": "GTX 1650",
-            "type": "discrete",
-            "usage": 0,
-            "temp": 0
-        }),
-        serde_json::json!({
-            "name": "Intel UHD",
-            "type": "integrated", 
-            "usage": 0,
-            "temp": 0
-        })
-    ];
-    
+
     serde_json::json!({
         "cpu_usage": cpu_usage as u32,
         "cpu_name": cpu_name,
@@ -59,11 +43,44 @@ fn get_system_info(state: tauri::State<SysState>) -> serde_json::Value {
         "ram_pct": ram_pct,
         "ram_used_gb": format!("{:.1}", used_mem as f64 / 1_073_741_824.0),
         "ram_total_gb": format!("{:.0}", total_mem as f64 / 1_073_741_824.0),
-        "gpus": gpus,
-        "ssd_pct": 80,
-        "ssd_used_gb": "410",
-        "ssd_total_gb": "512"
+        "gpus": serde_json::json!([
+            {
+                "name": "GTX 1650",
+                "type": "discrete",
+                "usage": 0,
+                "static": true
+            },
+            {
+                "name": "Intel Iris Xe",
+                "type": "integrated",
+                "usage": 0,
+                "static": true
+            }
+        ])
     })
+}
+
+const FIND_APP_SCRIPT: &str = include_str!("../scripts/find_application.ps1");
+
+fn get_find_app_script_path() -> std::path::PathBuf {
+  let candidates = [
+    std::path::PathBuf::from("scripts/find_application.ps1"),
+    std::path::PathBuf::from("src-tauri/scripts/find_application.ps1"),
+    std::path::PathBuf::from("../src-tauri/scripts/find_application.ps1"),
+  ];
+  for c in &candidates {
+    if c.exists() {
+      if let Ok(abs) = std::fs::canonicalize(c) {
+        return abs;
+      }
+      return c.clone();
+    }
+  }
+  let temp_path = std::env::temp_dir().join("jarvis_find_application.ps1");
+  if !temp_path.exists() {
+    let _ = std::fs::write(&temp_path, FIND_APP_SCRIPT);
+  }
+  temp_path
 }
 
 // 1. FIND ANY INSTALLED APPLICATION
@@ -115,41 +132,26 @@ fn find_application(app_name: String)
     }
   }
   
-  // Search using PowerShell for installed apps
+  // Search using bundled PowerShell script with parameterized input
+  let script_path = get_find_app_script_path();
   let output = Command::new("powershell")
     .args([
-      "-Command",
-      &format!(
-        "Get-StartApps | Where-Object {{$_.Name -like '*{}*'}} | Select-Object -First 1 -ExpandProperty AppID",
-        app_name
-      )
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-File",
     ])
+    .arg(&script_path)
+    .arg(&app_name)
     .output();
   
   if let Ok(out) = output {
-    let app_id = String::from_utf8_lossy(
-      &out.stdout
-    ).trim().to_string();
-    if !app_id.is_empty() {
-      return Ok(format!("shell:appsFolder\\{}", app_id));
-    }
-  }
-  
-  // Search in AppData for user-installed apps
-  let appdata_output = Command::new("powershell")
-    .args([
-      "-Command",
-      &format!(
-        "Get-ChildItem -Path \"$env:LOCALAPPDATA\\Programs\",\"$env:APPDATA\" -Recurse -Depth 3 -Filter \"*.exe\" -ErrorAction SilentlyContinue | Where-Object {{$_.Name -match '^{}(\\.exe)?$'}} | Select-Object -First 1 -ExpandProperty FullName",
-        app_name
-      )
-    ])
-    .output();
-    
-  if let Ok(out) = appdata_output {
-    let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    if !path.is_empty() && Path::new(&path).exists() {
-      return Ok(path);
+    let result_path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if !result_path.is_empty() {
+      if result_path.starts_with("shell:appsFolder") || Path::new(&result_path).exists() {
+        return Ok(result_path);
+      }
     }
   }
   
@@ -808,3 +810,34 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_find_application_notepad() {
+        let result = find_application("notepad".to_string());
+        assert!(result.is_ok(), "Notepad should be found");
+        let path = result.unwrap();
+        assert!(path.contains("notepad") || path.contains("Microsoft.WindowsNotepad"));
+    }
+
+    #[test]
+    fn test_powershell_injection_prevented() {
+        let injection_payload = "test'; Write-Output 'INJECTED".to_string();
+        let result = find_application(injection_payload);
+        assert!(result.is_err(), "Injection payload should fail to find any application");
+        let err_msg = result.unwrap_err();
+        assert_eq!(err_msg, "Could not find: test'; Write-Output 'INJECTED");
+    }
+
+    #[test]
+    fn test_app_name_with_apostrophe() {
+        let app_name = "test's app".to_string();
+        let result = find_application(app_name);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Could not find: test's app");
+    }
+}
+

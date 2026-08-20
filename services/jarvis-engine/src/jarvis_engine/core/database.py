@@ -40,4 +40,27 @@ async def init_db() -> None:
                 FOREIGN KEY (conversation_id) REFERENCES conversations(id)
             )
         """)
+
+        # Performance indexes - added for faster queries
+        await db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_messages_conversation
+            ON messages(conversation_id)
+        """)
+
+        await db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_messages_conversation_time
+            ON messages(conversation_id, timestamp)
+        """)
+
+        await db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_memories_created
+            ON memories(created_at DESC)
+        """)
+
+        await db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_memories_conversation
+            ON memories(source_conversation_id)
+        """)
+
         await db.commit()
+        print("[DB] Database initialized with performance indexes")

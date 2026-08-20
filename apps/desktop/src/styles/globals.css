@@ -8,6 +8,11 @@
     font-size: var(--font-size-body);
     font-weight: var(--font-weight-regular);
     line-height: var(--line-height-body);
+
+    /* Responsive layout widths */
+    --left-col-width: 224px;
+    --right-col-width: 224px;
+    --dock-width: 68px;
   }
 
   *,
@@ -90,6 +95,61 @@
     animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+/* Responsive layout breakpoints - using CSS variables */
+@media (max-width: 1400px) {
+  :root {
+    --left-col-width: 200px;
+    --right-col-width: 200px;
+  }
+
+  .scene {
+    padding: 16px;
+    gap: 20px;
+  }
+}
+
+@media (max-width: 1200px) {
+  :root {
+    --left-col-width: 0px;
+    --right-col-width: 180px;
+  }
+
+  .scene {
+    padding: 12px;
+    gap: 16px;
+  }
+
+  .filter-panel {
+    display: none !important;
+  }
+}
+
+@media (max-width: 900px) {
+  :root {
+    --left-col-width: 0px;
+    --right-col-width: 0px;
+    --dock-width: 0px;
+  }
+
+  .scene {
+    padding: 8px;
+    gap: 8px;
+  }
+
+  /* Hide non-essential topbar pills */
+  .topbar-model-pill,
+  .topbar-memory-pill,
+  .topbar-mode-pill {
+    display: none !important;
+  }
+}
+
+@media (max-width: 640px) {
+  body {
+    min-width: 640px;
   }
 }
 

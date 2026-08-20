@@ -1,5 +1,6 @@
 .dock {
-  width: 68px;
+  width: var(--dock-width);
+  min-width: var(--dock-width);
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -9,6 +10,8 @@
   background: linear-gradient(180deg, rgba(9, 16, 21, 0.9), rgba(6, 11, 15, 0.9));
   gap: 6px;
   z-index: 8;
+  overflow: hidden;
+  transition: width 0.3s ease, min-width 0.3s ease;
 }
 
 .dock-mark {

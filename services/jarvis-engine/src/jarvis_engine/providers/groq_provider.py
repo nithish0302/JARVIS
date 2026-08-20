@@ -46,7 +46,7 @@ class GroqProvider(BaseProvider):
       if "model" in str(e).lower() or \
          "404" in str(e) or "400" in str(e):
         response = client.chat.completions.create(
-          model="llama3-8b-8192",
+          model="llama-3.1-8b-instant",
           messages=groq_messages,
           max_tokens=2048,
         )
@@ -79,7 +79,7 @@ class GroqProvider(BaseProvider):
       if "model" in str(e).lower() or \
          "404" in str(e) or "400" in str(e):
         response = client.chat.completions.create(
-          model="llama3-8b-8192",
+          model="llama-3.1-8b-instant",
           messages=groq_messages,
           max_tokens=2048,
           stream=True,

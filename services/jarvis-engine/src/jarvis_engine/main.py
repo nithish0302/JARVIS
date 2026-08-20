@@ -15,9 +15,34 @@ async def lifespan(app: FastAPI):
         available = await provider.is_available()
         print(f"Provider {provider.name}: {'available' if available else 'unavailable'}")
 
+    # Pre-load TTS engine at startup
+    try:
+        from .voice.tts_engine import tts_engine
+        print("[STARTUP] Andrew Multilingual TTS ready")
+    except Exception as e:
+        print(f"[STARTUP] TTS init error: {e}")
+
     # Auto-start voice detection
     try:
         from .voice.voice_manager import voice_manager
+        import re
+
+        def clean_text_for_tts(text: str) -> str:
+            """Strip UI_ACTION tags and markdown formatting for clean TTS output"""
+            if not text:
+                return ""
+
+            # Strip UI_ACTION tags
+            clean = re.sub(r'\[UI_ACTION:[^\]]*\]', '', text).strip()
+
+            # Strip markdown formatting
+            clean = re.sub(r'\*\*(.+?)\*\*', r'\1', clean)  # Bold
+            clean = re.sub(r'\*(.+?)\*', r'\1', clean)  # Italic
+            clean = re.sub(r'#{1,6}\s', '', clean)  # Headers
+            clean = re.sub(r'`(.+?)`', r'\1', clean)  # Inline code
+            clean = re.sub(r'```[\s\S]*?```', '', clean)  # Code blocks
+
+            return clean.strip()
 
         def on_transcription(text: str, direct_result: str = None):
             print(f"[VOICE COMMAND] {text}")
@@ -44,9 +69,11 @@ async def lifespan(app: FastAPI):
                     except Exception as e:
                         print(f"Broadcast error: {e}")
 
-                    # Then speak
+                    # Then speak (clean text)
                     try:
-                        tts_engine.speak_sync(direct_result)
+                        clean_result = clean_text_for_tts(direct_result)
+                        if clean_result and len(clean_result) > 3:
+                            tts_engine.speak_sync(clean_result)
                     except Exception as e:
                         print(f"TTS error: {e}")
 
@@ -71,7 +98,9 @@ async def lifespan(app: FastAPI):
                         if ai_response:
                             print(f"[JARVIS SPEAKING] {ai_response}")
                             try:
-                                tts_engine.speak_sync(ai_response)
+                                clean_response = clean_text_for_tts(ai_response)
+                                if clean_response and len(clean_response) > 3:
+                                    tts_engine.speak_sync(clean_response)
                             except Exception as e:
                                 print(f"TTS error: {e}")
                 except Exception as e:

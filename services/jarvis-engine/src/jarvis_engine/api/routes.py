@@ -81,6 +81,15 @@ async def tts_status():
     "voice": tts_engine.voice
   }
 
+@router.post("/voice/status/update")
+async def update_voice_status(request: dict):
+  status = request.get("status", "idle")
+  await broadcast_voice_event({
+    "type": "voice_status",
+    "status": status
+  })
+  return {"status": status}
+
 @router.post("/voice/input")
 async def voice_input_endpoint(request: dict):
   text = request.get("text", "").strip()
@@ -251,6 +260,12 @@ async def voice_input_endpoint(request: dict):
 
   print(f"[JARVIS VOICE RESPONSE] {response_text}")
 
+  # Strip UI_ACTION tags before broadcasting to UI
+  import re
+  clean_response = re.sub(
+    r'\[UI_ACTION:[^\]]*\]', '', response_text
+  ).strip()
+
   # Broadcast via WebSocket
   await broadcast_voice_event({
     "type": "voice_input",
@@ -258,7 +273,7 @@ async def voice_input_endpoint(request: dict):
   })
   await broadcast_voice_event({
     "type": "voice_response",
-    "text": response_text
+    "text": clean_response  # Send clean text to UI
   })
   # Note: TTS status (speaking->idle) is handled in main.py callback
 
@@ -288,7 +303,7 @@ async def broadcast_voice_event(event: dict):
       dead.add(client)
   connected_clients.difference_update(dead)
 
-JARVIS_SYSTEM_PROMPT = """You are JARVIS, a premium 
+JARVIS_SYSTEM_PROMPT = """You are JARVIS, a premium
 AI desktop assistant for Nithish. You are intelligent,
 efficient, and highly capable.
 
@@ -298,14 +313,47 @@ Personality:
 - Concise — say what needs to be said, nothing more
 - Occasionally address Nithish as "sir" when natural,
   not every sentence
-- Never start responses with "Certainly!", 
+- Never start responses with "Certainly!",
   "Of course!", "Great!", or similar filler phrases
 - When you do not know something, say so directly
-- Reference earlier parts of the conversation 
+- Reference earlier parts of the conversation
   naturally when relevant
+- Do not summarize or recap the conversation history unless the user explicitly asks what has happened so far. For simple greetings or short exchanges, respond briefly and directly — do not restate prior turns.
 
 You are not a generic chatbot. You are JARVIS — act like it.
 """
+
+def trim_messages_to_budget(messages: list[Message], max_tokens: int = 4000) -> list[Message]:
+    """
+    Universally caps total payload tokens to `max_tokens` (default ~4000 tokens using len(text)//4).
+    If estimated tokens exceed budget, iteratively drops oldest non-system history messages
+    (preserving system prompts and the latest user message) until under budget.
+    """
+    total_tokens = sum(len(m.content) for m in messages) // 4
+    if total_tokens <= max_tokens:
+        return messages
+
+    msgs = list(messages)
+    while total_tokens > max_tokens:
+        target_idx = None
+        for idx in range(len(msgs) - 1):
+            if msgs[idx].role != "system":
+                target_idx = idx
+                break
+
+        if target_idx is None:
+            break
+
+        print(f"[WARNING] Universal payload token budget exceeded ({total_tokens} > {max_tokens}). Trimming oldest history message.")
+        msgs.pop(target_idx)
+        total_tokens = sum(len(m.content) for m in msgs) // 4
+
+    return msgs
+
+SHORT_SYSTEM_PROMPT = """You are JARVIS, a premium AI assistant.
+Be concise, direct, professional. Address user as "sir" occasionally.
+Never start with "Certainly!" or "Of course!".
+Include [UI_ACTION:tag] only when explicitly asked."""
 
 UI_ACTION_REMINDER = (
     "Remember: You can use [UI_ACTION:command] "
@@ -369,212 +417,33 @@ SEARCH_STRICT_INSTRUCTION = """
 When web search results are provided:
 - Use ONLY information from the search results
 - Do NOT add facts from your training data
-- Do NOT invent statistics, numbers, or dates
-- If the search results don't contain specific
-  data (like subscriber counts), say:
-  "I found [X] but couldn't confirm [Y]"
-- Always be honest about uncertainty
-- Cite which source the information came from
+- NEVER show raw URLs in your response
+- NEVER use [URL: ...] format
+- Instead cite sources naturally like:
+  "According to Reddit..." or
+  "The Wall Street Journal reports..."
+- Keep responses concise and factual
+- Maximum 3-4 bullet points
+- End with offering more details
 """
 
-COMMAND_GENERATION_PROMPT = """You are a Windows 
-automation expert for JARVIS.
+COMMAND_GENERATION_PROMPT = """
+Classify this request and return JSON only.
 
-The user wants to do something on their Windows PC.
-Generate the exact PowerShell command to do it.
+Request: "{request}"
 
-User request: "{request}"
-
-Rules:
-1. Return ONLY a JSON object or JSON ARRAY, nothing else
-2. Format:
-{{
-  "action_type": "OPEN_APP|OPEN_URL|SYSTEM_QUERY|FILE_OP|SYSTEM_CONTROL|UNSAFE",
-  "command": "the powershell command, app name, or url",
-  "description": "what this will do in plain English",
-  "requires_confirmation": true/false,
-  "display_output": true/false
-}}
-
-If the user wants to open MULTIPLE apps,
-return a JSON ARRAY:
-[
-  {{"action_type":"OPEN_APP","command":"Firefox","description":"Opening Firefox","requires_confirmation":false,"display_output":false}},
-  {{"action_type":"OPEN_APP","command":"Code","description":"Opening VS Code","requires_confirmation":false,"display_output":false}}
-]
-
-CRITICAL DEDUPLICATION RULE:
-If you are opening a URL in a browser,
-do NOT also generate a separate OPEN_APP
-action for that same browser.
-
-WRONG (creates 2 windows):
-[
-  {{"action_type":"OPEN_APP","command":"Firefox"}},
-  {{"action_type":"OPEN_URL","command":"https://youtube.com","browser":"firefox"}}
-]
-
-CORRECT (opens Firefox once with YouTube):
-[
-  {{"action_type":"OPEN_URL","command":"https://youtube.com","browser":"firefox","description":"Opening YouTube in Firefox","requires_confirmation":false,"display_output":false}}
-]
-
-Rule: OPEN_URL already opens the browser.
-Never combine OPEN_APP + OPEN_URL for the same browser.
-
-SAFETY RULES - ALWAYS FOLLOW:
-1. DELETE operations ALWAYS need confirmation
-   Set "requires_confirmation": true for any delete/remove action
-2. SHUTDOWN/RESTART always needs confirmation
-   Set "requires_confirmation": true
-3. KILL PROCESS needs confirmation
-   Set "requires_confirmation": true
-4. Clearly state what will be affected in description
-5. Never execute destructive actions silently
-
-Safe actions (no confirmation needed):
-- Open apps, Create folders, List files
-- Lock screen, Read files, Query system info
-- Open URLs, Search operations
-
-Destructive actions (REQUIRE confirmation):
-- Delete files/folders, Kill processes
-- Shutdown/Restart, Format/Clear directories
-- Uninstall software, Modify system settings
-
-More examples:
-'open firefox and go to youtube'
-→ [{{"action_type":"OPEN_URL","command":"https://youtube.com","browser":"firefox"}}]
-
-'open firefox and search cats'
-→ [{{"action_type":"OPEN_URL","command":"https://google.com/search?q=cats","browser":"firefox"}}]
-
-'open firefox and search youtube for tamil songs'
-→ [{{"action_type":"OPEN_URL","command":"https://youtube.com/results?search_query=tamil+songs","browser":"firefox"}}]
-
-'open firefox and notepad'
-→ [
-    {{"action_type":"OPEN_URL","command":"https://www.google.com","browser":"firefox"}},
-    {{"action_type":"OPEN_APP","command":"notepad"}}
-  ]
-(Firefox opens with Google, notepad opens separately)
-
-CRITICAL: For locking the screen, ALWAYS return:
-{{"action_type":"SYSTEM_CONTROL","command":"lock_screen","description":"Locking Windows screen","requires_confirmation":false,"display_output":false}}
-NEVER generate a PowerShell script to lock screen.
-
-For disk space queries use this exact command:
-Get-PSDrive C | Select-Object @{{N='Used GB';E={{[math]::Round($_.Used/1GB,1)}}}},@{{N='Free GB';E={{[math]::Round($_.Free/1GB,1)}}}},@{{N='Total GB';E={{[math]::Round(($_.Used+$_.Free)/1GB,1)}}}},@{{N='Used %';E={{[math]::Round($_.Used/($_.Used+$_.Free)*100,1)}}}} | Format-Table -AutoSize
-
-User's preferred browsers:
-1. Firefox (primary - use by default)
-2. Edge (secondary)
-When opening any URL without browser specified,
-always use Firefox.
+Return ONE JSON object:
+{{"action_type":"OPEN_APP|OPEN_URL|SYSTEM_CONTROL|SYSTEM_QUERY|FILE_OP|UNSAFE",
+"command":"app name or command",
+"browser":"firefox",
+"description":"brief description",
+"requires_confirmation":false,
+"display_output":false}}
 
 Examples:
-Request: "open chrome"
-{{"action_type":"OPEN_APP","command":"Chrome","description":"Opening Google Chrome","requires_confirmation":false,"display_output":false}}
-
-Request: "open youtube in firefox"
-{{"action_type":"OPEN_URL","command":"https://youtube.com","browser":"firefox","description":"Opening YouTube in Firefox","requires_confirmation":false,"display_output":false}}
-
-Request: "search cats on youtube"
-{{"action_type":"OPEN_URL","command":"https://youtube.com/results?search_query=cats","browser":"firefox","description":"Searching cats on YouTube","requires_confirmation":false,"display_output":false}}
-
-Request: "open gmail"
-{{"action_type":"OPEN_URL","command":"https://gmail.com","browser":"firefox","description":"Opening Gmail in Firefox","requires_confirmation":false,"display_output":false}}
-
-Request: "what processes are using most CPU"
-{{"action_type":"SYSTEM_QUERY","command":"Get-Process | Sort-Object CPU -Descending | Select-Object -First 5 Name,CPU | Format-Table","description":"Showing top 5 CPU-consuming processes","requires_confirmation":false,"display_output":true}}
-
-Request: "delete all files in Downloads"
-{{"action_type":"FILE_OP","command":"Remove-Item $HOME\\Downloads\\* -Recurse","description":"This will permanently delete ALL files in Downloads","requires_confirmation":true,"display_output":false}}
-
-Request: "lock my screen"
-{{"action_type":"SYSTEM_CONTROL","command":"lock_screen","description":"Locking your Windows screen","requires_confirmation":false,"display_output":false}}
-
-Request: "open google and search JARVIS AI"
-{{"action_type":"OPEN_URL","command":"https://google.com/search?q=JARVIS+AI","browser":"firefox","description":"Searching JARVIS AI on Google","requires_confirmation":false,"display_output":false}}
-
-Request: "open store and search forza 6"
-{{"action_type":"OPEN_URL","command":"ms-windows-store://search?query=forza+6","browser":"default","description":"Opening Microsoft Store and searching for Forza 6","requires_confirmation":false,"display_output":false}}
-
-Request: "open youtube and search tamil songs"
-{{"action_type":"OPEN_URL","command":"https://youtube.com/results?search_query=tamil+songs","browser":"firefox","description":"Searching Tamil songs on YouTube","requires_confirmation":false,"display_output":false}}
-
-Request: "open amazon and search laptop"
-{{"action_type":"OPEN_URL","command":"https://amazon.in/s?k=laptop","browser":"firefox","description":"Searching laptop on Amazon","requires_confirmation":false,"display_output":false}}
-
-Common searchable URLs:
-- YouTube: https://youtube.com/results?search_query=QUERY
-- Google: https://google.com/search?q=QUERY
-- Amazon India: https://amazon.in/s?k=QUERY
-- Microsoft Store: ms-windows-store://search?query=QUERY
-- GitHub: https://github.com/search?q=QUERY
-- Stack Overflow: https://stackoverflow.com/search?q=QUERY
-
-Replace spaces with + in QUERY.
-
-CRITICAL FILE SYSTEM RULES:
-When user asks about their ACTUAL FILES on PC:
-- 'show my desktop files' → list_dir Desktop
-- 'show my downloads' → list_dir Downloads  
-- 'show my documents' → list_dir Documents
-- 'what files are on my desktop' → list_dir Desktop
-- 'list my downloads' → list_dir Downloads
-- 'create folder X on desktop' → create_folder
-- 'delete file X' → delete_file (with confirmation)
-
-NEVER use graph_open_hub:Files for file listing.
-graph_open_hub:Files is for the JARVIS graph UI only.
-list_dir is for REAL Windows files.
-
-Examples:
-'show my desktop files'
-→ [{"action_type":"SYSTEM_QUERY",
-    "command":"list_dir:C:\\Users\\%USERNAME%\\Desktop",
-    "description":"Listing Desktop files",
-    "requires_confirmation":false,
-    "display_output":true}]
-
-'show my downloads'
-→ [{"action_type":"SYSTEM_QUERY",
-    "command":"list_dir:C:\\Users\\%USERNAME%\\Downloads",
-    "description":"Listing Downloads folder",
-    "requires_confirmation":false,
-    "display_output":true}]
-
-'delete jarvis-ui-concept-v3.html in downloads'
-→ [{"action_type":"FILE_OP",
-    "command":"delete_file:C:\\Users\\%USERNAME%\\Downloads\\jarvis-ui-concept-v3.html",
-    "description":"Delete jarvis-ui-concept-v3.html from Downloads",
-    "requires_confirmation":true,
-    "display_output":false}]
-
-'create folder JARVIS on desktop'
-→ [{"action_type":"FILE_OP",
-    "command":"create_folder:C:\\Users\\%USERNAME%\\Desktop\\JARVIS",
-    "description":"Creating JARVIS folder on Desktop",
-    "requires_confirmation":false,
-    "display_output":false}]
-
-FILE SYSTEM ACTIONS:
-[UI_ACTION:list_dir:C:\\Users\\%USERNAME%\\Desktop] - List Desktop files
-[UI_ACTION:list_dir:C:\\Users\\%USERNAME%\\Documents] - List Documents
-[UI_ACTION:list_dir:C:\\Users\\%USERNAME%\\Downloads] - List Downloads
-[UI_ACTION:create_folder:C:\\Users\\%USERNAME%\\Desktop\\FolderName] - Create folder
-[UI_ACTION:open_file:C:\\path\\to\\file.txt] - Open file
-[UI_ACTION:show_explorer:C:\\path\\to\\file] - Show in Explorer
-[UI_ACTION:delete_file:C:\\path\\to\\file] - Delete (asks confirmation)
-
-FILE SYSTEM RULES:
-- Use %USERNAME% for user folder paths
-- For 'list my desktop files' → list_dir Desktop
-- For 'create folder X on desktop' → create_folder Desktop\\X
-- For 'show my downloads' → list_dir Downloads
-- For 'open [filename]' → open_file with full path
-- Always ask confirmation before delete
+open chrome → {{"action_type":"OPEN_APP","command":"chrome",...}}
+lock screen → {{"action_type":"SYSTEM_CONTROL","command":"lock_screen",...}}
+what is my IP → {{"action_type":"SYSTEM_QUERY","command":"(Get-NetIPAddress -AddressFamily IPv4 | Where-Object {{$_.InterfaceAlias -notlike '*Loopback*'}} | Select-Object -First 1).IPAddress",...}}
 """
 
 FOREGROUND_TRIGGERS = [
@@ -1257,8 +1126,12 @@ async def chat_endpoint(request: ChatRequest):
         system_msgs = [m for m in history if m.role == "system"]
         history = [m for m in history if m.role != "system"]
         if system_msgs:
-            search_context_accumulated = "\n\n" + "\n".join(m.content for m in system_msgs)
+            recent_system_msgs = system_msgs[-2:]
+            search_context_accumulated = "\n\n" + "\n".join(m.content for m in recent_system_msgs)
             search_context_accumulated += "\n" + SEARCH_STRICT_INSTRUCTION
+            
+        # Universal history cap: Keep only the last 12 user/assistant turn-pairs (24 messages)
+        history = history[-24:]
             
     active_provider = provider_manager.providers[0]
     available_providers = ", ".join(p.name.title() for p in provider_manager.providers)
@@ -1284,8 +1157,9 @@ async def chat_endpoint(request: ChatRequest):
         timestamp=""
     )
     
-    # Build full message list
+    # Build full message list and apply universal token-budget guard
     full_messages = [system_message] + history + [ui_reminder] + [new_user_message]
+    full_messages = trim_messages_to_budget(full_messages, max_tokens=4000)
     
     # Save user message to DB
     await save_message(
@@ -1364,6 +1238,86 @@ async def chat_endpoint(request: ChatRequest):
                 timestamp=""
             ))
 
+    # Check if this is a pure automation command that doesn't need AI (voice_input)
+    is_pure_automation = (
+        len(automation_results) > 0 and
+        all(r.get("action_type") in [
+            "OPEN_APP", "OPEN_URL",
+            "SYSTEM_CONTROL", "lock_screen"
+        ] for r in automation_results)
+    )
+
+    if is_pure_automation:
+        # Build response without AI
+        descriptions = [
+            r.get("description", "Done")
+            for r in automation_results
+        ]
+
+        # Build UI action tags
+        action_tags = ""
+        for result in automation_results:
+            action_type = result.get("action_type")
+            command = result.get("command", "")
+            browser = result.get("browser", "firefox")
+
+            if action_type == "OPEN_APP":
+                action_tags += f"[UI_ACTION:open_app:{command}]"
+            elif action_type == "OPEN_URL":
+                action_tags += f"[UI_ACTION:open_url:{browser}:{command}]"
+            elif action_type == "SYSTEM_CONTROL":
+                if command == "lock_screen":
+                    action_tags += "[UI_ACTION:lock_screen]"
+
+        # Build natural response
+        if len(descriptions) == 1:
+            response_text = f"{descriptions[0]}, sir. {action_tags}"
+        else:
+            items = ", ".join(descriptions[:-1])
+            items += f" and {descriptions[-1]}"
+            response_text = f"Opening {items}, sir. {action_tags}"
+
+        # Broadcast and return
+        await broadcast_voice_event({
+            "type": "voice_input",
+            "text": request.message
+        })
+        await broadcast_voice_event({
+            "type": "voice_response",
+            "text": response_text
+        })
+
+        # Speak the response via TTS
+        import re
+        import threading
+        from ..voice.tts_engine import tts_engine
+
+        def speak_direct():
+            clean = re.sub(
+                r'\[UI_ACTION:[^\]]*\]', '', response_text
+            ).strip()
+            if clean:
+                tts_engine.speak_sync(clean)
+
+        t = threading.Thread(target=speak_direct, daemon=True)
+        t.start()
+
+        # Save assistant message to DB
+        await save_message(
+            conversation_id=conversation_id,
+            role="assistant",
+            content=response_text,
+            provider_used="direct",
+            model_used="automation"
+        )
+
+        return {
+            "response": response_text,
+            "conversation_id": conversation_id,
+            "provider_used": "direct",
+            "model_used": "automation"
+        }
+
     # Check foreground search
     foreground_result = None
     if needs_foreground_search(request.message):
@@ -1400,20 +1354,21 @@ async def chat_endpoint(request: ChatRequest):
             )
             if search_results:
                 search_context = (
-                    f"\n\nCurrent web search results for "
-                    f"'{search_query_used}':\n\n"
+                    f"\n\nWeb search results for '{search_query_used}':\n\n"
                 )
                 for i, r in enumerate(search_results, 1):
                     search_context += (
-                        f"{i}. {r['title']}\n"
-                        f"   {r['snippet']}\n"
-                        f"   URL: {r['url']}\n\n"
+                        f"{i}. Source: {r.get('source', 'Unknown')}\n"
+                        f"   {r['snippet'][:200]}\n\n"
                     )
                 search_context += (
-                    "Use ONLY these results. Cite sources."
+                    "\nInstructions: Summarize these results naturally. "
+                    "Never show URLs. Cite sources by name only "
+                    "(e.g. 'According to TechCrunch...'). "
+                    "Be concise - 3-4 key points maximum."
                 )
                 if search_context:
-                    search_context = search_context[:1000]
+                    search_context = search_context[:1500]
                 full_messages.insert(-1, Message(
                     role="system",
                     content=search_context,
@@ -1450,6 +1405,7 @@ async def chat_endpoint(request: ChatRequest):
         else:
             providers_to_try = provider_manager.providers
 
+        full_messages = trim_messages_to_budget(full_messages, max_tokens=4000)
         print(f"[CHAT] Attempting providers: {[p.name for p in providers_to_try]}")
 
         response_text = ""
@@ -1538,8 +1494,12 @@ async def chat_stream_endpoint(
       system_msgs = [m for m in history if m.role == "system"]
       history = [m for m in history if m.role != "system"]
       if system_msgs:
-          search_context_accumulated = "\n\n" + "\n".join(m.content for m in system_msgs)
+          recent_system_msgs = system_msgs[-2:]
+          search_context_accumulated = "\n\n" + "\n".join(m.content for m in recent_system_msgs)
           search_context_accumulated += "\n" + SEARCH_STRICT_INSTRUCTION
+          
+      # Universal history cap: Keep only the last 12 user/assistant turn-pairs (24 messages)
+      history = history[-24:]
           
     active_provider = provider_manager.providers[0]
     available_providers = ", ".join(p.name.title() for p in provider_manager.providers)
@@ -1564,9 +1524,11 @@ async def chat_stream_endpoint(
       timestamp=""
     )
     
+    # Build full message list and apply universal token-budget guard
     full_messages = (
       [system_message] + history + [ui_reminder] + [new_user_message]
     )
+    full_messages = trim_messages_to_budget(full_messages, max_tokens=4000)
     
     await save_message(
       conversation_id=conversation_id,
@@ -1673,7 +1635,105 @@ async def chat_stream_endpoint(
       # foreground search is happening
       search_needed = False
 
+    # Check if this is a pure automation command that doesn't need AI (chat_stream)
+    is_pure_automation = (
+        len(automation_results) > 0 and
+        all(r.get("action_type") in [
+            "OPEN_APP", "OPEN_URL",
+            "SYSTEM_CONTROL", "lock_screen"
+        ] for r in automation_results)
+    )
+
+    if is_pure_automation:
+        # Build response without AI
+        descriptions = [
+            r.get("description", "Done")
+            for r in automation_results
+        ]
+
+        # Build UI action tags
+        action_tags = ""
+        for result in automation_results:
+            action_type = result.get("action_type")
+            command = result.get("command", "")
+            browser = result.get("browser", "firefox")
+
+            if action_type == "OPEN_APP":
+                action_tags += f"[UI_ACTION:open_app:{command}]"
+            elif action_type == "OPEN_URL":
+                action_tags += f"[UI_ACTION:open_url:{browser}:{command}]"
+            elif action_type == "SYSTEM_CONTROL":
+                if command == "lock_screen":
+                    action_tags += "[UI_ACTION:lock_screen]"
+
+        # Build natural response
+        if len(descriptions) == 1:
+            response_text = f"{descriptions[0]}, sir. {action_tags}"
+        else:
+            items = ", ".join(descriptions[:-1])
+            items += f" and {descriptions[-1]}"
+            response_text = f"Opening {items}, sir. {action_tags}"
+
+        # Stream the response directly without AI
+        async def generate_direct():
+            yield json_module.dumps({
+                "type": "meta",
+                "conversation_id": conversation_id,
+                "search_performed": False,
+                "search_query": "",
+                "sources": [],
+                "provider": "direct",
+                "model": "automation"
+            }) + "\n"
+
+            # Stream word by word
+            for word in response_text.split():
+                yield json_module.dumps({
+                    "type": "token",
+                    "content": word + " "
+                }) + "\n"
+
+            # Speak the response via TTS
+            clean_response = response_text
+            # Remove UI_ACTION tags before speaking
+            import re
+            clean_response = re.sub(
+                r'\[UI_ACTION:[^\]]*\]', '', clean_response
+            ).strip()
+
+            if clean_response:
+                import threading
+                from ..voice.tts_engine import tts_engine
+                def speak():
+                    tts_engine.speak_sync(clean_response)
+                t = threading.Thread(target=speak, daemon=True)
+                t.start()
+
+            # Save to DB
+            await save_message(
+                conversation_id=conversation_id,
+                role="assistant",
+                content=response_text,
+                provider_used="direct",
+                model_used="automation"
+            )
+
+            yield json_module.dumps({
+                "type": "done",
+                "conversation_id": conversation_id,
+                "full_response": response_text,
+                "sources": [],
+                "provider_used": "direct",
+                "model_used": "automation"
+            }) + "\n"
+
+        return StreamingResponse(
+            generate_direct(),
+            media_type="application/x-ndjson"
+        )
+
     async def generate():
+      """Generator with disconnect detection to avoid wasted API credits."""
       nonlocal search_sources
       try:
         # Send meta chunk first
@@ -1705,23 +1765,22 @@ async def chat_stream_endpoint(
               
               # Full snippets - not just titles
               search_context = (
-                f"\n\nCurrent web search results for "
-                f"'{search_query_used}':\n\n"
+                f"\n\nWeb search results for '{search_query_used}':\n\n"
               )
               for i, r in enumerate(search_results, 1):
                 search_context += (
-                  f"{i}. {r['title']}\n"
-                  f"   {r['snippet']}\n"
-                  f"   URL: {r['url']}\n\n"
+                  f"{i}. Source: {r.get('source', 'Unknown')}\n"
+                  f"   {r['snippet'][:200]}\n\n"
                 )
               search_context += (
-                "Use ONLY the above search results to "
-                "answer. Cite sources by website name. "
-                "Do NOT add facts from training data."
+                "\nInstructions: Summarize these results naturally. "
+                "Never show URLs. Cite sources by name only "
+                "(e.g. 'According to TechCrunch...'). "
+                "Be concise - 3-4 key points maximum."
               )
-              
+
               if search_context:
-                search_context = search_context[:1000]
+                search_context = search_context[:1500]
               
               # Inject BEFORE user message
               full_messages.insert(-1, Message(
@@ -1787,6 +1846,7 @@ async def chat_stream_endpoint(
           else:
             providers_to_try = provider_manager.providers
 
+          full_messages = trim_messages_to_budget(full_messages, max_tokens=4000)
           print(f"[STREAM] Attempting providers: {[p.name for p in providers_to_try]}")
 
           for provider in providers_to_try:
@@ -1810,6 +1870,10 @@ async def chat_stream_endpoint(
               # Stream completed successfully
               print(f"[STREAM] Successfully completed with {provider.name}")
               break
+            except asyncio.CancelledError:
+              # Client disconnected - stop generating tokens to save API credits
+              print(f"[STREAM] Client disconnected, stopping generation (saved {len(full_response_parts)} tokens)")
+              break
             except Exception as stream_err:
               print(f"[STREAM] Error with {provider.name}: {stream_err}")
               if stream_started:
@@ -1831,6 +1895,10 @@ async def chat_stream_endpoint(
               "content": error_msg
             }) + "\n"
 
+        except asyncio.CancelledError:
+          print(f"[STREAM] Request cancelled by client during streaming")
+          # Don't re-raise - let cleanup happen gracefully
+          complete_response = "".join(full_response_parts) if full_response_parts else ""
         except Exception as e:
           print(f"[STREAM] Fatal streaming error: {e}")
           import traceback
@@ -1872,6 +1940,14 @@ async def chat_stream_endpoint(
                 r'\[UI_ACTION:[^\]]*\]',
                 '', complete_response
               ).strip()
+
+              # Strip markdown formatting for cleaner TTS
+              clean = re.sub(r'\*\*(.+?)\*\*', r'\1', clean)  # Bold
+              clean = re.sub(r'\*(.+?)\*', r'\1', clean)  # Italic
+              clean = re.sub(r'#{1,6}\s', '', clean)  # Headers
+              clean = re.sub(r'`(.+?)`', r'\1', clean)  # Inline code
+              clean = re.sub(r'```[\s\S]*?```', '', clean)  # Code blocks
+              clean = clean.strip()
 
               if clean and len(clean) > 10:
                 # Broadcast speaking status

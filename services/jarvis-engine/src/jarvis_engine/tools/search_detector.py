@@ -14,8 +14,8 @@ UI_COMMAND_PATTERNS = [
 
 # Explicit search requests
 EXPLICIT_SEARCH = re.compile(
-  r'(?:search\s+(?:for|the\s+web\s+for|online\s+for)|'
-  r'google\s+(?:for\s+)?|look\s+up\s+|find\s+'
+  r'(?:search\s+(?:for|about|the|on|online\s+for|the\s+web\s+for)|'
+  r'google\s+(?:for\s+)?|look\s+up\s+|find\s+(?:out\s+)?(?:about|the\s+)?|'
   r'(?:me\s+)?information\s+(?:about|on))\s+(.+)',
   re.IGNORECASE
 )
