@@ -1,16 +1,7 @@
 import "../../../styles/Panels.css";
 import { Orb } from "../../orb/Orb/Orb";
 import { cn } from "../../../lib/cn";
-
-const HUBS = [
-  { key: "skills", label: "Skills", color: "#5aa9e6", leaves: 9 },
-  { key: "tools", label: "Tools", color: "#e85aa0", leaves: 6 },
-  { key: "files", label: "Files", color: "#7a8c93", leaves: 8 },
-  { key: "notes", label: "Notes", color: "#52d68a", leaves: 7 },
-  { key: "worlds", label: "Worlds", color: "#e8934b", leaves: 5 },
-  { key: "models", label: "Models", color: "#b98be8", leaves: 6 },
-  { key: "conversations", label: "Conversations", color: "#ffb454", leaves: 0 },
-];
+import { GRAPH_HUBS as HUBS } from "../../../data/graphHubs";
 
 export function RightColumn() {
   // In a real app this would read from the actual graph state

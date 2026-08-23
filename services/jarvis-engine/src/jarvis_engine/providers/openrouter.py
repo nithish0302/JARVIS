@@ -64,13 +64,12 @@ class OpenRouterProvider(BaseProvider):
         response.raise_for_status()
         data = response.json()
         return data["choices"][0]["message"]["content"]
-    except httpx.TimeoutException:
-      return (
-        "OpenRouter request timed out. "
-        "Please try again."
-      )
+    except httpx.TimeoutException as e:
+      raise Exception(
+        "OpenRouter request timed out. Please try again."
+      ) from e
     except Exception as e:
-      return f"OpenRouter error: {str(e)}"
+      raise Exception(f"OpenRouter error: {str(e)}") from e
 
   async def stream(
     self,

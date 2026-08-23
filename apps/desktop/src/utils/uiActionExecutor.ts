@@ -174,6 +174,34 @@ export function executeUIActions(
             })
           }
           break
+
+        case "personality_mode":
+          if (action.payload) {
+            const mode = action.payload.toLowerCase().trim() as "assistant" | "developer" | "research"
+            import("../stores/useAIStore").then(m => {
+              m.useAIStore.getState().setPersonalityMode(mode)
+            })
+            import("../services/jarvisApi").then(api => {
+              api.updateSettings({ personality_mode: mode }).catch(err => {
+                console.error("Failed to update personality_mode setting:", err)
+              })
+            })
+          }
+          break
+
+        case "modifier":
+          if (action.payload) {
+            const mod = action.payload.toLowerCase().trim() as "none" | "planner" | "quiet"
+            import("../stores/useAIStore").then(m => {
+              m.useAIStore.getState().setModifier(mod)
+            })
+            import("../services/jarvisApi").then(api => {
+              api.updateSettings({ modifier: mod }).catch(err => {
+                console.error("Failed to update modifier setting:", err)
+              })
+            })
+          }
+          break
           
           case "open_app":
           if (action.payload) {
@@ -204,19 +232,51 @@ export function executeUIActions(
           }
           break
           
-        case "run_powershell":
+        case "system_query":
           if (action.payload) {
             import("../services/systemApi").then(api => {
-              api.executePowerShell(action.payload!, false).then(res => {
-                store.setInspectorMessage(`PowerShell Output:\n${res}`)
+              const query = action.payload as "ip_address" | "battery_level" | "disk_space" | "top_processes" | "uptime"
+              api.runSystemQuery(query).then(res => {
+                store.setInspectorMessage(res)
+                store.showActionFeedback(res)
+                import("../stores/useConversationStore").then(m => {
+                  m.useConversationStore.getState().addMessage({
+                    id: window.crypto?.randomUUID() || Math.random().toString(),
+                    role: "assistant",
+                    content: res,
+                    timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+                  })
+                })
               }).catch(err => {
-                if (typeof err === "string" && err.startsWith("REQUIRES_CONFIRMATION:")) {
-                  const cmd = err.replace("REQUIRES_CONFIRMATION:", "")
-                  store.setPendingCommand(cmd)
-                  store.setInspectorMessage(`Command requires confirmation.`)
-                } else {
-                  store.setInspectorMessage(`Error: ${err}`)
-                }
+                store.setInspectorMessage(`Query error: ${err}`)
+              })
+            })
+          }
+          break
+          
+        case "close_app":
+          if (action.payload) {
+            import("../services/systemApi").then(api => {
+              api.closeApplication(action.payload!).then(res => {
+                store.setInspectorMessage(res)
+                store.showActionFeedback(res)
+              }).catch(err => {
+                store.setInspectorMessage(`Error closing app: ${err}`)
+                store.showActionFeedback(`Could not close ${action.payload}`)
+              })
+            })
+          }
+          break
+
+        case "set_volume":
+          if (action.payload) {
+            import("../services/systemApi").then(api => {
+              const act = action.payload as "up" | "down" | "mute" | "unmute"
+              api.setVolume(act).then(res => {
+                store.setInspectorMessage(res)
+                store.showActionFeedback(res)
+              }).catch(err => {
+                store.setInspectorMessage(`Volume error: ${err}`)
               })
             })
           }
@@ -428,6 +488,14 @@ export function executeUIActions(
       if (action.type === "switch_provider" && action.payload) {
         feedbackMessages[`switch_provider:${action.payload}`] = `Switching AI brain to ${action.payload.toUpperCase()}, sir.`
       }
+
+      if (action.type === "personality_mode" && action.payload) {
+        feedbackMessages[`personality_mode:${action.payload}`] = `Switching personality mode to ${action.payload.toUpperCase()}, sir.`
+      }
+
+      if (action.type === "modifier" && action.payload) {
+        feedbackMessages[`modifier:${action.payload}`] = `Setting modifier to ${action.payload.toUpperCase()}, sir.`
+      }
       
       if (action.type === "open_app" && action.payload) {
         feedbackMessages[`open_app:${action.payload}`] = `Opening ${action.payload}, sir.`
@@ -441,8 +509,16 @@ export function executeUIActions(
         }
       }
 
-      if (action.type === "run_powershell" && action.payload) {
-        feedbackMessages[`run_powershell:${action.payload}`] = `Executing automation task, sir.`
+      if (action.type === "system_query" && action.payload) {
+        feedbackMessages[`system_query:${action.payload}`] = `Querying ${action.payload.replace('_', ' ')}, sir.`
+      }
+
+      if (action.type === "close_app" && action.payload) {
+        feedbackMessages[`close_app:${action.payload}`] = `Closing ${action.payload}, sir.`
+      }
+
+      if (action.type === "set_volume" && action.payload) {
+        feedbackMessages[`set_volume:${action.payload}`] = `Adjusting volume (${action.payload}), sir.`
       }
 
       if (action.type === "lock_screen") {

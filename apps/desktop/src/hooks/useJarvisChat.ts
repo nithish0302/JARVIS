@@ -6,7 +6,7 @@ import type { Message } from "../types/chat.types"
 import { parseUIActions } from "../utils/uiActionParser"
 import { executeUIActions } from "../utils/uiActionExecutor"
 import { useAppStore } from "../stores/useAppStore"
-import { executePowerShell } from "../services/systemApi"
+import { useMicLevelStore } from "../stores/useMicLevelStore"
 
 export function useJarvisChat() {
   const { 
@@ -38,12 +38,20 @@ export function useJarvisChat() {
   })
 
   const uiActionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const lastVoiceSeqRef = useRef<number>(-1)
 
-  // Connect to voice WebSocket
+  // Connect to voice WebSocket with cleanup and sequence validation
   useEffect(() => {
-    connectVoiceWebSocket(
+    const disconnect = connectVoiceWebSocket(
       // Voice input received - add as user message
-      (text: string) => {
+      (text: string, seq?: number) => {
+        if (seq !== undefined) {
+          if (seq <= lastVoiceSeqRef.current) {
+            console.warn(`[WS] Discarding stale voice_input event (seq ${seq} <= ${lastVoiceSeqRef.current})`)
+            return
+          }
+          lastVoiceSeqRef.current = seq
+        }
         const userMessage: Message = {
           id: crypto.randomUUID(),
           role: "user",
@@ -55,9 +63,16 @@ export function useJarvisChat() {
         addMessage(userMessage)
       },
       // Voice response received - add as assistant message
-      (text: string) => {
+      (text: string, seq?: number) => {
+        if (seq !== undefined) {
+          if (seq <= lastVoiceSeqRef.current) {
+            console.warn(`[WS] Discarding stale voice_response event (seq ${seq} <= ${lastVoiceSeqRef.current})`)
+            return
+          }
+          lastVoiceSeqRef.current = seq
+        }
         // Strip UI_ACTION tags before displaying
-        const { cleanText } = parseUIActions(text)
+        const { cleanText, actions } = parseUIActions(text)
         const assistantMessage: Message = {
           id: crypto.randomUUID(),
           role: "assistant",
@@ -68,14 +83,52 @@ export function useJarvisChat() {
         }
         addMessage(assistantMessage)
         setStatus("idle")
+
+        if (actions.length > 0) {
+          // Destructive actions require a visual confirmation step that the
+          // voice flow doesn't provide, and misrecognized speech can trigger
+          // them accidentally — never execute these from the voice path.
+          const VOICE_EXCLUDED_ACTIONS = new Set([
+            "delete_conversation",
+            "delete_file"
+          ])
+          const safeActions = actions.filter(a => {
+            if (VOICE_EXCLUDED_ACTIONS.has(a.type)) {
+              console.warn(
+                `[Voice] Skipped destructive action "${a.type}" from voice path for safety`,
+                a.payload
+              )
+              return false
+            }
+            return true
+          })
+          if (safeActions.length > 0) {
+            executeUIActions(safeActions)
+          }
+        }
       },
       // Voice status received - sync orb
-      (status: string) => {
+      (status: string, seq?: number) => {
+        if (seq !== undefined) {
+          if (seq <= lastVoiceSeqRef.current) {
+            console.warn(`[WS] Discarding stale voice_status event '${status}' (seq ${seq} <= ${lastVoiceSeqRef.current})`)
+            return
+          }
+          lastVoiceSeqRef.current = seq
+        }
         const { setVoiceStatus } = useAIStore.getState()
         setVoiceStatus(status as any)
+      },
+      // Audio level received - feed the mic waveform indicator
+      (level: number) => {
+        useMicLevelStore.getState().pushLevel(level)
       }
     )
-  }, [])
+
+    return () => {
+      disconnect()
+    }
+  }, [addMessage, setStatus])
 
   useEffect(() => {
     return () => {
@@ -149,38 +202,15 @@ export function useJarvisChat() {
             })
         })
       } else {
-        executePowerShell(pendingCommand, true)
-          .then(result => {
-            addMessage({
-              id: window.crypto.randomUUID(),
-              role: "assistant",
-              content: `Done. Command output:\n${result}`,
-              timestamp: new Date().toLocaleTimeString(
-                [], {hour:"2-digit",minute:"2-digit"}
-              )
-            })
-          })
-          .catch(err => {
-            // Handle both Error objects and string errors
-            const errorMsg = err instanceof Error
-              ? err.message
-              : typeof err === 'string'
-              ? err
-              : 'Command execution failed'
-
-            addMessage({
-              id: window.crypto.randomUUID(),
-              role: "assistant",
-              content: `Failed: ${errorMsg}`,
-              timestamp: new Date().toLocaleTimeString(
-                [], {hour:"2-digit",minute:"2-digit"}
-              )
-            })
-          })
-          .finally(() => {
-            // Always clear pending command after execution
-            setPendingCommand(null)
-          })
+        addMessage({
+          id: window.crypto.randomUUID(),
+          role: "assistant",
+          content: `Command confirmation received.`,
+          timestamp: new Date().toLocaleTimeString(
+            [], {hour:"2-digit",minute:"2-digit"}
+          )
+        })
+        setPendingCommand(null)
       }
 
       // Don't clear here - let finally() blocks handle it

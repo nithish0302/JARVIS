@@ -1,9 +1,9 @@
 import { useEffect } from "react"
 import { useAIStore } from "../stores/useAIStore"
-import { checkHealth, getMemoryCount } from "../services/jarvisApi"
+import { checkHealth, getMemoryCount, getSettings } from "../services/jarvisApi"
 
 export function useEngineStatus() {
-  const { setStatus, setError, setMemoryCount } = useAIStore()
+  const { setStatus, setError, setMemoryCount, setPersonalityMode, setModifier } = useAIStore()
 
   useEffect(() => {
     const check = async () => {
@@ -32,8 +32,23 @@ export function useEngineStatus() {
       setMemoryCount(count)
     }
 
+    const checkSettings = async () => {
+      try {
+        const settings = await getSettings()
+        if (settings.personality_mode) {
+          setPersonalityMode(settings.personality_mode as any)
+        }
+        if (settings.modifier) {
+          setModifier(settings.modifier as any)
+        }
+      } catch (err) {
+        console.error("Failed to sync settings:", err)
+      }
+    }
+
     check()
     checkMemories()
+    checkSettings()
     
     const interval = window.setInterval(check, 30000)
     const memoryInterval = window.setInterval(checkMemories, 60000)
@@ -42,5 +57,5 @@ export function useEngineStatus() {
       window.clearInterval(interval)
       window.clearInterval(memoryInterval)
     }
-  }, [setStatus, setError, setMemoryCount])
+  }, [setStatus, setError, setMemoryCount, setPersonalityMode, setModifier])
 }

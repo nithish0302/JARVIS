@@ -18,13 +18,29 @@ export async function openUrlInBrowser(
   })
 }
 
-export async function executePowerShell(
-  script: string,
-  requiresConfirmation: boolean = false
+export async function runSystemQuery(
+  query: "ip_address" | "battery_level" | "disk_space" | "top_processes" | "uptime",
+  params?: { count?: number }
 ): Promise<string> {
-  return await invoke("execute_powershell", {
-    script,
-    requiresConfirmation
+  return await invoke("run_system_query", {
+    query,
+    params
+  })
+}
+
+export async function closeApplication(
+  appName: string
+): Promise<string> {
+  return await invoke("close_application", {
+    appName
+  })
+}
+
+export async function setVolume(
+  action: "up" | "down" | "mute" | "unmute"
+): Promise<string> {
+  return await invoke("set_volume", {
+    action
   })
 }
 

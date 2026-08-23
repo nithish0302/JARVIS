@@ -6,7 +6,7 @@ import { Select } from "../../ui/Select/Select";
 import { Input } from "../../ui/Input/Input";
 import { Button } from "../../ui/Button/Button";
 import { useAIStore } from "../../../stores/useAIStore";
-import { switchProvider, checkHealth } from "../../../services/jarvisApi";
+import { switchProvider, checkHealth, updateSettings } from "../../../services/jarvisApi";
 
 export function AIProviderSection() {
   const { 
@@ -14,10 +14,17 @@ export function AIProviderSection() {
     model, setModel, 
     openrouterKey, setOpenrouterKey,
     groqKey, setGroqKey,
-    geminiKey, setGeminiKey
+    geminiKey, setGeminiKey,
+    personalityMode, setPersonalityMode,
+    modifier, setModifier
   } = useAIStore();
   
   const [testResult, setTestResult] = useState<string | null>(null);
+
+  const [newPin, setNewPin] = useState("");
+  const [confirmPin, setConfirmPin] = useState("");
+  const [pinResult, setPinResult] = useState<string | null>(null);
+  const [pinSaving, setPinSaving] = useState(false);
 
   const handleProviderChange = async (e: ChangeEvent<HTMLSelectElement>) => {
     const newProvider = e.target.value as "ollama" | "openrouter" | "groq" | "gemini";
@@ -25,8 +32,51 @@ export function AIProviderSection() {
     await switchProvider(newProvider, model);
   };
 
+  const handlePersonalityChange = async (e: ChangeEvent<HTMLSelectElement>) => {
+    const newMode = e.target.value as "assistant" | "developer" | "research";
+    setPersonalityMode(newMode);
+    try {
+      await updateSettings({ personality_mode: newMode });
+    } catch (err) {
+      console.error("Failed to update personality mode:", err);
+    }
+  };
+
+  const handleModifierChange = async (e: ChangeEvent<HTMLSelectElement>) => {
+    const newMod = e.target.value as "none" | "planner" | "quiet";
+    setModifier(newMod);
+    try {
+      await updateSettings({ modifier: newMod });
+    } catch (err) {
+      console.error("Failed to update modifier:", err);
+    }
+  };
+
   const handleModelBlur = async () => {
     await switchProvider(provider, model);
+  };
+
+  const handleSavePin = async () => {
+    if (!/^\d{4}$/.test(newPin)) {
+      setPinResult("✗ PIN must be exactly 4 digits");
+      return;
+    }
+    if (newPin !== confirmPin) {
+      setPinResult("✗ PINs don't match");
+      return;
+    }
+    setPinSaving(true);
+    try {
+      await updateSettings({ conversation_delete_pin: newPin });
+      setPinResult("✓ Delete PIN updated");
+      setNewPin("");
+      setConfirmPin("");
+    } catch (err) {
+      console.error("Failed to update delete PIN:", err);
+      setPinResult("✗ Failed to update PIN");
+    } finally {
+      setPinSaving(false);
+    }
   };
 
   const testConnection = async () => {
@@ -60,10 +110,30 @@ export function AIProviderSection() {
 
   return (
     <SettingsSection
-      description="Configure the AI engine that powers JARVIS."
-      title="AI Provider"
+      description="Configure the AI engine, personality mode, and response modifiers."
+      title="AI & Personality"
     >
       <div className="flex max-w-md flex-col gap-[var(--space-4)]">
+        <Select 
+          label="Personality Mode" 
+          value={personalityMode} 
+          onChange={handlePersonalityChange}
+        >
+          <option value="assistant">Assistant (Balanced, professional & warm)</option>
+          <option value="developer">Developer (High technical precision, direct engineering tone)</option>
+          <option value="research">Research (Investigative, deep analysis, citation-focused)</option>
+        </Select>
+
+        <Select 
+          label="Response Modifier" 
+          value={modifier} 
+          onChange={handleModifierChange}
+        >
+          <option value="none">None (Standard response)</option>
+          <option value="planner">Planner (Structured plans, step breakdown & validation)</option>
+          <option value="quiet">Quiet (Ultra-concise, minimum words, zero filler)</option>
+        </Select>
+
         <Select 
           label="Provider" 
           value={provider} 
@@ -159,6 +229,49 @@ export function AIProviderSection() {
                 : "text-[var(--color-error)]"
             }`}>
               {testResult}
+            </span>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-[var(--space-3)] border-t border-[var(--color-border)] pt-[var(--space-4)]">
+          <div>
+            <h3 className="text-[length:var(--font-size-body)] font-medium text-[var(--color-text-primary)]">
+              Conversation Delete PIN
+            </h3>
+            <p className="text-[length:var(--font-size-sm)] text-[var(--color-text-muted)]">
+              The 4-digit PIN required to delete a conversation. Leave blank to keep the current one.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-end gap-[var(--space-3)]">
+            <Input
+              label="New PIN"
+              placeholder="••••"
+              type="password"
+              inputMode="numeric"
+              maxLength={4}
+              value={newPin}
+              onChange={(e) => setNewPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
+            />
+            <Input
+              label="Confirm PIN"
+              placeholder="••••"
+              type="password"
+              inputMode="numeric"
+              maxLength={4}
+              value={confirmPin}
+              onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
+            />
+            <Button variant="secondary" onClick={handleSavePin} disabled={pinSaving}>
+              {pinSaving ? "Saving..." : "Save PIN"}
+            </Button>
+          </div>
+          {pinResult && (
+            <span className={`text-[length:var(--font-size-sm)] ${
+              pinResult.startsWith("✓")
+                ? "text-[var(--color-success)]"
+                : "text-[var(--color-error)]"
+            }`}>
+              {pinResult}
             </span>
           )}
         </div>

@@ -12,6 +12,8 @@ export interface AIState {
   openrouterKey: string;
   groqKey: string;
   geminiKey: string;
+  personalityMode: "assistant" | "developer" | "research";
+  modifier: "none" | "planner" | "quiet";
   setProvider: (provider: AIState["provider"]) => void;
   setModel: (model: string) => void;
   setStatus: (status: AIState["status"]) => void;
@@ -22,6 +24,8 @@ export interface AIState {
   setOpenrouterKey: (key: string) => void;
   setGroqKey: (key: string) => void;
   setGeminiKey: (key: string) => void;
+  setPersonalityMode: (mode: AIState["personalityMode"]) => void;
+  setModifier: (modifier: AIState["modifier"]) => void;
 }
 
 export const useAIStore = create<AIState>((set) => ({
@@ -35,6 +39,8 @@ export const useAIStore = create<AIState>((set) => ({
   openrouterKey: "",
   groqKey: "",
   geminiKey: "",
+  personalityMode: "assistant",
+  modifier: "none",
   setProvider: (provider) => set({ provider }),
   setModel: (model) => set({ model }),
   setStatus: (status) => set({ status }),
@@ -45,4 +51,6 @@ export const useAIStore = create<AIState>((set) => ({
   setOpenrouterKey: (key) => set({ openrouterKey: key }),
   setGroqKey: (key) => set({ groqKey: key }),
   setGeminiKey: (key) => set({ geminiKey: key }),
+  setPersonalityMode: (personalityMode) => set({ personalityMode }),
+  setModifier: (modifier) => set({ modifier }),
 }));

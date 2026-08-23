@@ -1,5 +1,6 @@
 import "./Dock.css";
 import { useAppStore } from "../../../stores/useAppStore";
+import { useMicLevelStore } from "../../../stores/useMicLevelStore";
 import { cn } from "../../../lib/cn";
 import { startVoice, stopVoice } from "../../../services/jarvisApi";
 
@@ -12,6 +13,15 @@ export function Dock() {
   const setView = useAppStore(state => state.setView);
   const voiceActive = useAppStore(state => state.voiceActive);
   const setVoiceActive = useAppStore(state => state.setVoiceActive);
+  const micLevel = useMicLevelStore(state => state.level);
+
+  // Amplitude-reactive glow ring: scales and brightens with the live mic
+  // level. CSS transition on these props (see Dock.css) provides the
+  // frame-to-frame easing; the exponential smoothing in useMicLevelStore
+  // handles the value-to-value easing, so together the ring reads as a
+  // smooth pulse rather than a jittery snap to each raw WS update.
+  const ringScale = 1 + micLevel * 0.55;
+  const ringOpacity = voiceActive ? 0.25 + micLevel * 0.65 : 0;
 
   return (
     <div className="dock">
@@ -53,25 +63,48 @@ export function Dock() {
         </svg>
       </button>
 
-      <button
-        className={cn("dock-mic", voiceActive && "live")}
-        title="Toggle listening"
-        onClick={async () => {
-          if (voiceActive) {
-            await stopVoice();
-            setVoiceActive(false);
-          } else {
-            await startVoice();
-            setVoiceActive(true);
+      <div className="dock-mic-wrap" style={{ position: 'absolute', bottom: '275px' }}>
+        <span
+          className="dock-mic-ring"
+          style={{
+            transform: `scale(${ringScale})`,
+            opacity: ringOpacity,
+          }}
+        />
+        <button
+          className={cn("dock-mic", voiceActive && "live")}
+          title={
+            voiceActive
+              ? "Listening — click to turn off. Glow pulses with live mic level."
+              : "Click to start listening"
           }
-        }}
-        style={{ position: 'absolute', bottom: '275px' }}
-      >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
-          <rect x="9" y="3" width="6" height="11" rx="3" />
-          <path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
-        </svg>
-      </button>
+          onClick={async () => {
+            if (voiceActive) {
+              await stopVoice();
+              setVoiceActive(false);
+            } else {
+              await startVoice();
+              setVoiceActive(true);
+            }
+          }}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
+            <rect x="9" y="3" width="6" height="11" rx="3" />
+            <path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
+          </svg>
+        </button>
+        {/* Persistent (not hover-only) cue that the glow is a live level
+            meter, not just an on/off state — three bars that individually
+            react to the same smoothed mic level as the ring, so it reads
+            as "this measures something" rather than a static decoration. */}
+        {voiceActive && (
+          <div className="dock-mic-meter" aria-hidden="true" title="Live mic level">
+            <span style={{ transform: `scaleY(${0.35 + micLevel * 1.4})` }} />
+            <span style={{ transform: `scaleY(${0.5 + micLevel * 1.8})` }} />
+            <span style={{ transform: `scaleY(${0.35 + micLevel * 1.4})` }} />
+          </div>
+        )}
+      </div>
     </div>
   );
 }

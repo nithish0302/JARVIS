@@ -47,22 +47,7 @@ Manages the connection and configuration state of the AI engine.
 
 ---
 
-### 3. `usePersonalityStore`
-Manages the behavioral and tonal configuration of JARVIS.
-
-**State:**
-- `mode`: The overarching behavior preset (`"assistant" | "developer" | "focus" | "executive" | "learning" | "automation"`).
-- `address`: How JARVIS refers to the user (`"sir" | "Nithish" | "boss"`).
-- `formality`, `verbosity`, `humor`, `proactivity`: Numeric dials (0-100) fine-tuning the personality.
-
-**Actions:**
-- `setMode(mode)`
-- `setAddress(address)`
-- `setDial(key, value)`
-
----
-
-### 4. `useAppStore`
+### 3. `useAppStore`
 Manages global application-level UI state that spans across multiple features.
 
 **State:**

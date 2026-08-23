@@ -10,10 +10,31 @@ import numpy as np
 
 class TTSEngine:
   def __init__(self):
-    self.is_speaking = False
+    self._is_speaking = False
+    # Wall-clock time at which speech last STOPPED. The wake-word
+    # detector gates on this (plus a config buffer) so that JARVIS's own
+    # audio - including the room echo / speaker decay tail - is never fed
+    # into the wake-word model. Maintained by the is_speaking setter, so
+    # every site that clears the flag updates it automatically.
+    self.last_speech_end_time = 0.0
+    # Wall-clock time at which audio playback last STARTED. Distinct from
+    # speak_start_time below, which is stamped when speak() is *called* -
+    # potentially seconds earlier, since speak() may block on the Kokoro
+    # warmup and on time-to-first-audio. The barge-in grace period must be
+    # measured from real playback start, otherwise TTFB latency eats the
+    # whole window and JARVIS's own voice trips the interrupt immediately.
+    # Maintained by the is_speaking setter, so every site that sets the
+    # flag updates it automatically.
+    self.last_speech_start_time = 0.0
     self.stop_requested = False
     self.speak_start_time = 0.0
     self.current_tmp_path = None
+    # Callback invoked the moment is_speaking flips False -> True, i.e. the
+    # instant audio actually starts playing. speak_sync()'s on_speech_start
+    # param sets this so callers (e.g. status broadcasts) can react to real
+    # playback start instead of the speak_sync() call itself, which can
+    # precede audible audio by seconds (Kokoro TTFB).
+    self._on_speech_start = None
     
     self.audio_queue = queue.Queue()
     self.current_chunk: Optional[np.ndarray] = None
@@ -22,6 +43,7 @@ class TTSEngine:
     self.stream = None
 
     # Persistent sounddevice OutputStream
+    _t_sd = time.time()
     try:
       import sounddevice as sd
 
@@ -60,37 +82,77 @@ class TTSEngine:
         callback=_audio_callback
       )
       self.stream.start()
-      print("[TTS] Persistent sounddevice stream ready (24000Hz, mono, float32)")
+      print(f"[TTS] Persistent sounddevice stream ready (24000Hz, mono, float32) [{time.time() - _t_sd:.2f}s]")
     except Exception as e:
       self.stream = None
-      print(f"[TTS] sounddevice OutputStream init error: {e}")
+      print(f"[TTS] sounddevice OutputStream init error: {e} [{time.time() - _t_sd:.2f}s]")
 
     # Primary TTS Engine: Kokoro
+    # NOTE: KPipeline construction (~6-14s, mostly disk + model weight
+    # load) is NOT done here synchronously. It's kicked off in a daemon
+    # thread below and tracked via self.kokoro_ready, so constructing a
+    # TTSEngine (which happens at module import time) returns almost
+    # instantly. speak_sync() waits on kokoro_ready if called before the
+    # background load finishes, instead of blocking startup or crashing.
     self.kokoro_pipeline = None
     self.kokoro_voice = "am_michael"
+    self.kokoro_ready = threading.Event()
     try:
       from jarvis_engine.core.config import settings
       self.kokoro_voice = getattr(settings, "TTS_KOKORO_VOICE", "am_michael")
     except Exception:
       pass
 
-    try:
-      from kokoro import KPipeline
-      self.kokoro_pipeline = KPipeline(lang_code='a')
-      print(f"[TTS] Kokoro TTS ready (voice: {self.kokoro_voice})")
-      # Warmup model in background
-      def _warmup():
+    def _load_kokoro():
+      _t_kokoro = time.time()
+      try:
+        from kokoro import KPipeline
+        print(f"[TIMING] kokoro import: {time.time() - _t_kokoro:.2f}s")
+        _t_kpipeline = time.time()
+        self.kokoro_pipeline = KPipeline(lang_code='a')
+        print(f"[TIMING] KPipeline(lang_code='a') construction: {time.time() - _t_kpipeline:.2f}s")
+        print(f"[TTS] Kokoro TTS ready (voice: {self.kokoro_voice}) [total {time.time() - _t_kokoro:.2f}s]")
+        self.kokoro_ready.set()
+
+        # Warmup model, still in this same background thread
         try:
+          _t_warm = time.time()
           for _ in self.kokoro_pipeline("ready", voice=self.kokoro_voice, speed=1.0):
             pass
+          print(f"[TIMING] Kokoro background warmup: {time.time() - _t_warm:.2f}s")
         except Exception:
           pass
-      threading.Thread(target=_warmup, daemon=True).start()
-    except (ImportError, RuntimeError, Exception) as e:
-      self.kokoro_pipeline = None
-      print(f"[TTS] Kokoro TTS init failed: {e}. Falling back to edge-tts.")
+      except (ImportError, RuntimeError, Exception) as e:
+        self.kokoro_pipeline = None
+        print(f"[TTS] Kokoro TTS init failed: {e}. Falling back to edge-tts. [{time.time() - _t_kokoro:.2f}s]")
+        self.kokoro_ready.set()
+
+    threading.Thread(target=_load_kokoro, daemon=True, name="kokoro-loader").start()
+    print("[TTS] Kokoro loading in background thread (not blocking startup)")
 
     print("[TTS] Andrew Multilingual voice ready (fallback)")
+
+  @property
+  def is_speaking(self) -> bool:
+    return self._is_speaking
+
+  @is_speaking.setter
+  def is_speaking(self, value: bool):
+    value = bool(value)
+    # Record the moment speech stops so the wake-word mute window can
+    # extend past it by the configured buffer.
+    if self._is_speaking and not value:
+      self.last_speech_end_time = time.time()
+    # Record the moment playback actually starts so the barge-in grace
+    # period is measured from audible speech, not from the speak() call.
+    if value and not self._is_speaking:
+      self.last_speech_start_time = time.time()
+      if self._on_speech_start is not None:
+        try:
+          self._on_speech_start()
+        except Exception:
+          pass
+    self._is_speaking = value
 
   def _clean_text(self, text: str) -> str:
     text = re.sub(r'\[UI_ACTION:[^\]]*\]', '', text)
@@ -253,7 +315,7 @@ class TTSEngine:
     finally:
       self.is_speaking = False
 
-  def speak_sync(self, text: str):
+  def speak_sync(self, text: str, on_speech_start: Optional[callable] = None):
     if not text or not text.strip():
       return
 
@@ -265,16 +327,24 @@ class TTSEngine:
     self.stop_requested = False
     self.stop_event.clear()
     self.speak_start_time = time.time()
+    self._on_speech_start = on_speech_start
 
-    if self.kokoro_pipeline is not None and self.stream is not None:
-      print(f"[TTS] Engine: Kokoro | Speaking: {clean[:60]}...")
-      success = self._speak_sync_kokoro(clean)
-      if success:
-        return
-      print("[TTS] Kokoro playback failed, falling back to edge-tts")
+    try:
+      if not self.kokoro_ready.is_set():
+        print("[TTS] Kokoro still warming up, waiting...")
+        self.kokoro_ready.wait(timeout=30)
 
-    print(f"[TTS] Engine: edge-tts | Speaking: {clean[:60]}...")
-    self._speak_sync_edge_tts(clean)
+      if self.kokoro_pipeline is not None and self.stream is not None:
+        print(f"[TTS] Engine: Kokoro | Speaking: {clean[:60]}...")
+        success = self._speak_sync_kokoro(clean)
+        if success:
+          return
+        print("[TTS] Kokoro playback failed, falling back to edge-tts")
+
+      print(f"[TTS] Engine: edge-tts | Speaking: {clean[:60]}...")
+      self._speak_sync_edge_tts(clean)
+    finally:
+      self._on_speech_start = None
 
   def stop(self):
     self.stop_requested = True

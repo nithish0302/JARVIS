@@ -1,5 +1,6 @@
 import uuid
 import asyncio
+import time
 from fastapi import APIRouter, HTTPException, WebSocket
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -9,6 +10,7 @@ import aiosqlite
 
 from ..core.models import ChatRequest, ChatResponse, HealthResponse, Message, Memory, CreateMemoryRequest
 from ..core.config import settings
+from ..core.database import get_setting, set_setting
 from ..providers.manager import provider_manager
 from ..memory.conversation import save_message, get_conversation_messages, delete_conversation, get_conversations, update_conversation_title
 from ..memory.memory_manager import memory_manager
@@ -24,6 +26,8 @@ router = APIRouter()
 
 # WebSocket connections for voice events
 connected_clients: Set[WebSocket] = set()
+_voice_event_seq = 0
+_voice_seq_lock = asyncio.Lock()
 
 @router.post("/search")
 async def search_endpoint(request: dict):
@@ -45,11 +49,13 @@ async def search_endpoint(request: dict):
 
 @router.post("/voice/start")
 async def start_voice():
-  def on_transcription(text: str):
-    print(f"Voice input received: {text}")
-    # This will be connected to chat in M2
-  
-  voice_manager.initialize(on_transcription)
+  # Use the SAME shared handler the startup path registers. This used to
+  # install a 1-argument M2-era stub, which clobbered the real handler and
+  # made every transcription fail with "takes 1 positional argument but 2
+  # were given".
+  from ..voice.transcription_handler import handle_transcription
+
+  voice_manager.initialize(handle_transcription)
   return {"status": "voice_started"}
 
 @router.post("/voice/stop")
@@ -80,6 +86,43 @@ async def tts_status():
     "is_speaking": tts_engine.is_speaking,
     "voice": tts_engine.voice
   }
+
+@router.get("/settings")
+async def get_settings_endpoint():
+    personality_mode = await get_setting("personality_mode", settings.PERSONALITY_MODE)
+    modifier = await get_setting("modifier", settings.MODIFIER)
+    return {
+        "personality_mode": personality_mode,
+        "modifier": modifier
+    }
+
+@router.post("/settings/verify-pin")
+async def verify_delete_pin_endpoint(request: dict):
+    pin = str(request.get("pin", "")).strip()
+    stored_pin = await get_setting("conversation_delete_pin", settings.CONVERSATION_DELETE_PIN)
+    return {"valid": pin == stored_pin}
+
+@router.post("/settings")
+async def update_settings_endpoint(request: dict):
+    if "personality_mode" in request:
+        mode = str(request["personality_mode"]).lower().strip()
+        if mode in ("assistant", "developer", "research"):
+            await set_setting("personality_mode", mode)
+    if "modifier" in request:
+        mod = str(request["modifier"]).lower().strip()
+        if mod in ("none", "planner", "quiet"):
+            await set_setting("modifier", mod)
+    if "conversation_delete_pin" in request:
+        pin = str(request["conversation_delete_pin"]).strip()
+        if pin.isdigit() and len(pin) == 4:
+            await set_setting("conversation_delete_pin", pin)
+
+    personality_mode = await get_setting("personality_mode", settings.PERSONALITY_MODE)
+    modifier = await get_setting("modifier", settings.MODIFIER)
+    return {
+        "personality_mode": personality_mode,
+        "modifier": modifier
+    }
 
 @router.post("/voice/status/update")
 async def update_voice_status(request: dict):
@@ -128,7 +171,6 @@ async def voice_input_endpoint(request: dict):
     }
 
   import os
-  username = os.environ.get("USERNAME", "")
 
   # Run automation detection first
   automation_results = []
@@ -152,7 +194,6 @@ async def voice_input_endpoint(request: dict):
   if is_file_cmd:
     action = file_action["action"]
     path = file_action.get("path", "")
-    description = file_action.get("description", "")
     requires_confirm = file_action.get(
       "requires_confirmation", False
     )
@@ -189,16 +230,41 @@ async def voice_input_endpoint(request: dict):
           f"Open {command} in {browser} → "
           f"[UI_ACTION:open_url:{browser}:{command}]\n"
         )
-      elif action_type == "SYSTEM_CONTROL" and \
-           command == "lock_screen":
-        automation_context += (
-          f"Lock screen → [UI_ACTION:lock_screen]\n"
-        )
+      elif action_type == "SYSTEM_CONTROL":
+        if command == "lock_screen":
+          automation_context += (
+            f"Lock screen → [UI_ACTION:lock_screen]\n"
+          )
+        elif command.startswith("close_app:"):
+          app = command.replace("close_app:", "").strip()
+          automation_context += (
+            f"Close {app} → [UI_ACTION:close_app:{app}]\n"
+          )
+        elif command.startswith("volume_"):
+          act = command.replace("volume_", "").strip()
+          automation_context += (
+            f"Set volume {act} → [UI_ACTION:set_volume:{act}]\n"
+          )
       elif action_type == "SYSTEM_QUERY":
-        automation_context += (
-          f"Run query → "
-          f"[UI_ACTION:run_powershell:{command}]\n"
-        )
+        if command.startswith("list_dir:"):
+          path = command.replace("list_dir:", "").replace("%USERNAME%", os.environ.get("USERNAME", ""))
+          automation_context += (
+            f"List directory → [UI_ACTION:list_dir:{path}]\n"
+          )
+        else:
+          # Normalize query name
+          q = command.strip().lower()
+          if q in ("ip", "get_ip", "my_ip"):
+            q = "ip_address"
+          elif q in ("battery", "get_battery"):
+            q = "battery_level"
+          elif q in ("disk", "get_disk", "disk_usage"):
+            q = "disk_space"
+          elif q in ("processes", "cpu", "cpu_usage"):
+            q = "top_processes"
+          automation_context += (
+            f"Query system → [UI_ACTION:system_query:{q}]\n"
+          )
       elif requires_confirm:
         automation_context += (
           f"Ask confirmation → "
@@ -207,7 +273,16 @@ async def voice_input_endpoint(request: dict):
     automation_context = automation_context[:300]
 
   # Build minimal messages WITH automation context
-  system_content = JARVIS_SYSTEM_PROMPT[:500]
+  personality_mode = await get_setting("personality_mode", settings.PERSONALITY_MODE)
+  modifier = await get_setting("modifier", settings.MODIFIER)
+  # NOTE: previously truncated to [:500] / UI_ACTION_INSTRUCTION[:300] as a
+  # voice-latency measure. That silently cut SYSTEM_CAPABILITIES entirely
+  # (personality_mode/modifier UI_ACTION docs don't appear until char ~789
+  # of UI_ACTION_INSTRUCTION), so voice commands like "switch to developer
+  # mode" got a response denying the capability existed at all. If voice
+  # responses need to stay terse, that's a "quiet" modifier / response-
+  # length concern, not a reason to hide capabilities from the model.
+  system_content = get_system_prompt(personality_mode, modifier)
   if automation_context:
     system_content += (
       f"\n\n{automation_context}\n"
@@ -215,7 +290,7 @@ async def voice_input_endpoint(request: dict):
       f"Do NOT ask permission - just execute."
     )
   else:
-    system_content += f"\n\n{UI_ACTION_INSTRUCTION[:300]}"
+    system_content += f"\n\n{UI_ACTION_INSTRUCTION}"
 
   minimal_messages = [
     Message(
@@ -260,20 +335,19 @@ async def voice_input_endpoint(request: dict):
 
   print(f"[JARVIS VOICE RESPONSE] {response_text}")
 
-  # Strip UI_ACTION tags before broadcasting to UI
-  import re
-  clean_response = re.sub(
-    r'\[UI_ACTION:[^\]]*\]', '', response_text
-  ).strip()
-
-  # Broadcast via WebSocket
+  # Broadcast via WebSocket. Keep UI_ACTION tags intact here - the frontend
+  # (useJarvisChat.ts) parses and strips them for display itself, and also
+  # executes them (personality_mode/modifier switches etc). Pre-stripping
+  # them here (as this used to do) silently threw the tag away before the
+  # frontend ever saw it, so voice-triggered UI actions never fired even
+  # though the LLM correctly emitted them.
   await broadcast_voice_event({
     "type": "voice_input",
     "text": text
   })
   await broadcast_voice_event({
     "type": "voice_response",
-    "text": clean_response  # Send clean text to UI
+    "text": response_text
   })
   # Note: TTS status (speaking->idle) is handled in main.py callback
 
@@ -295,33 +369,86 @@ async def voice_websocket(websocket: WebSocket):
     connected_clients.discard(websocket)
 
 async def broadcast_voice_event(event: dict):
+  global _voice_event_seq
+  async with _voice_seq_lock:
+    _voice_event_seq += 1
+    event["seq"] = _voice_event_seq
+    event["timestamp"] = time.time()
+
   dead = set()
-  for client in connected_clients:
+  for client in list(connected_clients):
     try:
       await client.send_json(event)
     except:
       dead.add(client)
   connected_clients.difference_update(dead)
 
-JARVIS_SYSTEM_PROMPT = """You are JARVIS, a premium
-AI desktop assistant for Nithish. You are intelligent,
-efficient, and highly capable.
+PERSONALITY_ASSISTANT_PROMPT = """You are JARVIS, a premium AI desktop assistant for Nithish. You are intelligent, efficient, and highly capable.
 
 Personality:
 - Direct and confident, never vague or wishy-washy
 - Professional but warm
 - Concise — say what needs to be said, nothing more
-- Occasionally address Nithish as "sir" when natural,
-  not every sentence
-- Never start responses with "Certainly!",
-  "Of course!", "Great!", or similar filler phrases
+- Occasionally address Nithish as "sir" when natural, not every sentence
+- Never start responses with "Certainly!", "Of course!", "Great!", or similar filler phrases
 - When you do not know something, say so directly
-- Reference earlier parts of the conversation
-  naturally when relevant
+- Reference earlier parts of the conversation naturally when relevant
 - Do not summarize or recap the conversation history unless the user explicitly asks what has happened so far. For simple greetings or short exchanges, respond briefly and directly — do not restate prior turns.
 
 You are not a generic chatbot. You are JARVIS — act like it.
 """
+
+PERSONALITY_DEVELOPER_PROMPT = """You are JARVIS in Developer Mode for Nithish. You are an expert software engineer, systems architect, and technical copilot.
+
+Personality & Tone:
+- Technical precision over warmth. Minimize pleasantries, conversational filler, and fluff.
+- Skip "sir" almost entirely; communicate directly peer-to-peer like a senior principal engineer.
+- Proactively surface relevant technical details (exact file paths, error specifics, edge cases, performance considerations, and concrete code snippets) without needing to be prompted.
+- Provide rigorous, robust solutions with exact syntax, commands, and actionable implementations.
+- Do not recap prior conversation turns unless asked.
+"""
+
+PERSONALITY_RESEARCH_PROMPT = """You are JARVIS in Research Mode for Nithish. You are a deep, analytical research assistant and technical investigator.
+
+Personality & Tone:
+- Thorough, investigative, and exploratory.
+- Willing to conduct multi-step analysis and show your underlying reasoning and chain of thought rather than only giving surface conclusions.
+- Actively favor pulling in web search results, citations, and verified references over answering from intuition or memory alone.
+- Comfortable with comprehensive, deep-dive responses that analyze trade-offs, literature, and underlying mechanics.
+"""
+
+MODIFIER_PLANNER_PROMPT = """[MODIFIER: PLANNER ACTIVE]
+Structure your response as a concrete, actionable plan:
+- Break the solution into clear, structured steps, phases, or a done/open breakdown where relevant.
+- Explicitly flag weak evidence, unverified assumptions, or potential risks rather than accepting them at face value.
+- Frame your answer around plan-before-action and clear execution order.
+- Preserve the technical depth and specific tone of the active personality mode.
+"""
+
+MODIFIER_QUIET_PROMPT = """[MODIFIER: QUIET ACTIVE]
+Respond in the absolute minimum words necessary:
+- No proactive suggestions, no 'would you also like...', and no unprompted tangents.
+- Answer ONLY what was explicitly asked, as concisely and compactly as possible.
+- Omit conversational filler entirely.
+"""
+
+JARVIS_SYSTEM_PROMPT = PERSONALITY_ASSISTANT_PROMPT
+
+def get_system_prompt(personality_mode: str = "assistant", modifier: str = "none") -> str:
+    mode = (personality_mode or "assistant").lower().strip()
+    if mode == "developer":
+        base = PERSONALITY_DEVELOPER_PROMPT
+    elif mode == "research":
+        base = PERSONALITY_RESEARCH_PROMPT
+    else:
+        base = PERSONALITY_ASSISTANT_PROMPT
+
+    mod = (modifier or "none").lower().strip()
+    if mod == "planner":
+        return base + "\n" + MODIFIER_PLANNER_PROMPT
+    elif mod == "quiet":
+        return base + "\n" + MODIFIER_QUIET_PROMPT
+    return base
 
 def trim_messages_to_budget(messages: list[Message], max_tokens: int = 4000) -> list[Message]:
     """
@@ -361,6 +488,7 @@ UI_ACTION_REMINDER = (
     "graph_open_hub:Skills/Tools/Files/Notes/Models, "
     "chat_mode_on, chat_mode_off, graph_collapse, "
     "conversations_open, switch_provider:name, "
+    "personality_mode:assistant/developer/research, modifier:none/planner/quiet, "
     "new_chat[:title], rename_chat:title, delete_conversation:title, open_chat:title"
 )
 
@@ -381,6 +509,12 @@ Available UI actions:
 [UI_ACTION:graph_open_hub:Conversations] - Open Conversations
 [UI_ACTION:conversations_open] - Open conversation panel
 [UI_ACTION:conversations_close] - Close conversation panel
+[UI_ACTION:personality_mode:assistant] - Switch personality mode to Assistant
+[UI_ACTION:personality_mode:developer] - Switch personality mode to Developer
+[UI_ACTION:personality_mode:research] - Switch personality mode to Research
+[UI_ACTION:modifier:none] - Set modifier to None (no modifier)
+[UI_ACTION:modifier:planner] - Enable Planner modifier (structured plans & validation)
+[UI_ACTION:modifier:quiet] - Enable Quiet modifier (concise minimal output)
 [UI_ACTION:new_chat] - Start a new chat session / clear conversation
 [UI_ACTION:new_chat:Title] - Start a new chat session and pre-set its title
 [UI_ACTION:open_chat:Title] - Open an existing past chat by its title
@@ -394,6 +528,12 @@ CRITICAL RULES FOR UI ACTIONS:
 - Put action tags at the END of your response
 - Never show the raw tag text to the user
 - Multiple actions can be included if needed
+- If the user asks to "switch to developer mode", use [UI_ACTION:personality_mode:developer]
+- If the user asks to "switch to research mode", use [UI_ACTION:personality_mode:research]
+- If the user asks to "switch to assistant mode", use [UI_ACTION:personality_mode:assistant]
+- If the user asks to "turn on planner", "enable planner", or "planner mode", use [UI_ACTION:modifier:planner]
+- If the user asks to "turn on quiet mode", "be quiet", or "quiet mode", use [UI_ACTION:modifier:quiet]
+- If the user asks to "disable modifier" or "turn off planner/quiet", use [UI_ACTION:modifier:none]
 - If the user asks to open "memory index", "chat history", "list the chats", or "past chats", use [UI_ACTION:conversations_open]
 - If the user asks to "start a new chat", "open a new chat", or "clear the chat", use [UI_ACTION:new_chat]
 - If the user asks to start a new chat AND specifies a title, use [UI_ACTION:new_chat:Title]
@@ -402,6 +542,10 @@ CRITICAL RULES FOR UI ACTIONS:
 - If the user asks to delete a conversation, use [UI_ACTION:delete_conversation:Title]
 
 Examples:
+- User: "switch to developer mode" -> Assistant: "Switching to Developer mode. [UI_ACTION:personality_mode:developer]"
+- User: "switch to research mode" -> Assistant: "Switching to Research mode. [UI_ACTION:personality_mode:research]"
+- User: "turn on planner mode" -> Assistant: "Enabling Planner modifier. [UI_ACTION:modifier:planner]"
+- User: "be quiet" or "quiet mode" -> Assistant: "Enabling Quiet modifier. [UI_ACTION:modifier:quiet]"
 - User: "open skills" -> Assistant: "Opening skills now. [UI_ACTION:graph_open_hub:Skills]"
 - User: "start a new chat" -> Assistant: "Starting a fresh conversation. [UI_ACTION:new_chat]"
 - User: "open a new chat and name it ai news" -> Assistant: "Starting a new chat titled 'ai news'. [UI_ACTION:new_chat:ai news]"
@@ -434,16 +578,27 @@ Request: "{request}"
 
 Return ONE JSON object:
 {{"action_type":"OPEN_APP|OPEN_URL|SYSTEM_CONTROL|SYSTEM_QUERY|FILE_OP|UNSAFE",
-"command":"app name or command",
+"command":"app name, url, or fixed query/control enum",
 "browser":"firefox",
 "description":"brief description",
 "requires_confirmation":false,
 "display_output":false}}
 
+Rules for SYSTEM_QUERY:
+- Use fixed query names for command: "ip_address", "battery_level", "disk_space", "top_processes", "uptime", or "list_dir:<path>"
+- NEVER output raw PowerShell commands.
+
+Rules for SYSTEM_CONTROL:
+- Use fixed command names: "lock_screen", "close_app:<name>", "volume_up", "volume_down", "volume_mute"
+
 Examples:
-open chrome → {{"action_type":"OPEN_APP","command":"chrome",...}}
-lock screen → {{"action_type":"SYSTEM_CONTROL","command":"lock_screen",...}}
-what is my IP → {{"action_type":"SYSTEM_QUERY","command":"(Get-NetIPAddress -AddressFamily IPv4 | Where-Object {{$_.InterfaceAlias -notlike '*Loopback*'}} | Select-Object -First 1).IPAddress",...}}
+open chrome → {{"action_type":"OPEN_APP","command":"chrome","browser":"firefox","description":"Open Chrome","requires_confirmation":false,"display_output":false}}
+close chrome → {{"action_type":"SYSTEM_CONTROL","command":"close_app:chrome","browser":"firefox","description":"Close Chrome","requires_confirmation":false,"display_output":false}}
+lock screen → {{"action_type":"SYSTEM_CONTROL","command":"lock_screen","browser":"firefox","description":"Lock Screen","requires_confirmation":false,"display_output":false}}
+what is my IP → {{"action_type":"SYSTEM_QUERY","command":"ip_address","browser":"firefox","description":"Get IP Address","requires_confirmation":false,"display_output":true}}
+top cpu processes → {{"action_type":"SYSTEM_QUERY","command":"top_processes","browser":"firefox","description":"Get Top CPU Processes","requires_confirmation":false,"display_output":true}}
+check battery → {{"action_type":"SYSTEM_QUERY","command":"battery_level","browser":"firefox","description":"Get Battery Level","requires_confirmation":false,"display_output":true}}
+check disk space → {{"action_type":"SYSTEM_QUERY","command":"disk_space","browser":"firefox","description":"Get Disk Space","requires_confirmation":false,"display_output":true}}
 """
 
 FOREGROUND_TRIGGERS = [
@@ -539,8 +694,7 @@ def build_foreground_url(
         "watch ", "look up ",
         "open youtube ",
       ]
-      
-      query_lower = query.lower()
+
       for phrase in phrases_to_remove:
         # Case insensitive replacement
         import re
@@ -902,24 +1056,40 @@ async def get_automation_context_str(automation_results: list[dict]) -> str:
         action_type = result.get("action_type", "")
         command = result.get("command", "")
         browser = result.get("browser", "firefox")
-        description = result.get("description", "")
         requires_confirm = result.get("requires_confirmation", False)
 
         if action_type == "OPEN_APP":
             lines.append(f"[UI_ACTION:open_app:{command}]")
         elif action_type == "OPEN_URL":
             lines.append(f"[UI_ACTION:open_url:{browser}:{command}]")
-        elif action_type == "SYSTEM_CONTROL" and command == "lock_screen":
-            lines.append("[UI_ACTION:lock_screen]")
+        elif action_type == "SYSTEM_CONTROL":
+            if command == "lock_screen":
+                lines.append("[UI_ACTION:lock_screen]")
+            elif command.startswith("close_app:"):
+                app = command.replace("close_app:", "").strip()
+                lines.append(f"[UI_ACTION:close_app:{app}]")
+            elif command.startswith("volume_"):
+                act = command.replace("volume_", "").strip()
+                lines.append(f"[UI_ACTION:set_volume:{act}]")
+            else:
+                lines.append(f"[UI_ACTION:{command}]")
         elif action_type == "SYSTEM_QUERY":
-            cmd = result.get("command", "")
+            cmd = result.get("command", "").strip()
             if cmd.startswith("list_dir:"):
                 path = cmd.replace("list_dir:", "").replace("%USERNAME%", username)
                 lines.append(f"[UI_ACTION:list_dir:{path}]")
+            elif cmd in ("ip_address", "ip", "get_ip"):
+                lines.append("[UI_ACTION:system_query:ip_address]")
+            elif cmd in ("top_processes", "cpu_usage", "processes"):
+                lines.append("[UI_ACTION:system_query:top_processes]")
+            elif cmd in ("battery_level", "battery", "get_battery"):
+                lines.append("[UI_ACTION:system_query:battery_level]")
+            elif cmd in ("disk_space", "disk", "get_disk"):
+                lines.append("[UI_ACTION:system_query:disk_space]")
+            elif cmd in ("uptime", "system_uptime"):
+                lines.append("[UI_ACTION:system_query:uptime]")
             else:
-                # Trim long powershell commands
-                trimmed_cmd = cmd[:60] + "..." if len(cmd) > 60 else cmd
-                lines.append(f"[UI_ACTION:run_powershell:{trimmed_cmd}]")
+                lines.append(f"[UI_ACTION:system_query:{cmd}]")
         elif action_type == "FILE_OP":
             cmd = result.get("command", "")
             if cmd.startswith("create_folder:"):
@@ -936,12 +1106,8 @@ async def get_automation_context_str(automation_results: list[dict]) -> str:
                 lines.append(f"[UI_ACTION:show_explorer:{path}]")
             elif requires_confirm:
                 lines.append(f"[UI_ACTION:confirm_action:{cmd[:40]}]")
-            else:
-                lines.append(f"[UI_ACTION:run_powershell:{cmd[:40]}]")
         elif requires_confirm:
             lines.append(f"[UI_ACTION:confirm_action:{command[:40]}]")
-        elif action_type in ("SYSTEM_CONTROL", "FILE_OP"):
-            lines.append(f"[UI_ACTION:run_powershell:{command[:40]}]")
 
     # Build context with header
     automation_context = "[TASK] Include these tags:\n" + "\n".join(lines)
@@ -1137,9 +1303,13 @@ async def chat_endpoint(request: ChatRequest):
     available_providers = ", ".join(p.name.title() for p in provider_manager.providers)
     system_state = f"\n<SYSTEM_STATE>\nActive AI Brain (Provider): {active_provider.name.title()}\nActive Model: {active_provider.model}\nAvailable Brains: {available_providers}\n</SYSTEM_STATE>\nIf the user asks to switch models or brains to an available brain, you MUST use [UI_ACTION:switch_provider:provider_name] (e.g. [UI_ACTION:switch_provider:gemini] or [UI_ACTION:switch_provider:groq]).\n"
             
+    personality_mode = await get_setting("personality_mode", settings.PERSONALITY_MODE)
+    modifier = await get_setting("modifier", settings.MODIFIER)
+    base_prompt = get_system_prompt(personality_mode, modifier)
+
     system_message = Message(
         role="system",
-        content=JARVIS_SYSTEM_PROMPT + memory_context + search_context_accumulated + "\n" + UI_ACTION_INSTRUCTION + system_state,
+        content=base_prompt + memory_context + search_context_accumulated + "\n" + UI_ACTION_INSTRUCTION + system_state,
         timestamp=""
     )
         
@@ -1150,15 +1320,10 @@ async def chat_endpoint(request: ChatRequest):
         timestamp=""
     )
     
-    # UI_ACTION reminder placed right before user message
-    ui_reminder = Message(
-        role="system",
-        content=UI_ACTION_REMINDER,
-        timestamp=""
-    )
+    system_message.content += "\n\n" + UI_ACTION_REMINDER
     
     # Build full message list and apply universal token-budget guard
-    full_messages = [system_message] + history + [ui_reminder] + [new_user_message]
+    full_messages = [system_message] + history + [new_user_message]
     full_messages = trim_messages_to_budget(full_messages, max_tokens=4000)
     
     # Save user message to DB
@@ -1505,9 +1670,13 @@ async def chat_stream_endpoint(
     available_providers = ", ".join(p.name.title() for p in provider_manager.providers)
     system_state = f"\n<SYSTEM_STATE>\nActive AI Brain (Provider): {active_provider.name.title()}\nActive Model: {active_provider.model}\nAvailable Brains: {available_providers}\n</SYSTEM_STATE>\nIf the user asks to switch models or brains to an available brain, you MUST use [UI_ACTION:switch_provider:provider_name] (e.g. [UI_ACTION:switch_provider:gemini] or [UI_ACTION:switch_provider:groq]).\n"
 
+    personality_mode = await get_setting("personality_mode", settings.PERSONALITY_MODE)
+    modifier = await get_setting("modifier", settings.MODIFIER)
+    base_prompt = get_system_prompt(personality_mode, modifier)
+
     system_message = Message(
       role="system",
-      content=JARVIS_SYSTEM_PROMPT + memory_context + search_context_accumulated + "\n" + UI_ACTION_INSTRUCTION + system_state,
+      content=base_prompt + memory_context + search_context_accumulated + "\n" + UI_ACTION_INSTRUCTION + system_state,
       timestamp=""
     )
     
@@ -1735,6 +1904,7 @@ async def chat_stream_endpoint(
     async def generate():
       """Generator with disconnect detection to avoid wasted API credits."""
       nonlocal search_sources
+      nonlocal full_messages
       try:
         # Send meta chunk first
         try:
@@ -1931,7 +2101,6 @@ async def chat_stream_endpoint(
           # Speak response via TTS (non-blocking)
           try:
             from ..voice.tts_engine import tts_engine
-            import threading
             import re
 
             async def speak_and_broadcast():
@@ -1950,19 +2119,29 @@ async def chat_stream_endpoint(
               clean = clean.strip()
 
               if clean and len(clean) > 10:
-                # Broadcast speaking status
-                await broadcast_voice_event({
-                  "type": "voice_status",
-                  "status": "speaking"
-                })
+                # Broadcast "speaking" only once audio actually starts
+                # playing, via tts_engine's on_speech_start callback (fires
+                # off the TTS thread, so hop back to the event loop with
+                # call_soon_threadsafe to schedule the broadcast coroutine).
+                loop = asyncio.get_event_loop()
+
+                def _on_speech_start():
+                  loop.call_soon_threadsafe(
+                    asyncio.create_task,
+                    broadcast_voice_event({
+                      "type": "voice_status",
+                      "status": "speaking"
+                    })
+                  )
 
                 # Speak in separate thread (blocking call)
                 import concurrent.futures
                 with concurrent.futures.ThreadPoolExecutor() as executor:
-                  await asyncio.get_event_loop().run_in_executor(
+                  await loop.run_in_executor(
                     executor,
                     tts_engine.speak_sync,
-                    clean
+                    clean,
+                    _on_speech_start
                   )
 
                 # Broadcast idle status after speaking
@@ -2019,10 +2198,24 @@ async def chat_stream_endpoint(
 @router.get("/health", response_model=HealthResponse)
 async def health_endpoint():
     statuses = await provider_manager.get_status()
+
+    try:
+        from ..voice.tts_engine import tts_engine
+        tts_ready = tts_engine.kokoro_ready.is_set()
+    except Exception:
+        tts_ready = False
+
+    voice_ready = (
+        tts_ready
+        and voice_manager.whisper_ready.is_set()
+        and voice_manager.wake_word_ready.is_set()
+    )
+
     return HealthResponse(
         status="online",
         version=settings.VERSION,
-        providers=statuses
+        providers=statuses,
+        voice_ready=voice_ready
     )
 
 @router.get("/conversation/{conversation_id}", response_model=List[Message])

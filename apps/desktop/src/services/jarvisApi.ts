@@ -296,35 +296,131 @@ export async function getVoiceStatus(): Promise<any> {
 }
 
 let voiceSocket: WebSocket | null = null
+let reconnectTimeout: ReturnType<typeof setTimeout> | null = null
+let isExplicitlyClosed = false
+
+export function disconnectVoiceWebSocket(): void {
+  isExplicitlyClosed = true
+  if (reconnectTimeout) {
+    clearTimeout(reconnectTimeout)
+    reconnectTimeout = null
+  }
+  if (voiceSocket) {
+    if (voiceSocket.readyState === WebSocket.OPEN || voiceSocket.readyState === WebSocket.CONNECTING) {
+      voiceSocket.close()
+    }
+    voiceSocket = null
+  }
+}
 
 export function connectVoiceWebSocket(
-  onVoiceInput: (text: string) => void,
-  onVoiceResponse: (text: string) => void,
-  onVoiceStatus: (status: string) => void
-): void {
-  voiceSocket = new WebSocket(
-    "ws://localhost:8765/ws/voice"
-  )
+  onVoiceInput: (text: string, seq?: number) => void,
+  onVoiceResponse: (text: string, seq?: number) => void,
+  onVoiceStatus: (status: string, seq?: number) => void,
+  onAudioLevel?: (level: number) => void
+): () => void {
+  // Clear any pending reconnect
+  if (reconnectTimeout) {
+    clearTimeout(reconnectTimeout)
+    reconnectTimeout = null
+  }
 
-  voiceSocket.onmessage = (event) => {
-    const data = JSON.parse(event.data)
-    if (data.type === "voice_input") {
-      onVoiceInput(data.text)
-    } else if (data.type === "voice_response") {
-      onVoiceResponse(data.text)
-    } else if (data.type === "voice_status") {
-      onVoiceStatus(data.status)
+  isExplicitlyClosed = false
+
+  // If already open or connecting, return cleanup without creating a duplicate socket
+  if (voiceSocket && (voiceSocket.readyState === WebSocket.OPEN || voiceSocket.readyState === WebSocket.CONNECTING)) {
+    console.log("[WS] Voice WebSocket already connected/connecting, skipping redundant connection")
+    return () => {
+      disconnectVoiceWebSocket()
     }
   }
 
-  voiceSocket.onclose = () => {
-    // Reconnect after 2 seconds
-    setTimeout(() => {
-      if (voiceSocket?.readyState === WebSocket.CLOSED) {
+  // If socket is in CLOSING state, clear it
+  if (voiceSocket) {
+    try {
+      voiceSocket.close()
+    } catch {}
+    voiceSocket = null
+  }
+
+  console.log("[WS] Connecting to Voice WebSocket...")
+  const ws = new WebSocket("ws://localhost:8765/ws/voice")
+  voiceSocket = ws
+
+  ws.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data)
+      const seq = typeof data.seq === "number" ? data.seq : undefined
+      if (data.type === "voice_input") {
+        onVoiceInput(data.text, seq)
+      } else if (data.type === "voice_response") {
+        onVoiceResponse(data.text, seq)
+      } else if (data.type === "voice_status") {
+        onVoiceStatus(data.status, seq)
+      } else if (data.type === "audio_level") {
+        onAudioLevel?.(data.level)
+      }
+    } catch (err) {
+      console.error("[WS] Error parsing WebSocket message:", err)
+    }
+  }
+
+  ws.onclose = () => {
+    if (isExplicitlyClosed) {
+      console.log("[WS] Voice WebSocket explicitly closed, not reconnecting")
+      return
+    }
+    console.log("[WS] Voice WebSocket closed, attempting reconnect in 2s...")
+    reconnectTimeout = setTimeout(() => {
+      if (!isExplicitlyClosed && (!voiceSocket || voiceSocket.readyState === WebSocket.CLOSED)) {
         connectVoiceWebSocket(
-          onVoiceInput, onVoiceResponse, onVoiceStatus
+          onVoiceInput, onVoiceResponse, onVoiceStatus, onAudioLevel
         )
       }
     }, 2000)
   }
+
+  ws.onerror = (err) => {
+    console.error("[WS] Voice WebSocket error:", err)
+  }
+
+  return () => {
+    disconnectVoiceWebSocket()
+  }
 }
+
+export async function getSettings(): Promise<{ personality_mode: string; modifier: string }> {
+  const response = await window.fetch(`${JARVIS_ENGINE_URL}/settings`)
+  if (!response.ok) {
+    throw new Error("Failed to fetch settings")
+  }
+  return response.json()
+}
+
+export async function updateSettings(
+  settings: { personality_mode?: string; modifier?: string; conversation_delete_pin?: string }
+): Promise<{ personality_mode: string; modifier: string }> {
+  const response = await window.fetch(`${JARVIS_ENGINE_URL}/settings`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(settings)
+  })
+  if (!response.ok) {
+    throw new Error("Failed to update settings")
+  }
+  return response.json()
+}
+
+export async function verifyDeletePin(pin: string): Promise<boolean> {
+  const response = await window.fetch(`${JARVIS_ENGINE_URL}/settings/verify-pin`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ pin })
+  })
+  if (!response.ok) {
+    throw new Error("Failed to verify PIN")
+  }
+  const data = await response.json()
+  return !!data.valid
+}
+

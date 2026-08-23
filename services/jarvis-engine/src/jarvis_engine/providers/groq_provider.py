@@ -46,12 +46,12 @@ class GroqProvider(BaseProvider):
       if "model" in str(e).lower() or \
          "404" in str(e) or "400" in str(e):
         response = client.chat.completions.create(
-          model="llama-3.1-8b-instant",
+          model="openai/gpt-oss-120b",
           messages=groq_messages,
           max_tokens=2048,
         )
         return response.choices[0].message.content
-      return f"Groq error: {str(e)}"
+      raise Exception(f"Groq error: {str(e)}") from e
 
   async def stream(
     self,
@@ -79,7 +79,7 @@ class GroqProvider(BaseProvider):
       if "model" in str(e).lower() or \
          "404" in str(e) or "400" in str(e):
         response = client.chat.completions.create(
-          model="llama-3.1-8b-instant",
+          model="openai/gpt-oss-120b",
           messages=groq_messages,
           max_tokens=2048,
           stream=True,

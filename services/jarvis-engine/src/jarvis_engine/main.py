@@ -1,122 +1,94 @@
+import asyncio
 import contextlib
+import time
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .api.routes import router
 from .core.database import init_db
 from .core.config import settings
 
+async def _broadcast_audio_levels():
+    """Drains audio_level_bus at a throttled ~12Hz and broadcasts the
+    latest mic level over the voice WebSocket. Runs as its own asyncio
+    task so the real-time audio callbacks in wake_word.py / speech_recorder
+    only ever do an O(1) queue push - no awaiting, no broadcasting, no
+    contention with the wake-word detection lock."""
+    from .voice.audio_level_bus import get_latest_level
+    from .api.routes import broadcast_voice_event, connected_clients
+
+    while True:
+        await asyncio.sleep(1 / 12)
+        if not connected_clients:
+            continue
+        level = get_latest_level()
+        if level is None:
+            continue
+        try:
+            await broadcast_voice_event({
+                "type": "audio_level",
+                "level": round(level, 4)
+            })
+        except Exception:
+            pass
+
+
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
+    _t0 = time.time()
     await init_db()
+    print(f"[TIMING] init_db: {time.time() - _t0:.2f}s")
 
+    _t1 = time.time()
     from .providers.manager import provider_manager
     for provider in provider_manager.providers:
+        _tp = time.time()
         available = await provider.is_available()
-        print(f"Provider {provider.name}: {'available' if available else 'unavailable'}")
+        print(f"Provider {provider.name}: {'available' if available else 'unavailable'} ({time.time() - _tp:.2f}s)")
+    print(f"[TIMING] provider availability checks total: {time.time() - _t1:.2f}s")
 
-    # Pre-load TTS engine at startup
-    try:
-        from .voice.tts_engine import tts_engine
-        print("[STARTUP] Andrew Multilingual TTS ready")
-    except Exception as e:
-        print(f"[STARTUP] TTS init error: {e}")
+    # --- Voice subsystem: TTS (Kokoro) and voice detection (Whisper +
+    # wake word) are kicked off CONCURRENTLY here, but neither is awaited
+    # to completion. Each one spawns its own background loader thread(s)
+    # internally (see tts_engine.py / voice_manager.py) and returns almost
+    # immediately, so lifespan finishes and FastAPI starts accepting
+    # requests well before the heavy models are actually loaded. Use
+    # GET /health's "voice_ready" field to check real readiness.
+    _t2 = time.time()
 
-    # Auto-start voice detection
-    try:
-        from .voice.voice_manager import voice_manager
-        import re
+    def _kickoff_tts():
+        """Imports tts_engine, which spawns its own background loader
+        thread for Kokoro and returns immediately - see tts_engine.py."""
+        try:
+            from .voice.tts_engine import tts_engine
+            print("[STARTUP] TTS kicked off (Kokoro loading in background thread)")
+        except Exception as e:
+            print(f"[STARTUP] TTS init error: {e}")
 
-        def clean_text_for_tts(text: str) -> str:
-            """Strip UI_ACTION tags and markdown formatting for clean TTS output"""
-            if not text:
-                return ""
+    def _kickoff_voice():
+        """Calls voice_manager.initialize(), which spawns background
+        loader threads for Whisper + wake word and returns immediately -
+        see voice_manager.py."""
+        try:
+            from .voice.voice_manager import voice_manager
+            from .voice.transcription_handler import handle_transcription
+            voice_manager.initialize(handle_transcription)
+            print("Voice detection kicked off (Whisper + wake word loading in background threads)")
+        except Exception as e:
+            print(f"Voice init failed: {e}")
 
-            # Strip UI_ACTION tags
-            clean = re.sub(r'\[UI_ACTION:[^\]]*\]', '', text).strip()
+    await asyncio.gather(
+        asyncio.to_thread(_kickoff_tts),
+        asyncio.to_thread(_kickoff_voice),
+    )
+    print(f"[TIMING] voice subsystem kickoff (non-blocking): {time.time() - _t2:.2f}s")
 
-            # Strip markdown formatting
-            clean = re.sub(r'\*\*(.+?)\*\*', r'\1', clean)  # Bold
-            clean = re.sub(r'\*(.+?)\*', r'\1', clean)  # Italic
-            clean = re.sub(r'#{1,6}\s', '', clean)  # Headers
-            clean = re.sub(r'`(.+?)`', r'\1', clean)  # Inline code
-            clean = re.sub(r'```[\s\S]*?```', '', clean)  # Code blocks
+    audio_level_task = asyncio.create_task(_broadcast_audio_levels())
 
-            return clean.strip()
-
-        def on_transcription(text: str, direct_result: str = None):
-            print(f"[VOICE COMMAND] {text}")
-
-            # Direct command already executed - just broadcast and speak
-            if direct_result:
-                print(f"[VOICE DIRECT] {direct_result}")
-                import threading
-
-                def speak_and_broadcast():
-                    import requests
-                    from jarvis_engine.voice.tts_engine import tts_engine
-
-                    # Broadcast to UI first
-                    try:
-                        requests.post(
-                            "http://localhost:8765/voice/input",
-                            json={
-                                "text": text,
-                                "direct_response": direct_result
-                            },
-                            timeout=10
-                        )
-                    except Exception as e:
-                        print(f"Broadcast error: {e}")
-
-                    # Then speak (clean text)
-                    try:
-                        clean_result = clean_text_for_tts(direct_result)
-                        if clean_result and len(clean_result) > 3:
-                            tts_engine.speak_sync(clean_result)
-                    except Exception as e:
-                        print(f"TTS error: {e}")
-
-                t = threading.Thread(target=speak_and_broadcast, daemon=True)
-                t.start()
-                return
-
-            # LLM pipeline - speak the response
-            def send_and_speak():
-                import requests
-                from jarvis_engine.voice.tts_engine import tts_engine
-
-                try:
-                    response = requests.post(
-                        "http://localhost:8765/voice/input",
-                        json={"text": text},
-                        timeout=60
-                    )
-                    if response.status_code == 200:
-                        data = response.json()
-                        ai_response = data.get("response", "")
-                        if ai_response:
-                            print(f"[JARVIS SPEAKING] {ai_response}")
-                            try:
-                                clean_response = clean_text_for_tts(ai_response)
-                                if clean_response and len(clean_response) > 3:
-                                    tts_engine.speak_sync(clean_response)
-                            except Exception as e:
-                                print(f"TTS error: {e}")
-                except Exception as e:
-                    print(f"[VOICE ERROR] {e}")
-
-            import threading
-            t = threading.Thread(target=send_and_speak, daemon=True)
-            t.start()
-
-        voice_manager.initialize(on_transcription)
-        print("Voice detection auto-started")
-    except Exception as e:
-        print(f"Voice init failed: {e}")
-
+    print(f"[TIMING] TOTAL lifespan startup (models still loading in background): {time.time() - _t0:.2f}s")
     yield
     # Shutdown
+    audio_level_task.cancel()
     from .voice.voice_manager import voice_manager
     voice_manager.shutdown()
 

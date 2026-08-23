@@ -4,8 +4,8 @@ Last updated: 2026-08-19
 
 ## Current phase
 
-Phase 5 - Milestone 4: Advanced Voice Features
-Status: In Planning
+Phase 5 - Milestones 1-4: Voice Pipeline (Wake Word, Voice Chat, TTS, Advanced Voice Features)
+Status: Complete
 Previous: Text-to-Speech (TTS) - Complete
 
 **Phase 5 - Voice Capabilities**
@@ -62,7 +62,8 @@ JARVIS is now capable of listening for the "wake up jarvis" wake word continuous
 | Phase 4 - Milestone 5: 3D/2D Power Mode                       | Complete                  | Integrated power status polling to dynamically switch the graph between 3D mode (charging) and 2D mode (battery), along with a power indicator pill in the Topbar. |
 | Phase 5 - Milestone 1: Wake Word Detection                    | Complete                  | Integrated openWakeWord and faster-whisper to continuously listen for "wake up jarvis", record user speech, and transcribe it.                              |
 | Phase 5 - Milestone 2: Voice Chat Pipeline                    | Complete                  | Connected voice transcription to chat pipeline via WebSocket, enabling voice input to appear in chat with 🎤 prefix and receive JARVIS responses.           |
-| Phase 5 - Milestone 3: TTS Voice Output                       | Complete                  | Integrated edge-tts with en-GB-RyanNeural voice, TTS interrupt detection via microphone energy threshold, speaking status orb synchronization (violet), and UI_ACTION tag stripping before speech. |
+| Phase 5 - Milestone 3: TTS Voice Output                       | Complete                  | Integrated Kokoro TTS (primary) with edge-tts fallback, TTS interrupt detection via microphone energy threshold, speaking status orb synchronization (violet), and UI_ACTION tag stripping before speech. |
+| Phase 5 - Milestone 4: Advanced Voice Features                | Complete                  | Added mute-gate during TTS playback, self-interrupt confidence threshold, parallelized voice-service startup, and WebSocket event sequence numbers to fix out-of-order voice events. |
 
 **Phase 4 - Additional Capabilities**
 
@@ -146,7 +147,7 @@ The next milestone for Phase 4 will be expanding additional capabilities.
 - Removed double transcription bug and excessive debug logging.
 - Configured Ollama as primary provider for voice commands on HP laptop (http://10.79.209.37:11434).
 - **Milestone 4**: Text-to-Speech (TTS) Voice Output.
-- Integrated edge-tts library with en-GB-RyanNeural voice for natural British accent speech output at +10% speed.
+- Integrated Kokoro TTS (voice: `am_michael`) as the primary engine, loaded in a background thread so startup isn't blocked; falls back to edge-tts automatically if Kokoro fails to initialize or a playback attempt fails.
 - Implemented TTSEngine class with pygame for audio playback, async/threading for non-blocking operation.
 - Added TTS interrupt detection: when user speaks (audio energy > 0.02), TTS immediately stops to prevent overlap.
 - Enhanced orb visualization with violet (#a78bfa) "speaking" status that syncs via WebSocket voice_status events.

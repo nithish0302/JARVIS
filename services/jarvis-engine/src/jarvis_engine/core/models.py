@@ -30,6 +30,7 @@ class HealthResponse(BaseModel):
     status: str
     version: str
     providers: list[ProviderStatus]
+    voice_ready: bool = False
 
 class Memory(BaseModel):
     id: str

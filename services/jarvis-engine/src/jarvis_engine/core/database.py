@@ -41,6 +41,13 @@ async def init_db() -> None:
             )
         """)
 
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+        """)
+
         # Performance indexes - added for faster queries
         await db.execute("""
             CREATE INDEX IF NOT EXISTS idx_messages_conversation
@@ -63,4 +70,27 @@ async def init_db() -> None:
         """)
 
         await db.commit()
-        print("[DB] Database initialized with performance indexes")
+        print("[DB] Database initialized with performance indexes and settings table")
+
+async def get_setting(key: str, default: str = "") -> str:
+    try:
+        async with aiosqlite.connect(settings.DB_PATH) as db:
+            cursor = await db.execute("SELECT value FROM settings WHERE key = ?", (key,))
+            row = await cursor.fetchone()
+            if row:
+                return row[0]
+    except Exception as e:
+        print(f"[DB] Error reading setting {key}: {e}")
+    return default
+
+async def set_setting(key: str, value: str) -> None:
+    try:
+        async with aiosqlite.connect(settings.DB_PATH) as db:
+            await db.execute(
+                "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (key, value)
+            )
+            await db.commit()
+    except Exception as e:
+        print(f"[DB] Error writing setting {key}: {e}")
+

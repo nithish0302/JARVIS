@@ -1,3 +1,5 @@
+import json
+import re
 import uuid
 from datetime import datetime
 import aiosqlite
@@ -135,105 +137,96 @@ class MemoryManager:
   async def extract_and_save_memories(
     self,
     user_message: str,
-    conversation_id: str
+    conversation_id: str = None
   ) -> list[str]:
     saved = []
-    msg_lower = user_message.lower().strip()
+    msg_clean = user_message.strip()
     
     # Skip very short messages
-    if len(msg_lower) < 10:
-        return saved
+    if len(msg_clean) < 10:
+      return saved
     
-    # Expanded triggers - more natural language
-    preference_triggers = [
-        "i prefer", "i like", "i love", "i enjoy",
-        "i hate", "i don't like", "i dislike",
-        "i always", "i usually", "i never",
-        "my favorite", "i find it", "i think",
-    ]
-    
-    personal_triggers = [
-        "my name is", "i am ", "i'm ", "i work",
-        "i live", "i study", "i'm from",
-        "call me", "you can call me",
-    ]
-    
-    project_triggers = [
-        "i'm building", "i'm working on", 
-        "i'm developing", "my project",
-        "we're building", "i'm creating",
-        "i'm making", "my app", "my system",
-    ]
-    
-    goal_triggers = [
-        "i want to", "i need to", "my goal",
-        "i'm trying to", "i plan to",
-        "i hope to", "i wish",
-    ]
-    
-    fact_triggers = [
-        "i have", "my pc", "my computer",
-        "my laptop", "my setup", "i use",
-        "i'm using", "i run", "i installed",
-    ]
-    
-    # Check each category
-    category = None
-    importance = 5
-    
-    for trigger in preference_triggers:
-        if trigger in msg_lower:
-            category = "preference"
-            importance = 6
+    if not settings.GROQ_API_KEY:
+      return saved
+
+    try:
+      from groq import AsyncGroq
+      client = AsyncGroq(api_key=settings.GROQ_API_KEY, timeout=2.0)
+      
+      prompt = (
+        "You are a memory extraction assistant for JARVIS AI.\n"
+        "Analyze the user's message and determine if it contains genuine long-term facts, "
+        "preferences, background information, or project details about the user that are "
+        "worth remembering for future conversations.\n\n"
+        "Guidelines:\n"
+        "- DO NOT save questions, transient doubts, momentary commands, greetings, "
+        "troubleshooting queries, or general discussions (e.g. 'how do i use X', "
+        "'i am not sure if X works', 'what is Y', 'open spotify').\n"
+        "- DO save enduring personal facts, user preferences, user bio/identity, "
+        "hardware/software setup, active projects, and long-term goals (e.g. "
+        "'i am a developer building JARVIS with Tauri', 'my favorite language is Rust', "
+        "'i use dual 4K monitors', 'call me Alex').\n\n"
+        "Respond with ONLY a JSON object formatted as:\n"
+        "{\n"
+        '  "should_save": true or false,\n'
+        '  "content": "Clean, concise statement of the fact or empty string if not saving",\n'
+        '  "category": "personal" | "preference" | "project" | "goal" | "fact",\n'
+        '  "importance": integer from 1 to 10\n'
+        "}\n"
+        'If should_save is false: {"should_save": false, "content": "", "category": "general", "importance": 0}'
+      )
+
+      models_to_try = ["groq/compound-mini", "groq/compound"]
+      
+      data = None
+      for model in models_to_try:
+        try:
+          resp = await client.chat.completions.create(
+            model=model,
+            messages=[
+              {"role": "system", "content": prompt},
+              {"role": "user", "content": msg_clean}
+            ],
+            temperature=0.0,
+            max_tokens=150
+          )
+          raw_text = resp.choices[0].message.content.strip()
+          match = re.search(r'\{[\s\S]*\}', raw_text)
+          if match:
+            data = json.loads(match.group())
             break
-    
-    if not category:
-        for trigger in personal_triggers:
-            if trigger in msg_lower:
-                category = "personal"
-                importance = 8
-                break
-    
-    if not category:
-        for trigger in project_triggers:
-            if trigger in msg_lower:
-                category = "project"
-                importance = 7
-                break
-    
-    if not category:
-        for trigger in goal_triggers:
-            if trigger in msg_lower:
-                category = "goal"
-                importance = 6
-                break
-    
-    if not category:
-        for trigger in fact_triggers:
-            if trigger in msg_lower:
-                category = "fact"
-                importance = 5
-                break
-    
-    # Save if we found a category
-    if category:
-        # Clean up the memory content
-        # Use first 200 chars of message as memory
-        memory_content = user_message[:200].strip()
-        if len(user_message) > 200:
-            memory_content += "..."
-        
-        # Prefix with context
-        memory_content = f"Nithish said: {memory_content}"
-        
-        memory_id = await self.save_memory(
-            content=memory_content,
-            category=category,
-            importance=importance,
-            source_conversation_id=conversation_id
-        )
-        saved.append(memory_content)
-    
-    return saved
+        except Exception:
+          continue
+
+      if not data or not isinstance(data, dict):
+        return saved
+
+      should_save = data.get("should_save", False)
+      if not should_save:
+        return saved
+
+      content = data.get("content", "").strip() or msg_clean
+      category = str(data.get("category", "general")).lower()
+      if category not in ["personal", "preference", "project", "goal", "fact"]:
+        category = "general"
+      
+      try:
+        importance = max(1, min(10, int(data.get("importance", 5))))
+      except (ValueError, TypeError):
+        importance = 5
+
+      memory_id = await self.save_memory(
+        content=content,
+        category=category,
+        importance=importance,
+        source_conversation_id=conversation_id
+      )
+      saved.append(content)
+      print(f"[MEMORY EXTRACTED] Category: {category} | Importance: {importance} | Content: {content}")
+      return saved
+
+    except Exception as e:
+      print(f"[MEMORY] Extraction skipped or failed: {e}")
+      return saved
 
 memory_manager = MemoryManager()

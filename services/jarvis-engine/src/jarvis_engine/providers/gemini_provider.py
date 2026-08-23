@@ -58,7 +58,7 @@ class GeminiProvider(BaseProvider):
         "contents": formatted,
     }
     if system_msg:
-        payload["system_instruction"] = {
+        payload["systemInstruction"] = {
             "parts": [{"text": system_msg.content}]
         }
     return payload
@@ -74,6 +74,9 @@ class GeminiProvider(BaseProvider):
     
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{settings.GEMINI_MODEL}:generateContent?key={settings.GEMINI_API_KEY}"
     
+    import json
+    print("[DEBUG GEMINI PAYLOAD]", json.dumps(payload, indent=2))
+    
     try:
       async with httpx.AsyncClient(timeout=60.0) as client:
         response = await client.post(
@@ -86,10 +89,10 @@ class GeminiProvider(BaseProvider):
         if "candidates" in data and len(data["candidates"]) > 0:
             return data["candidates"][0]["content"]["parts"][0]["text"]
         return ""
-    except httpx.TimeoutException:
-      return "Gemini request timed out. Please try again."
+    except httpx.TimeoutException as e:
+      raise Exception("Gemini request timed out. Please try again.") from e
     except Exception as e:
-      return f"Gemini error: {str(e)}"
+      raise Exception(f"Gemini error: {str(e)}") from e
 
   async def stream(
     self,

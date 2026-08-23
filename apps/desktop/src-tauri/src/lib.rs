@@ -1,5 +1,5 @@
 use std::sync::Mutex;
-use sysinfo::System;
+use sysinfo::{Disks, System};
 use std::process::Command;
 use std::path::Path;
 use std::fs;
@@ -211,70 +211,219 @@ fn open_application(app_name: String)
   }
 }
 
-// 3. EXECUTE POWERSHELL WITH SAFETY CHECK
-// Returns (output, is_safe)
+#[derive(Debug, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone, Copy)]
+#[serde(rename_all = "snake_case")]
+pub enum SystemQuery {
+    IpAddress,
+    BatteryLevel,
+    DiskSpace,
+    TopProcesses,
+    Uptime,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Default)]
+pub struct QueryParams {
+    pub count: Option<u8>,
+}
+
 #[tauri::command]
-fn execute_powershell(
-  script: String,
-  requires_confirmation: bool
+fn run_system_query(
+    state: tauri::State<SysState>,
+    query: SystemQuery,
+    params: Option<QueryParams>,
 ) -> Result<String, String> {
-  
-  // Safety: block dangerous operations
-  let dangerous = vec![
-    "remove-item", "del ", "rmdir", "format ",
-    "clear-disk", "initialize-disk",
-    "stop-computer", "restart-computer",
-    "disable-netadapter", "invoke-webrequest",
-    "downloadfile", "invoke-expression",
-    "wget ", "curl ", "iex ", 
-    "set-executionpolicy",
-  ];
-  
-  let script_lower = script.to_lowercase();
-  for danger in &dangerous {
-    if script_lower.contains(danger) 
-       && !requires_confirmation {
-      return Err(format!(
-        "REQUIRES_CONFIRMATION:{}",
-        script
-      ));
+    run_system_query_impl(&state, query, params)
+}
+
+pub fn run_system_query_impl(
+    state: &SysState,
+    query: SystemQuery,
+    params: Option<QueryParams>,
+) -> Result<String, String> {
+    match query {
+        SystemQuery::IpAddress => {
+            // Safe in-process local address resolution
+            if let Ok(socket) = std::net::UdpSocket::bind("0.0.0.0:0") {
+                if socket.connect("8.8.8.8:80").is_ok() {
+                    if let Ok(addr) = socket.local_addr() {
+                        let ip = addr.ip().to_string();
+                        if !ip.starts_with("127.") && !ip.is_empty() {
+                            return Ok(format!("IP Address: {}", ip));
+                        }
+                    }
+                }
+            }
+            // Fallback to fixed, static, zero-parameter PowerShell script
+            let out = Command::new("powershell")
+                .args([
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    "(Get-NetIPAddress -AddressFamily IPv4 | Where-Object {$_.InterfaceAlias -notlike '*Loopback*'} | Select-Object -First 1).IPAddress",
+                ])
+                .output()
+                .map_err(|e| format!("IP query failed: {}", e))?;
+            let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !stdout.is_empty() {
+                Ok(format!("IP Address: {}", stdout))
+            } else {
+                Err("Could not retrieve IP address".to_string())
+            }
+        }
+        SystemQuery::BatteryLevel => {
+            let manager = battery::Manager::new()
+                .map_err(|e| format!("Battery query failed: {}", e))?;
+            let mut batteries = manager.batteries()
+                .map_err(|e| format!("Battery query failed: {}", e))?;
+            match batteries.next() {
+                Some(Ok(bat)) => {
+                    let level = (bat.state_of_charge().value * 100.0).round() as u64;
+                    let status = match bat.state() {
+                        battery::State::Charging => "Charging",
+                        battery::State::Full => "Fully Charged",
+                        battery::State::Discharging => "Discharging (On Battery)",
+                        _ => "Plugged in",
+                    };
+                    Ok(format!("Battery: {}% ({})", level, status))
+                }
+                _ => Ok("Battery: 100% (Desktop PC - AC Power)".to_string()),
+            }
+        }
+        SystemQuery::DiskSpace => {
+            let disks = Disks::new_with_refreshed_list();
+            let target = disks.list().iter()
+                .find(|d| d.mount_point() == Path::new("C:\\"))
+                .or_else(|| disks.list().first());
+
+            match target {
+                Some(d) => {
+                    let total = d.total_space();
+                    let available = d.available_space();
+                    let used = total.saturating_sub(available);
+                    let pct = if total > 0 { (used as f64 / total as f64 * 100.0) as u32 } else { 0 };
+                    let used_gb = used as f64 / 1_073_741_824.0;
+                    let total_gb = total as f64 / 1_073_741_824.0;
+                    let free_gb = available as f64 / 1_073_741_824.0;
+                    Ok(format!(
+                        "Disk (C:): {:.0} GB used / {:.0} GB total ({:.0} GB free, {}% used)",
+                        used_gb, total_gb, free_gb, pct
+                    ))
+                }
+                None => Err("No storage disks detected".to_string()),
+            }
+        }
+        SystemQuery::TopProcesses => {
+            let limit = params.and_then(|p| p.count).unwrap_or(5).clamp(1, 20) as usize;
+            let mut sys = match state.0.lock() {
+                Ok(guard) => guard,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            sys.refresh_processes();
+
+            let mut processes: Vec<_> = sys.processes().values().collect();
+            processes.sort_by(|a, b| b.cpu_usage().partial_cmp(&a.cpu_usage()).unwrap_or(std::cmp::Ordering::Equal));
+
+            let mut lines = vec![format!("Top {} CPU Processes:", limit.min(processes.len()))];
+            for (i, p) in processes.iter().take(limit).enumerate() {
+                let mem_mb = p.memory() as f64 / 1_048_576.0;
+                lines.push(format!("{}. {} (PID {}) - {:.1}% CPU, {:.0} MB RAM", i + 1, p.name(), p.pid(), p.cpu_usage(), mem_mb));
+            }
+            Ok(lines.join("\n"))
+        }
+        SystemQuery::Uptime => {
+            let uptime_secs = System::uptime();
+            let days = uptime_secs / 86400;
+            let hours = (uptime_secs % 86400) / 3600;
+            let minutes = (uptime_secs % 3600) / 60;
+            if days > 0 {
+                Ok(format!("System Uptime: {} days, {} hours, {} minutes", days, hours, minutes))
+            } else if hours > 0 {
+                Ok(format!("System Uptime: {} hours, {} minutes", hours, minutes))
+            } else {
+                Ok(format!("System Uptime: {} minutes", minutes))
+            }
+        }
     }
-  }
-  
-  let output = Command::new("powershell")
-    .args([
-      "-NoProfile",
-      "-NonInteractive", 
-      "-Command",
-      &script
-    ])
-    .output();
-  
-  match output {
-    Ok(out) => {
-      let stdout = String::from_utf8_lossy(
-        &out.stdout
-      ).trim().to_string();
-      let stderr = String::from_utf8_lossy(
-        &out.stderr
-      ).trim().to_string();
-      
-      if out.status.success() {
-        Ok(if stdout.is_empty() { 
-          "Done.".to_string() 
-        } else { 
-          stdout 
-        })
-      } else {
-        Err(if stderr.is_empty() { 
-          "Command failed".to_string() 
-        } else { 
-          stderr 
-        })
-      }
+}
+
+// Close an application natively
+#[tauri::command]
+fn close_application(state: tauri::State<SysState>, app_name: String) -> Result<String, String> {
+    close_application_impl(&state, app_name)
+}
+
+pub fn close_application_impl(state: &SysState, app_name: String) -> Result<String, String> {
+    let clean_name = app_name.trim().to_lowercase();
+    if clean_name.is_empty() {
+        return Err("Application name is required".to_string());
     }
-    Err(e) => Err(format!("Execution failed: {}", e))
-  }
+    // Validation: only allow standard executable / application names
+    if !clean_name.chars().all(|c| c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' || c == '.') {
+        return Err("Invalid application name format".to_string());
+    }
+    
+    let mut sys = match state.0.lock() {
+        Ok(g) => g,
+        Err(p) => p.into_inner(),
+    };
+    sys.refresh_processes();
+    
+    let target = clean_name.replace(".exe", "");
+    let mut killed_count = 0;
+    for (_pid, proc) in sys.processes() {
+        let proc_name = proc.name().to_lowercase().replace(".exe", "");
+        if proc_name == target || proc_name.contains(&target) {
+            proc.kill();
+            killed_count += 1;
+        }
+    }
+    
+    if killed_count > 0 {
+        Ok(format!("Closed {} ({} process(es) terminated), sir.", app_name, killed_count))
+    } else {
+        // Fallback to taskkill with direct safe parameter binding (no shell interpolation)
+        let exe_target = if clean_name.ends_with(".exe") { clean_name } else { format!("{}.exe", clean_name) };
+        match Command::new("taskkill").args(["/IM", &exe_target, "/T", "/F"]).output() {
+            Ok(out) if out.status.success() => Ok(format!("Closed {}, sir.", app_name)),
+            _ => Err(format!("Could not find any running process for '{}', sir.", app_name)),
+        }
+    }
+}
+
+// Adjust volume natively via Windows media key simulation
+#[tauri::command]
+fn set_volume(action: String) -> Result<String, String> {
+    let act = action.trim().to_lowercase();
+    match act.as_str() {
+        "up" => {
+            #[cfg(target_os = "windows")]
+            simulate_volume_key(0xAF); // VK_VOLUME_UP
+            Ok("Volume increased, sir.".to_string())
+        }
+        "down" => {
+            #[cfg(target_os = "windows")]
+            simulate_volume_key(0xAE); // VK_VOLUME_DOWN
+            Ok("Volume decreased, sir.".to_string())
+        }
+        "mute" | "unmute" => {
+            #[cfg(target_os = "windows")]
+            simulate_volume_key(0xAD); // VK_VOLUME_MUTE
+            Ok("Volume mute toggled, sir.".to_string())
+        }
+        _ => Err(format!("Unknown volume action '{}'. Use 'up', 'down', or 'mute'.", action)),
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn simulate_volume_key(vk: u8) {
+    #[link(name = "user32")]
+    extern "system" {
+        fn keybd_event(b_vk: u8, b_scan: u8, dw_flags: u32, dw_extra_info: usize);
+    }
+    unsafe {
+        keybd_event(vk, 0, 0, 0); // KEYEVENTF_KEYDOWN
+        keybd_event(vk, 0, 2, 0); // KEYEVENTF_KEYUP
+    }
 }
 
 // 4. LOCK SCREEN
@@ -289,117 +438,71 @@ fn lock_screen() -> Result<String, String> {
 }
 
 // 5. GET BATTERY INFO (real)
+// In-process via the `battery` crate (Windows: WMI COM calls, no
+// powershell.exe spawn) instead of shelling out to PowerShell.
 #[tauri::command]
-fn get_battery_info() 
+fn get_battery_info()
   -> Result<serde_json::Value, String> {
-  let output = Command::new("powershell")
-    .args([
-      "-Command",
-      "Get-WmiObject Win32_Battery | \
-       Select-Object EstimatedChargeRemaining,\
-       BatteryStatus | ConvertTo-Json"
-    ])
-    .output();
-  
-  match output {
-    Ok(out) => {
-      let raw = String::from_utf8_lossy(
-        &out.stdout
-      ).trim().to_string();
-      
-      if raw.is_empty() {
-        return Ok(serde_json::json!({
-          "level": 100,
-          "charging": true,
-          "has_battery": false,
-          "status": "Desktop - No battery"
-        }));
-      }
-      
-      if let Ok(parsed) = 
-        serde_json::from_str::<serde_json::Value>(
-          &raw
-        ) {
-        let level = parsed[
-          "EstimatedChargeRemaining"
-        ].as_u64().unwrap_or(100);
-        let status = parsed[
-          "BatteryStatus"
-        ].as_u64().unwrap_or(2);
-        let charging = status == 2;
-        
-        Ok(serde_json::json!({
-          "level": level,
-          "charging": charging,
-          "has_battery": true,
-          "status": if charging { 
-            "Charging" 
-          } else { 
-            "On Battery" 
-          }
-        }))
-      } else {
-        Ok(serde_json::json!({
-          "level": 100,
-          "charging": true,
-          "has_battery": false,
-          "status": "Unknown"
-        }))
-      }
+  let manager = battery::Manager::new()
+    .map_err(|e| format!("Battery manager init failed: {}", e))?;
+
+  let mut batteries = manager.batteries()
+    .map_err(|e| format!("Battery query failed: {}", e))?;
+
+  match batteries.next() {
+    Some(Ok(bat)) => {
+      let level = (bat.state_of_charge().value * 100.0).round() as u64;
+      let charging = matches!(
+        bat.state(),
+        battery::State::Charging | battery::State::Full
+      );
+
+      Ok(serde_json::json!({
+        "level": level,
+        "charging": charging,
+        "has_battery": true,
+        "status": if charging {
+          "Charging"
+        } else {
+          "On Battery"
+        }
+      }))
     }
-    Err(e) => Err(format!("Battery query failed: {}", e))
+    _ => Ok(serde_json::json!({
+      "level": 100,
+      "charging": true,
+      "has_battery": false,
+      "status": "Desktop - No battery"
+    }))
   }
 }
 
 // 6. GET REAL DISK INFO
+// In-process via sysinfo's Disks API - no powershell.exe spawn.
 #[tauri::command]
-fn get_disk_info() 
+fn get_disk_info()
   -> Result<serde_json::Value, String> {
-  let output = Command::new("powershell")
-    .args([
-      "-Command",
-      "Get-PSDrive C | \
-       Select-Object Used,Free | \
-       ConvertTo-Json"
-    ])
-    .output();
-  
-  match output {
-    Ok(out) => {
-      let raw = String::from_utf8_lossy(
-        &out.stdout
-      ).trim().to_string();
-      
-      if let Ok(parsed) = 
-        serde_json::from_str::<serde_json::Value>(
-          &raw
-        ) {
-        let used = parsed["Used"]
-          .as_u64().unwrap_or(0);
-        let free = parsed["Free"]
-          .as_u64().unwrap_or(0);
-        let total = used + free;
-        let pct = if total > 0 {
-          ((used as f64 / total as f64 * 100.0)
-            .min(100.0)) as u32
-        } else { 0 };
-        
-        Ok(serde_json::json!({
-          "pct": pct,
-          "used_gb": format!("{:.0}", 
-            used as f64 / 1_073_741_824.0),
-          "total_gb": format!("{:.0}", 
-            total as f64 / 1_073_741_824.0)
-        }))
-      } else {
-        Ok(serde_json::json!({
-          "pct": 0, "used_gb": "0", 
-          "total_gb": "0"
-        }))
-      }
-    }
-    Err(e) => Err(format!("Disk query failed: {}", e))
-  }
+  let disks = Disks::new_with_refreshed_list();
+
+  let target = disks.list().iter()
+    .find(|d| d.mount_point() == Path::new("C:\\"))
+    .or_else(|| disks.list().first());
+
+  let (total, available) = match target {
+    Some(d) => (d.total_space(), d.available_space()),
+    None => (0, 0)
+  };
+
+  let used = total.saturating_sub(available);
+  let pct = if total > 0 {
+    ((used as f64 / total as f64 * 100.0).min(100.0)) as u32
+  } else { 0 };
+
+  Ok(serde_json::json!({
+    "pct": pct,
+    "used_gb": format!("{:.0}", used as f64 / 1_073_741_824.0),
+    "total_gb": format!("{:.0}", total as f64 / 1_073_741_824.0)
+  }))
 }
 
 #[tauri::command]
@@ -721,61 +824,34 @@ fn restart_computer(confirmed: bool)
     .map_err(|e| format!("Failed: {}", e))
 }
 
+// In-process via the `battery` crate - no powershell.exe spawn.
 #[tauri::command]
-fn get_power_status() 
+fn get_power_status()
   -> Result<serde_json::Value, String> {
-  let output = Command::new("powershell")
-    .args([
-      "-Command",
-      "Get-WmiObject Win32_Battery | \
-       Select-Object BatteryStatus | \
-       ConvertTo-Json -Compress"
-    ])
-    .output();
-  
-  match output {
-    Ok(out) => {
-      let raw = String::from_utf8_lossy(
-        &out.stdout
-      ).trim().to_string();
-      
-      if raw.is_empty() || 
-         raw == "null" || 
-         raw == "{}" {
-        // Desktop PC - always AC power
-        return Ok(serde_json::json!({
-          "is_charging": true,
-          "has_battery": false,
-          "mode": "3d"
-        }));
-      }
-      
-      if let Ok(parsed) = 
-        serde_json::from_str::<serde_json::Value>(
-          &raw
-        ) {
-        // BatteryStatus 2 = AC Power (charging)
-        // BatteryStatus 1 = Discharging
-        let status = parsed["BatteryStatus"]
-          .as_u64().unwrap_or(1);
-        let is_charging = status == 2;
-        
-        return Ok(serde_json::json!({
-          "is_charging": is_charging,
-          "has_battery": true,
-          "mode": if is_charging { "3d" } else { "2d" }
-        }));
-      }
-      
+  let manager = battery::Manager::new()
+    .map_err(|e| format!("Power manager init failed: {}", e))?;
+
+  let mut batteries = manager.batteries()
+    .map_err(|e| format!("Power query failed: {}", e))?;
+
+  match batteries.next() {
+    Some(Ok(bat)) => {
+      let is_charging = matches!(
+        bat.state(),
+        battery::State::Charging | battery::State::Full
+      );
       Ok(serde_json::json!({
-        "is_charging": true,
-        "has_battery": false,
-        "mode": "3d"
+        "is_charging": is_charging,
+        "has_battery": true,
+        "mode": if is_charging { "3d" } else { "2d" }
       }))
     }
-    Err(e) => Err(format!(
-      "Power query failed: {}", e
-    ))
+    // No battery reported - desktop PC, always AC power
+    _ => Ok(serde_json::json!({
+      "is_charging": true,
+      "has_battery": false,
+      "mode": "3d"
+    }))
   }
 }
 
@@ -790,7 +866,9 @@ pub fn run() {
             get_system_info,
             open_application,
             find_application,
-            execute_powershell,
+            close_application,
+            set_volume,
+            run_system_query,
             lock_screen,
             get_battery_info,
             get_disk_info,
@@ -838,6 +916,86 @@ mod tests {
         let result = find_application(app_name);
         assert!(result.is_err());
         assert_eq!(result.unwrap_err(), "Could not find: test's app");
+    }
+
+    #[test]
+    fn test_system_query_uptime() {
+        let state = SysState(Mutex::new(System::new_all()));
+        let result = run_system_query_impl(
+            &state,
+            SystemQuery::Uptime,
+            None,
+        );
+        assert!(result.is_ok());
+        assert!(result.unwrap().contains("System Uptime:"));
+    }
+
+    #[test]
+    fn test_system_query_disk_space() {
+        let state = SysState(Mutex::new(System::new_all()));
+        let result = run_system_query_impl(
+            &state,
+            SystemQuery::DiskSpace,
+            None,
+        );
+        assert!(result.is_ok());
+        assert!(result.unwrap().contains("Disk (C:):"));
+    }
+
+    #[test]
+    fn test_system_query_top_processes() {
+        let state = SysState(Mutex::new(System::new_all()));
+        let result = run_system_query_impl(
+            &state,
+            SystemQuery::TopProcesses,
+            Some(QueryParams { count: Some(3) }),
+        );
+        assert!(result.is_ok());
+        let out = result.unwrap();
+        assert!(out.contains("Top 3 CPU Processes:"));
+    }
+
+    #[test]
+    fn test_system_query_battery() {
+        let state = SysState(Mutex::new(System::new_all()));
+        let result = run_system_query_impl(
+            &state,
+            SystemQuery::BatteryLevel,
+            None,
+        );
+        assert!(result.is_ok());
+        assert!(result.unwrap().contains("Battery:"));
+    }
+
+    #[test]
+    fn test_system_query_ip_address() {
+        let state = SysState(Mutex::new(System::new_all()));
+        let result = run_system_query_impl(
+            &state,
+            SystemQuery::IpAddress,
+            None,
+        );
+        assert!(result.is_ok());
+        assert!(result.unwrap().contains("IP Address:"));
+    }
+
+    #[test]
+    fn test_close_application_invalid_name() {
+        let state = SysState(Mutex::new(System::new_all()));
+        let result = close_application_impl(
+            &state,
+            "calc; rm -rf /".to_string(),
+        );
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Invalid application name format");
+    }
+
+    #[test]
+    fn test_set_volume_actions() {
+        assert!(set_volume("up".to_string()).is_ok());
+        assert!(set_volume("down".to_string()).is_ok());
+        assert!(set_volume("mute".to_string()).is_ok());
+        assert!(set_volume("invalid".to_string()).is_err());
     }
 }
 

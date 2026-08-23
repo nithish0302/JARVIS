@@ -56,3 +56,16 @@
 .topbar-pill.amber .pd {
   background: var(--color-amber);
 }
+
+/* Persistent (not hover-only) hint that a pill is clickable/cyclable -
+   sits alongside the hover title tooltip rather than replacing it. */
+.pill-affordance {
+  font-size: 9px;
+  opacity: 0.55;
+  line-height: 1;
+}
+
+.topbar-personality-pill:hover .pill-affordance,
+.topbar-modifier-pill:hover .pill-affordance {
+  opacity: 0.9;
+}

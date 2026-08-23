@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import "./ConversationPanel.css";
 import { PinAuthModal } from "./PinAuthModal";
 import { useAppStore } from "../../../stores/useAppStore";
-import { getConversations, getConversation, updateConversationTitle, deleteConversation } from "../../../services/jarvisApi";
+import { getConversations, getConversation, updateConversationTitle, deleteConversation, verifyDeletePin } from "../../../services/jarvisApi";
 import { useConversationStore } from "../../../stores/useConversationStore";
 import { cn } from "../../../lib/cn";
 
@@ -106,7 +106,8 @@ export function ConversationPanel() {
   };
 
   const handleConfirmDelete = async (pin: string) => {
-    if (pin === "0523") {
+    const isValid = await verifyDeletePin(pin);
+    if (isValid) {
       if (deletingConversationId) {
         await deleteConversation(deletingConversationId);
         if (currentConversationId === deletingConversationId) {

@@ -3,26 +3,7 @@ import "./GraphCanvas.css";
 import { cn } from "../../../lib/cn";
 import { useAppStore } from "../../../stores/useAppStore";
 import { useConversationStore } from "../../../stores/useConversationStore";
-
-const LEAVES_DATA: Record<string, string[]> = {
-  skills: ["Python", "React", "TypeScript", "Rust", "FastAPI", "Tauri"],
-  tools: ["Web Search", "Memory", "File System", "Terminal", "Browser", "Calculator"],
-  files: ["Documents", "Downloads", "Projects", "Desktop", "Pictures", "Music"],
-  notes: ["JARVIS Notes", "Ideas", "Tasks", "Meeting Notes", "Code Snippets"],
-  models: ["gemini-2.5-flash", "llama3.2:3b", "qwen2.5-coder:3b", "OpenRouter", "Groq", "nomic-embed-text"],
-  worlds: ["Home", "Work", "Projects", "Archive"],
-  conversations: []
-};
-
-const HUBS = [
-  { key: "skills", label: "Skills", color: "#5aa9e6", leaves: LEAVES_DATA.skills.length },
-  { key: "tools", label: "Tools", color: "#e85aa0", leaves: LEAVES_DATA.tools.length },
-  { key: "files", label: "Files", color: "#7a8c93", leaves: LEAVES_DATA.files.length },
-  { key: "notes", label: "Notes", color: "#52d68a", leaves: LEAVES_DATA.notes.length },
-  { key: "worlds", label: "Worlds", color: "#e8934b", leaves: LEAVES_DATA.worlds.length },
-  { key: "models", label: "Models", color: "#b98be8", leaves: LEAVES_DATA.models.length },
-  { key: "conversations", label: "Conversations", color: "#ffb454", leaves: 0 },
-];
+import { HUB_LEAVES as LEAVES_DATA, GRAPH_HUBS as HUBS } from "../../../data/graphHubs";
 
 function hexToRgb(hex: string) {
   const v = parseInt(hex.slice(1), 16);

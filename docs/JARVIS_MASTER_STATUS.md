@@ -19,10 +19,10 @@
 - Not used by the frontend currently (frontend exclusively calls `/chat/stream`)
 
 ### ✅ Multi-Provider AI (4 Providers, Priority Order)
-1. **Gemini** (`gemini-2.5-flash`) — checks `GEMINI_API_KEY != ""`
+1. **Gemini** (`gemini-3.6-flash`) — checks `GEMINI_API_KEY != ""`
 2. **OpenRouter** (`google/gemma-4-27b-it:free`) — checks API key + does live HTTP probe to `openrouter.ai/api/v1/models`
-3. **Groq** (`llama-3.3-70b-versatile`) — checks `GROQ_API_KEY != ""`
-4. **Ollama** (`llama3.2:3b`) — checks local `http://localhost:11434/api/tags` returns 200
+3. **Groq** (`openai/gpt-oss-20b`) — checks `GROQ_API_KEY != ""`
+4. **Ollama** (`phi4-mini`) — checks local `http://localhost:11434/api/tags` returns 200
 
 ### ✅ Conversation Persistence
 - Every message (user, assistant, system) is saved to SQLite via `aiosqlite`
@@ -282,7 +282,7 @@ The first provider for which `is_available()` returns `True` is used.
 ---
 
 ### GeminiProvider (`gemini_provider.py`)
-- **Model:** `settings.GEMINI_MODEL` (default: `gemini-2.5-flash`)
+- **Model:** `settings.GEMINI_MODEL` (default: `gemini-3.6-flash`)
 - **`is_available()`:** Returns `True` if `settings.GEMINI_API_KEY != ""`  (no live probe)
 - **`chat()`:** `POST https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent` via `httpx.AsyncClient`, timeout 60s. System messages sent as `system_instruction`.
 - **`stream()`:** `POST .../streamGenerateContent?alt=sse`, parses SSE lines, yields text tokens
@@ -298,7 +298,7 @@ The first provider for which `is_available()` returns `True` is used.
 ---
 
 ### GroqProvider (`groq_provider.py`)
-- **Model:** `settings.GROQ_MODEL` (default: `llama-3.3-70b-versatile`)
+- **Model:** `settings.GROQ_MODEL` (default: `openai/gpt-oss-20b`)
 - **`is_available()`:** Returns `bool(settings.GROQ_API_KEY)` (no live probe)
 - **`chat()`:** Uses `groq.Groq` SDK synchronously inside `async def` — **BLOCKS event loop**
 - **`stream()`:** Uses `groq.Groq` SDK `stream=True` synchronously inside `async def` — **BLOCKS event loop**, yields chunks via `for chunk in response`
@@ -306,7 +306,7 @@ The first provider for which `is_available()` returns `True` is used.
 ---
 
 ### OllamaProvider (`ollama.py`)
-- **Model:** `settings.OLLAMA_MODEL` (default: `llama3.2:3b`)
+- **Model:** `settings.OLLAMA_MODEL` (default: `phi4-mini`)
 - **`is_available()`:** Live probe to `http://localhost:11434/api/tags` with 3s timeout
 - **`chat()`:** `POST http://localhost:11434/api/chat`, httpx async, `stream: false`
 - **`stream()`:** `POST` same URL, `stream: true`, parses JSON lines, yields `message.content`
@@ -375,7 +375,7 @@ The first provider for which `is_available()` returns `True` is used.
 | `content` | `TEXT` | Full message text |
 | `timestamp` | `TEXT` | ISO 8601 |
 | `provider_used` | `TEXT` | e.g. `"gemini"` |
-| `model_used` | `TEXT` | e.g. `"gemini-2.5-flash"` |
+| `model_used` | `TEXT` | e.g. `"gemini-3.6-flash"` |
 
 ### Table: `memories`
 | Column | Type | Notes |
@@ -556,7 +556,7 @@ After every executed action:
 ```typescript
 {
   provider: "ollama" | "openrouter" | "groq" | "gemini"  // Initial: "ollama"
-  model: string                          // Initial: "llama3.2:3b"
+  model: string                          // Initial: "phi4-mini"
   status: "idle" | "connecting" | "streaming" | "error" | "offline"
   isStreaming: boolean
   error: string | null
@@ -661,7 +661,7 @@ After every executed action:
 | `files` | Files | `#7a8c93` | 6 (Documents, Downloads, Projects, Desktop, Pictures, Music) |
 | `notes` | Notes | `#52d68a` | 5 (JARVIS Notes, Ideas, Tasks, Meeting Notes, Code Snippets) |
 | `worlds` | Worlds | `#e8934b` | 4 (Home, Work, Projects, Archive) |
-| `models` | Models | `#b98be8` | 6 (gemini-2.5-flash, llama3.2:3b, qwen2.5-coder:3b, OpenRouter, Groq, nomic-embed-text) |
+| `models` | Models | `#b98be8` | 6 (gemini-3.6-flash, phi4-mini, qwen2.5-coder:3b, OpenRouter, Groq, nomic-embed-text) |
 | `conversations` | Conversations | `#ffb454` | Dynamic — loaded from `GET /conversations` (max 8) |
 
 ### UI Action → Graph Sync
@@ -725,15 +725,15 @@ Based on `ROADMAP.md` vs actual code:
 
 | Feature | Status |
 |---|---|
-| Voice / Speech-to-Text | Not started. Dock has a mic button (`useState(false)`) with no functionality |
-| Text-to-Speech / TTS | Not started |
-| Wake word detection | Not started |
-| Desktop automation (open apps, files, browser) | Not started |
+| Voice / Speech-to-Text | **Complete (Phase 5)** — wake-word → VAD → transcription → response → TTS pipeline implemented (`voice/wake_word.py`, `voice/speech_recorder.py`, `voice/transcription_handler.py`) |
+| Text-to-Speech / TTS | **Complete (Phase 5)** — Kokoro primary, edge-tts fallback (`voice/tts_engine.py`) |
+| Wake word detection | **Complete (Phase 5)** (`voice/wake_word.py`) |
+| Desktop automation (open apps, files, browser) | Complete — PowerShell-based automation with confirmation prompts |
 | Vision / camera / screenshot analysis | Not started |
 | Plugin system | Not started |
 | Android app | Not started |
 | Vector/semantic memory (ChromaDB) | Packages installed, zero code written |
-| Personality system wired to backend | Store defined, not connected to prompts |
+| Personality system wired to backend | Partial — `personality_mode`/`modifier` settings wired via `useAIStore`; the standalone `usePersonalityStore` concept was removed as dead code |
 | Graph leaf data dynamic (non-conversations) | Skills/Tools/Files/Notes/Models are static hardcoded arrays |
 | Web dashboard | Not started |
 
@@ -751,13 +751,13 @@ Based on `ROADMAP.md` vs actual code:
 | `JARVIS_HOST` | `localhost` | No | Engine bind host |
 | `JARVIS_PORT` | `8765` | No | Engine port (frontend hardcodes 8765) |
 | `OLLAMA_HOST` | `http://localhost:11434` | No | Ollama endpoint |
-| `OLLAMA_MODEL` | `llama3.2:3b` | No | Default Ollama model |
+| `OLLAMA_MODEL` | `phi4-mini` | No | Default Ollama model |
 | `OPENROUTER_API_KEY` | `""` | If using OpenRouter | OpenRouter API key |
 | `OPENROUTER_MODEL` | `google/gemma-4-27b-it:free` | No | OpenRouter model ID |
 | `GROQ_API_KEY` | `""` | If using Groq | Groq API key |
-| `GROQ_MODEL` | `llama-3.3-70b-versatile` | No | Groq model ID |
+| `GROQ_MODEL` | `openai/gpt-oss-20b` | No | Groq model ID |
 | `GEMINI_API_KEY` | `""` | If using Gemini | Google Gemini API key |
-| `GEMINI_MODEL` | `gemini-2.5-flash` | No | Gemini model ID |
+| `GEMINI_MODEL` | `gemini-3.6-flash` | No | Gemini model ID |
 | `TAVILY_API_KEY` | `""` | For web search | Tavily search API key |
 | `SEARCH_PROVIDER` | `tavily` | No | `"tavily"` or falls back to DuckDuckGo |
 | `DB_PATH` | `data/jarvis.db` | No | SQLite database path |

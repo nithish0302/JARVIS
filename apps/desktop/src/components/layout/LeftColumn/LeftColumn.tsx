@@ -178,7 +178,19 @@ export function LeftColumn() {
             <div className="sys-metric" key={`gpu-${idx}`}>
               <div className="sys-row">
                 <span className="lbl">{gpu.type === "discrete" ? "dGPU" : "iGPU"}</span>
+                <span className="pct">{gpu.static ? "—" : `${gpu.usage ?? 0}%`}</span>
               </div>
+              {!gpu.static && (
+                <div className="sys-bar">
+                  <div
+                    className="sys-bar-fill"
+                    style={{
+                      width: `${gpu.usage ?? 0}%`,
+                      background: (gpu.usage ?? 0) > 80 ? "var(--color-amber)" : "var(--color-cyan)",
+                    }}
+                  ></div>
+                </div>
+              )}
               <div className="sys-detail">{gpu.name}</div>
             </div>
           ))}

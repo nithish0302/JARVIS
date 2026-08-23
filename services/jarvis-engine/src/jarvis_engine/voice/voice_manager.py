@@ -3,6 +3,7 @@ import threading
 import tempfile
 import os
 import subprocess
+import time
 from pathlib import Path
 from .wake_word import WakeWordDetector
 from .speech_recorder import SpeechRecorder
@@ -88,16 +89,16 @@ def _execute_action(action: str, param: str | None) -> str:
     return "Screen locked, sir."
 
   elif action == "volume":
-    scripts = {
-      "up": "(New-Object -comObject WScript.Shell).SendKeys([char]175)",
-      "down": "(New-Object -comObject WScript.Shell).SendKeys([char]174)",
-      "mute": "(New-Object -comObject WScript.Shell).SendKeys([char]173)",
+    import ctypes
+    vk_map = {
+      "up": 0xAF,     # VK_VOLUME_UP
+      "down": 0xAE,   # VK_VOLUME_DOWN
+      "mute": 0xAD,   # VK_VOLUME_MUTE
     }
-    if param in scripts:
-      subprocess.Popen(
-        ["powershell","-Command",scripts[param]],
-        creationflags=subprocess.CREATE_NO_WINDOW
-      )
+    if param in vk_map:
+      vk = vk_map[param]
+      ctypes.windll.user32.keybd_event(vk, 0, 0, 0)
+      ctypes.windll.user32.keybd_event(vk, 0, 2, 0)  # KEYEVENTF_KEYUP
     return f"Volume {param}, sir."
 
   elif action == "system_query":
@@ -107,15 +108,33 @@ def _execute_action(action: str, param: str | None) -> str:
       return f"The time is {now}, sir."
     elif param == "ip":
       import socket
-      ip = socket.gethostbyname(socket.gethostname())
+      try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+      except Exception:
+        ip = socket.gethostbyname(socket.gethostname())
       return f"Your IP is {ip}, sir."
     elif param == "battery":
-      result = subprocess.run(
-        ["powershell","-Command",
-         "Get-WmiObject Win32_Battery | Select-Object EstimatedChargeRemaining | ConvertTo-Json"],
-        capture_output=True, text=True
-      )
-      return f"Checking battery... {result.stdout[:50]}"
+      import ctypes
+      class SYSTEM_POWER_STATUS(ctypes.Structure):
+        _fields_ = [
+          ("ACLineStatus", ctypes.c_byte),
+          ("BatteryFlag", ctypes.c_byte),
+          ("BatteryLifePercent", ctypes.c_byte),
+          ("SystemStatusFlag", ctypes.c_byte),
+          ("BatteryLifeTime", ctypes.c_ulong),
+          ("BatteryFullLifeTime", ctypes.c_ulong),
+        ]
+      status = SYSTEM_POWER_STATUS()
+      if ctypes.windll.kernel32.GetSystemPowerStatus(ctypes.byref(status)):
+        if status.BatteryLifePercent != 255:
+          charging = "charging" if status.ACLineStatus == 1 else "on battery"
+          return f"Battery is at {status.BatteryLifePercent}% ({charging}), sir."
+        else:
+          return "System is running on AC power with no battery, sir."
+      return "Unable to retrieve battery status, sir."
 
   return "Done, sir."
 
@@ -133,106 +152,188 @@ class VoiceManager:
     self.model_path = str(engine_root / "models" / "wake_up_jarvis.onnx")
     print(f"Looking for wake word model at: {self.model_path}")
     self.whisper_model = None
-  
+    self.whisper_ready = threading.Event()
+    self.wake_word_ready = threading.Event()
+    self._initialized = False
+
+  def _set_is_listening(self, val: bool):
+    self.is_listening = val
+
   def initialize(
     self,
     on_transcription: callable
   ):
+    """Kicks off Whisper and wake-word loading in background daemon
+    threads and returns immediately - it does NOT block on either model
+    being ready. Check self.whisper_ready / self.wake_word_ready (or
+    GET /health's voice_ready field) for real readiness.
+
+    Safe to call more than once (e.g. startup, then POST /voice/start):
+    the handler is refreshed but the models/mic stream are only brought up
+    once. Re-running the loaders would open a SECOND InputStream and
+    dispatch every wake word twice."""
     self.on_transcription = on_transcription
 
-    # Load Whisper model first (before wake word)
-    try:
-      from faster_whisper import WhisperModel
-      print("Loading Whisper model at startup...")
-      self.whisper_model = WhisperModel(
-        "small.en",
-        device="cpu",
-        compute_type="int8"
-      )
-      print("Whisper model ready!")
-    except Exception as e:
-      print(f"Whisper load failed: {e}")
-      self.whisper_model = None
+    if self._initialized:
+      print("Voice manager already initialized - refreshed handler only")
+      return
+    self._initialized = True
 
-    # Then start wake word detection
-    self.wake_word_detector = WakeWordDetector(
-      model_path=self.model_path,
-      on_detected=self._on_wake_word_detected,
-      threshold=0.3,
-      get_is_listening=lambda: self.is_listening
-    )
-    self.wake_word_detector.start()
-    print("Voice manager initialized")
+    def _load_whisper():
+      _t_whisper = time.time()
+      try:
+        from faster_whisper import WhisperModel
+        print("Loading Whisper model in background...")
+        self.whisper_model = WhisperModel(
+          "small.en",
+          device="cpu",
+          compute_type="int8"
+        )
+        print(f"Whisper model ready! [{time.time() - _t_whisper:.2f}s]")
+      except Exception as e:
+        print(f"Whisper load failed: {e} [{time.time() - _t_whisper:.2f}s]")
+        self.whisper_model = None
+      finally:
+        self.whisper_ready.set()
+
+    def _load_wake_word():
+      _t_wake = time.time()
+      self.wake_word_detector = WakeWordDetector(
+        model_path=self.model_path,
+        on_detected=self._on_wake_word_detected,
+        # threshold / barge-in tuning come from core/config.py defaults.
+        threshold=settings.WAKE_WORD_THRESHOLD,
+        get_is_listening=lambda: self.is_listening,
+        set_is_listening=self._set_is_listening,
+        cooldown_seconds=2.0,
+        tts_mute_buffer_seconds=settings.WAKE_WORD_TTS_MUTE_BUFFER_SECONDS
+      )
+      print(f"[TIMING] WakeWordDetector construction (openWakeWord Model load): {time.time() - _t_wake:.2f}s")
+      _t_wake_start = time.time()
+      self.wake_word_detector.start()
+      print(f"[TIMING] WakeWordDetector.start() (mic stream open): {time.time() - _t_wake_start:.2f}s")
+      self.wake_word_ready.set()
+
+    threading.Thread(target=_load_whisper, daemon=True, name="whisper-loader").start()
+    threading.Thread(target=_load_wake_word, daemon=True, name="wakeword-loader").start()
+    print("Voice manager initialize() returned - Whisper + wake word loading in background")
   
   def _on_wake_word_detected(self):
-    if self.is_listening:
-      return
-    self.is_listening = True
-
-    # Respond immediately
-    print("[VOICE] Wake word detected - responding")
-    from .tts_engine import tts_engine
-
-    def say_yes():
-      tts_engine.speak_sync("Yes sir?")
-
-    t = threading.Thread(target=say_yes, daemon=True)
-    t.start()
-    t.join(timeout=3)  # Wait max 3 seconds
-
-    print("[VOICE] Recording command...")
-
-    # Broadcast listening status
-    import requests
     try:
-      requests.post(
-        "http://localhost:8765/voice/status/update",
-        json={"status": "listening"},
-        timeout=2
-      )
-    except:
-      pass
+      self.is_listening = True
 
-    def process_voice():
-        try:
-          # Record speech
-          audio = self.speech_recorder.record()
+      # Respond immediately
+      print("[VOICE] Wake word detected - responding")
 
-          if len(audio) > 0:
-            # Transcribe with faster-whisper
-            text = self._transcribe(audio)
-            if text and text.strip():
-              # Try direct command first
-              direct_result = execute_voice_command(text.strip())
-              if direct_result:
-                print(f"[VOICE DIRECT] {direct_result}")
-                if self.on_transcription:
-                  self.on_transcription(text.strip(), direct_result)
-              else:
-                # No direct command match - use LLM
-                if self.on_transcription:
-                  self.on_transcription(text.strip(), None)
-        except Exception as e:
-          print(f"Voice processing error: {e}")
-        finally:
-          self.is_listening = False
-          # Broadcast idle status
-          import requests
+      # Broadcast listening status immediately
+      import requests
+      try:
+        requests.post(
+          "http://localhost:8765/voice/status/update",
+          json={"status": "listening"},
+          timeout=2
+        )
+      except Exception:
+        pass
+
+      from .tts_engine import tts_engine
+
+      def say_yes():
+        tts_engine.speak_sync("Yes sir?")
+
+      t = threading.Thread(target=say_yes, daemon=True)
+      t.start()
+      t.join(timeout=3)  # Wait for "Yes sir?" to finish before recording
+
+      print("[VOICE] Recording command...")
+
+      def process_voice():
           try:
-            requests.post(
-              "http://localhost:8765/voice/status/update",
-              json={"status": "idle"},
-              timeout=2
-            )
-          except:
-            pass
+            # Record speech
+            audio = self.speech_recorder.record()
 
-    t2 = threading.Thread(target=process_voice, daemon=True)
-    t2.start()
+            if len(audio) > 0:
+              # Transcribe with faster-whisper
+              text = self._transcribe(audio)
+              if text and text.strip():
+                # Try direct command first
+                direct_result = execute_voice_command(text.strip())
+                if direct_result:
+                  print(f"[VOICE DIRECT] {direct_result}")
+                  if self.on_transcription:
+                    self.on_transcription(text.strip(), direct_result)
+                else:
+                  # No direct command match - use LLM
+                  if self.on_transcription:
+                    self.on_transcription(text.strip(), None)
+              else:
+                print("[VOICE] Recorded audio but transcription was empty.")
+
+                def _broadcast_speaking():
+                  try:
+                    requests.post(
+                      "http://localhost:8765/voice/status/update",
+                      json={"status": "speaking"},
+                      timeout=2
+                    )
+                  except Exception:
+                    pass
+
+                tts_engine.speak_sync(
+                  "Didn't catch that, sir.",
+                  on_speech_start=_broadcast_speaking
+                )
+                try:
+                  requests.post(
+                    "http://localhost:8765/voice/status/update",
+                    json={"status": "idle"},
+                    timeout=2
+                  )
+                except Exception:
+                  pass
+            else:
+              print("[VOICE] No speech detected within timeout.")
+              try:
+                requests.post(
+                  "http://localhost:8765/voice/status/update",
+                  json={"status": "idle"},
+                  timeout=2
+                )
+              except Exception:
+                pass
+          except Exception as e:
+            print(f"Voice processing error: {e}")
+            try:
+              requests.post(
+                "http://localhost:8765/voice/status/update",
+                json={"status": "idle"},
+                timeout=2
+              )
+            except Exception:
+              pass
+          finally:
+            self.is_listening = False
+
+      t2 = threading.Thread(target=process_voice, daemon=True)
+      t2.start()
+    except Exception as e:
+      print(f"[VOICE] Wake word handling error: {e}")
+      try:
+        requests.post(
+          "http://localhost:8765/voice/status/update",
+          json={"status": "idle"},
+          timeout=2
+        )
+      except Exception:
+        pass
+      self.is_listening = False
   
   def _transcribe(
     self, audio: np.ndarray
   ) -> str:
+    if not self.whisper_ready.is_set():
+      print("Whisper still warming up, waiting...")
+      self.whisper_ready.wait(timeout=30)
     if not self.whisper_model:
       print("Whisper not loaded")
       return ""
@@ -266,6 +367,11 @@ class VoiceManager:
   
   def shutdown(self):
     """Clean up resources on shutdown."""
+    # Allow a later initialize() to bring the models back up.
+    self._initialized = False
+    self.whisper_ready.clear()
+    self.wake_word_ready.clear()
+
     if self.wake_word_detector:
       self.wake_word_detector.stop()
       self.wake_word_detector = None

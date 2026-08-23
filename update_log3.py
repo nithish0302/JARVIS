@@ -1,3 +1,0 @@
-import codecs
-with codecs.open('docs/DEVELOPMENT_LOG.md', 'a', encoding='utf-8') as f:
-    f.write('\n## Phase 3 - Milestone 1: Web Search\n**Date:** 2026-08-09\n**Objective:** Add DuckDuckGo web search capability to JARVIS.\n**Decisions made:**\n- Installed `duckduckgo-search` and `httpx`.\n- Created `web_search.py` for performing queries and formatting results.\n- Created `search_detector.py` to identify search intent using heuristics and keywords.\n- Added a new `/search` endpoint to the FastAPI app.\n- Injected search results directly into the `system` message prompt before calling the LLM in `/chat` and `/chat/stream` endpoints.\n**Current status:** Complete. Tests pass successfully.\n')

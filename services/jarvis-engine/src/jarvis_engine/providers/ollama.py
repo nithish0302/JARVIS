@@ -31,7 +31,7 @@ class OllamaProvider(BaseProvider):
                 ],
                 "stream": False
             }
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with httpx.AsyncClient(timeout=90.0) as client:
                 response = await client.post(
                     f"{settings.OLLAMA_HOST}/api/chat",
                     json=payload
@@ -39,13 +39,12 @@ class OllamaProvider(BaseProvider):
                 response.raise_for_status()
                 data = response.json()
                 return data["message"]["content"]
-        except httpx.TimeoutException:
-            return (
-                "Request timed out. "
-                "Ollama may be processing a large response."
-            )
+        except httpx.TimeoutException as e:
+            raise Exception(
+                "Request timed out. Ollama may be processing a large response."
+            ) from e
         except Exception as e:
-            return f"Ollama error: {str(e)}"
+            raise Exception(f"Ollama error: {str(e)}") from e
 
     async def stream(
       self,
@@ -61,7 +60,7 @@ class OllamaProvider(BaseProvider):
         "stream": True
       }
       async with httpx.AsyncClient(
-        timeout=60.0
+        timeout=90.0
       ) as client:
         async with client.stream(
           "POST",
