@@ -5,18 +5,21 @@ import { SettingsSection } from "../SettingsSection/SettingsSection";
 import { Select } from "../../ui/Select/Select";
 import { Input } from "../../ui/Input/Input";
 import { Button } from "../../ui/Button/Button";
+import { Switch } from "../../ui/Switch/Switch";
 import { useAIStore } from "../../../stores/useAIStore";
 import { switchProvider, checkHealth, updateSettings } from "../../../services/jarvisApi";
 
 export function AIProviderSection() {
-  const { 
-    provider, setProvider, 
-    model, setModel, 
+  const {
+    provider, setProvider,
+    model, setModel,
     openrouterKey, setOpenrouterKey,
     groqKey, setGroqKey,
     geminiKey, setGeminiKey,
     personalityMode, setPersonalityMode,
-    modifier, setModifier
+    modifier, setModifier,
+    addressPreference, setAddressPreference,
+    dailyBriefingEnabled, setDailyBriefingEnabled
   } = useAIStore();
   
   const [testResult, setTestResult] = useState<string | null>(null);
@@ -54,6 +57,24 @@ export function AIProviderSection() {
 
   const handleModelBlur = async () => {
     await switchProvider(provider, model);
+  };
+
+  const handleAddressPreferenceBlur = async () => {
+    try {
+      await updateSettings({ address_preference: addressPreference });
+    } catch (err) {
+      console.error("Failed to update address preference:", err);
+    }
+  };
+
+  const handleDailyBriefingToggle = async (e: ChangeEvent<HTMLInputElement>) => {
+    const enabled = e.target.checked;
+    setDailyBriefingEnabled(enabled);
+    try {
+      await updateSettings({ daily_briefing_enabled: enabled });
+    } catch (err) {
+      console.error("Failed to update daily briefing setting:", err);
+    }
   };
 
   const handleSavePin = async () => {
@@ -231,6 +252,34 @@ export function AIProviderSection() {
               {testResult}
             </span>
           )}
+        </div>
+
+        <div className="flex flex-col gap-[var(--space-3)] border-t border-[var(--color-border)] pt-[var(--space-4)]">
+          <div>
+            <h3 className="text-[length:var(--font-size-body)] font-medium text-[var(--color-text-primary)]">
+              Address Preference
+            </h3>
+            <p className="text-[length:var(--font-size-sm)] text-[var(--color-text-muted)]">
+              How JARVIS addresses you (e.g. "sir", a name, "boss"). Leave blank for no title or name at all.
+            </p>
+          </div>
+          <Input
+            label="Address as"
+            placeholder="sir"
+            maxLength={20}
+            value={addressPreference}
+            onChange={(e) => setAddressPreference(e.target.value.slice(0, 20))}
+            onBlur={handleAddressPreferenceBlur}
+          />
+        </div>
+
+        <div className="flex flex-col gap-[var(--space-3)] border-t border-[var(--color-border)] pt-[var(--space-4)]">
+          <Switch
+            label="Daily Briefing"
+            description="A brief greeting with the date, and anything notable (system status, relevant memories), on your first message each day."
+            checked={dailyBriefingEnabled}
+            onChange={handleDailyBriefingToggle}
+          />
         </div>
 
         <div className="flex flex-col gap-[var(--space-3)] border-t border-[var(--color-border)] pt-[var(--space-4)]">

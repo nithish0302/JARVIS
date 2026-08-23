@@ -389,7 +389,7 @@ export function connectVoiceWebSocket(
   }
 }
 
-export async function getSettings(): Promise<{ personality_mode: string; modifier: string }> {
+export async function getSettings(): Promise<{ personality_mode: string; modifier: string; address_preference: string; daily_briefing_enabled: boolean; last_briefing_date: string }> {
   const response = await window.fetch(`${JARVIS_ENGINE_URL}/settings`)
   if (!response.ok) {
     throw new Error("Failed to fetch settings")
@@ -398,8 +398,8 @@ export async function getSettings(): Promise<{ personality_mode: string; modifie
 }
 
 export async function updateSettings(
-  settings: { personality_mode?: string; modifier?: string; conversation_delete_pin?: string }
-): Promise<{ personality_mode: string; modifier: string }> {
+  settings: { personality_mode?: string; modifier?: string; conversation_delete_pin?: string; address_preference?: string; daily_briefing_enabled?: boolean; last_briefing_date?: string }
+): Promise<{ personality_mode: string; modifier: string; address_preference: string; daily_briefing_enabled: boolean; last_briefing_date: string }> {
   const response = await window.fetch(`${JARVIS_ENGINE_URL}/settings`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

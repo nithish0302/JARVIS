@@ -91,9 +91,19 @@ async def tts_status():
 async def get_settings_endpoint():
     personality_mode = await get_setting("personality_mode", settings.PERSONALITY_MODE)
     modifier = await get_setting("modifier", settings.MODIFIER)
+    address_preference = await get_setting("address_preference", settings.ADDRESS_PREFERENCE)
+    daily_briefing_enabled = await get_setting(
+        "daily_briefing_enabled", settings.DAILY_BRIEFING_ENABLED
+    ) == "true"
+    last_briefing_date = await get_setting(
+        "last_briefing_date", settings.LAST_BRIEFING_DATE
+    )
     return {
         "personality_mode": personality_mode,
-        "modifier": modifier
+        "modifier": modifier,
+        "address_preference": address_preference,
+        "daily_briefing_enabled": daily_briefing_enabled,
+        "last_briefing_date": last_briefing_date
     }
 
 @router.post("/settings/verify-pin")
@@ -116,12 +126,47 @@ async def update_settings_endpoint(request: dict):
         pin = str(request["conversation_delete_pin"]).strip()
         if pin.isdigit() and len(pin) == 4:
             await set_setting("conversation_delete_pin", pin)
+    if "address_preference" in request:
+        addr = str(request["address_preference"]).strip()
+        # Any short string (a name, "boss", etc.) or "" for no address
+        # term at all - just cap the length, no other restriction.
+        if len(addr) <= 20:
+            await set_setting("address_preference", addr)
+    if "daily_briefing_enabled" in request:
+        await set_setting(
+            "daily_briefing_enabled",
+            "true" if request["daily_briefing_enabled"] else "false"
+        )
+    if "last_briefing_date" in request:
+        # Mainly a testing/reset affordance - "" forces the next
+        # interaction to re-trigger a briefing, otherwise must be a real
+        # YYYY-MM-DD date.
+        raw = str(request["last_briefing_date"]).strip()
+        if raw == "":
+            await set_setting("last_briefing_date", "")
+        else:
+            from datetime import datetime
+            try:
+                datetime.strptime(raw, "%Y-%m-%d")
+                await set_setting("last_briefing_date", raw)
+            except ValueError:
+                pass
 
     personality_mode = await get_setting("personality_mode", settings.PERSONALITY_MODE)
     modifier = await get_setting("modifier", settings.MODIFIER)
+    address_preference = await get_setting("address_preference", settings.ADDRESS_PREFERENCE)
+    daily_briefing_enabled = await get_setting(
+        "daily_briefing_enabled", settings.DAILY_BRIEFING_ENABLED
+    ) == "true"
+    last_briefing_date = await get_setting(
+        "last_briefing_date", settings.LAST_BRIEFING_DATE
+    )
     return {
         "personality_mode": personality_mode,
-        "modifier": modifier
+        "modifier": modifier,
+        "address_preference": address_preference,
+        "daily_briefing_enabled": daily_briefing_enabled,
+        "last_briefing_date": last_briefing_date
     }
 
 @router.post("/voice/status/update")
@@ -151,8 +196,17 @@ async def voice_input_endpoint(request: dict):
     "status": "processing"
   })
 
+  # Daily briefing check - computed once here so it applies uniformly
+  # whether the first interaction of the day is a direct pattern-matched
+  # command (below) or goes through the LLM (further down).
+  briefing_address_preference = await get_setting(
+    "address_preference", settings.ADDRESS_PREFERENCE
+  )
+  briefing_prefix = await maybe_build_daily_briefing(briefing_address_preference)
+
   # Handle direct command - already executed, broadcast (TTS happens in main.py)
   if direct_response:
+    direct_response = briefing_prefix + direct_response
     print(f"[VOICE] Direct command executed: {direct_response}")
     await broadcast_voice_event({
       "type": "voice_input",
@@ -275,6 +329,7 @@ async def voice_input_endpoint(request: dict):
   # Build minimal messages WITH automation context
   personality_mode = await get_setting("personality_mode", settings.PERSONALITY_MODE)
   modifier = await get_setting("modifier", settings.MODIFIER)
+  address_preference = await get_setting("address_preference", settings.ADDRESS_PREFERENCE)
   # NOTE: previously truncated to [:500] / UI_ACTION_INSTRUCTION[:300] as a
   # voice-latency measure. That silently cut SYSTEM_CAPABILITIES entirely
   # (personality_mode/modifier UI_ACTION docs don't appear until char ~789
@@ -282,7 +337,7 @@ async def voice_input_endpoint(request: dict):
   # mode" got a response denying the capability existed at all. If voice
   # responses need to stay terse, that's a "quiet" modifier / response-
   # length concern, not a reason to hide capabilities from the model.
-  system_content = get_system_prompt(personality_mode, modifier)
+  system_content = get_system_prompt(personality_mode, modifier, address_preference)
   if automation_context:
     system_content += (
       f"\n\n{automation_context}\n"
@@ -332,6 +387,8 @@ async def voice_input_endpoint(request: dict):
 
   if not response_text:
     response_text = "All voice providers unavailable."
+
+  response_text = briefing_prefix + response_text
 
   print(f"[JARVIS VOICE RESPONSE] {response_text}")
 
@@ -389,11 +446,12 @@ Personality:
 - Direct and confident, never vague or wishy-washy
 - Professional but warm
 - Concise — say what needs to be said, nothing more
-- Occasionally address Nithish as "sir" when natural, not every sentence
+- {ADDRESS_LINE}
 - Never start responses with "Certainly!", "Of course!", "Great!", or similar filler phrases
 - When you do not know something, say so directly
 - Reference earlier parts of the conversation naturally when relevant
 - Do not summarize or recap the conversation history unless the user explicitly asks what has happened so far. For simple greetings or short exchanges, respond briefly and directly — do not restate prior turns.
+- When natural, briefly note one relevant follow-up the user might find useful — but don't force it onto every response.
 
 You are not a generic chatbot. You are JARVIS — act like it.
 """
@@ -402,10 +460,11 @@ PERSONALITY_DEVELOPER_PROMPT = """You are JARVIS in Developer Mode for Nithish. 
 
 Personality & Tone:
 - Technical precision over warmth. Minimize pleasantries, conversational filler, and fluff.
-- Skip "sir" almost entirely; communicate directly peer-to-peer like a senior principal engineer.
+- {ADDRESS_LINE}
 - Proactively surface relevant technical details (exact file paths, error specifics, edge cases, performance considerations, and concrete code snippets) without needing to be prompted.
 - Provide rigorous, robust solutions with exact syntax, commands, and actionable implementations.
 - Do not recap prior conversation turns unless asked.
+- When relevant, proactively flag an adjacent technical consideration (an edge case, a related file, a potential issue) the user didn't explicitly ask about but would likely want to know.
 """
 
 PERSONALITY_RESEARCH_PROMPT = """You are JARVIS in Research Mode for Nithish. You are a deep, analytical research assistant and technical investigator.
@@ -415,6 +474,7 @@ Personality & Tone:
 - Willing to conduct multi-step analysis and show your underlying reasoning and chain of thought rather than only giving surface conclusions.
 - Actively favor pulling in web search results, citations, and verified references over answering from intuition or memory alone.
 - Comfortable with comprehensive, deep-dive responses that analyze trade-offs, literature, and underlying mechanics.
+- When relevant, note one adjacent angle or follow-up question worth investigating that the user didn't explicitly ask about.
 """
 
 MODIFIER_PLANNER_PROMPT = """[MODIFIER: PLANNER ACTIVE]
@@ -432,16 +492,51 @@ Respond in the absolute minimum words necessary:
 - Omit conversational filler entirely.
 """
 
-JARVIS_SYSTEM_PROMPT = PERSONALITY_ASSISTANT_PROMPT
+JARVIS_SYSTEM_PROMPT = PERSONALITY_ASSISTANT_PROMPT.replace(
+    "{ADDRESS_LINE}", 'Occasionally address Nithish as "sir" when natural, not every sentence'
+)
 
-def get_system_prompt(personality_mode: str = "assistant", modifier: str = "none") -> str:
+def _address_suffix(address_preference: str) -> str:
+    """', {addr}' for deterministic (non-LLM) response_text f-strings that
+    used to hardcode ', sir' directly - empty string when no address term
+    is configured, so output reads as "Opening Chrome. [...]" rather than
+    the awkward "Opening Chrome, . [...]".
+    """
+    addr = (address_preference if address_preference is not None else "").strip()
+    return f", {addr}" if addr else ""
+
+def _address_line(address_preference: str, minimal: bool = False) -> str:
+    """Builds the address-instruction line substituted into {ADDRESS_LINE}.
+    Empty address_preference means no title/name at all - handled
+    explicitly here rather than left for the model to improvise, so it
+    doesn't produce awkward phrasing like "Hello , how...".
+    """
+    addr = (address_preference if address_preference is not None else "").strip()
+    if not addr:
+        return "Address the user directly, with no title or name - do not insert any address term or placeholder"
+    if minimal:
+        return f'Skip addressing the user as "{addr}" almost entirely; use it rarely, only when natural, communicating peer-to-peer instead'
+    return f'Occasionally address the user as "{addr}" when natural, not every sentence'
+
+def get_system_prompt(
+    personality_mode: str = "assistant",
+    modifier: str = "none",
+    address_preference: str = None,
+) -> str:
+    if address_preference is None:
+        address_preference = settings.ADDRESS_PREFERENCE
+
     mode = (personality_mode or "assistant").lower().strip()
     if mode == "developer":
-        base = PERSONALITY_DEVELOPER_PROMPT
+        base = PERSONALITY_DEVELOPER_PROMPT.replace(
+            "{ADDRESS_LINE}", _address_line(address_preference, minimal=True)
+        )
     elif mode == "research":
         base = PERSONALITY_RESEARCH_PROMPT
     else:
-        base = PERSONALITY_ASSISTANT_PROMPT
+        base = PERSONALITY_ASSISTANT_PROMPT.replace(
+            "{ADDRESS_LINE}", _address_line(address_preference)
+        )
 
     mod = (modifier or "none").lower().strip()
     if mod == "planner":
@@ -449,6 +544,124 @@ def get_system_prompt(personality_mode: str = "assistant", modifier: str = "none
     elif mod == "quiet":
         return base + "\n" + MODIFIER_QUIET_PROMPT
     return base
+
+def _notable_system_status() -> str | None:
+    """A short note on RAM/disk, but ONLY when genuinely notable (>=90%
+    used) - deliberately silent otherwise so the briefing doesn't clutter
+    itself with routine numbers every day. Best-effort: any failure (e.g.
+    non-Windows, permission issue) just means no note, not a crash - this
+    is a "nice to have" addition to the briefing, not a hard dependency.
+    """
+    notes = []
+    try:
+        import shutil
+        usage = shutil.disk_usage("C:\\")
+        pct_used = usage.used / usage.total * 100
+        if pct_used >= 90:
+            notes.append(f"disk space is at {pct_used:.0f}% used")
+    except Exception:
+        pass
+    try:
+        import ctypes
+
+        class _MEMORYSTATUSEX(ctypes.Structure):
+            _fields_ = [
+                ("dwLength", ctypes.c_ulong),
+                ("dwMemoryLoad", ctypes.c_ulong),
+                ("ullTotalPhys", ctypes.c_ulonglong),
+                ("ullAvailPhys", ctypes.c_ulonglong),
+                ("ullTotalPageFile", ctypes.c_ulonglong),
+                ("ullAvailPageFile", ctypes.c_ulonglong),
+                ("ullTotalVirtual", ctypes.c_ulonglong),
+                ("ullAvailVirtual", ctypes.c_ulonglong),
+                ("sullAvailExtendedVirtual", ctypes.c_ulonglong),
+            ]
+
+        stat = _MEMORYSTATUSEX()
+        stat.dwLength = ctypes.sizeof(_MEMORYSTATUSEX)
+        ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat))
+        if stat.dwMemoryLoad >= 90:
+            notes.append(f"RAM usage is at {stat.dwMemoryLoad}%")
+    except Exception:
+        pass
+    if not notes:
+        return None
+    return "Heads up: " + " and ".join(notes) + "."
+
+async def _relevant_memory_mention() -> str | None:
+    """Surfaces at most one memory, and only when it's clearly important
+    (importance >= 7 on the existing 1-10 scale) - a daily briefing that
+    mentions every low-importance memory is noise, not a briefing.
+    Empty-string query hits get_relevant_memories' "no meaningful words"
+    branch, which returns top memories by importance/recency rather than
+    doing a keyword match against nothing.
+    """
+    try:
+        memories = await memory_manager.get_relevant_memories("", limit=3)
+    except Exception as e:
+        print(f"[BRIEFING] Memory lookup failed: {e}")
+        return None
+    if not memories:
+        return None
+    top = memories[0]
+    if top.get("importance", 0) < 7:
+        return None
+    return f"Also, you'd mentioned: \"{top['content']}\"."
+
+def _time_of_day_greeting() -> str:
+    from datetime import datetime
+    hour = datetime.now().hour
+    if hour < 12:
+        return "Good morning"
+    elif hour < 17:
+        return "Good afternoon"
+    return "Good evening"
+
+async def maybe_build_daily_briefing(address_preference: str = None) -> str:
+    """Returns a briefing string ready to prepend to the first response of
+    the day (ending in a blank line), or "" if none is due right now.
+
+    Deliberately scoped to only what's honestly available today: a
+    time-aware greeting, the date, a system-status note if genuinely
+    notable, and a relevant-memory mention if one exists. Nothing here is
+    LLM-generated - it's plain deterministic Python string building - so
+    there is no risk of it fabricating calendar/email/task content that
+    doesn't exist yet (that's Phase 8 integration work).
+
+    Marks last_briefing_date as today the moment it decides to fire, so a
+    second message the same day (whether via /chat, /chat/stream, or
+    /voice/input - all three call this) does not repeat it.
+    """
+    from datetime import datetime
+
+    enabled = await get_setting(
+        "daily_briefing_enabled", settings.DAILY_BRIEFING_ENABLED
+    )
+    if enabled.strip().lower() != "true":
+        return ""
+
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    last = await get_setting("last_briefing_date", settings.LAST_BRIEFING_DATE)
+    if last == today_str:
+        return ""
+
+    await set_setting("last_briefing_date", today_str)
+
+    greeting = _time_of_day_greeting()
+    addr = (address_preference if address_preference is not None else "").strip()
+    date_str = datetime.now().strftime("%A, %B %d, %Y")
+
+    lines = [f"{greeting}{f', {addr}' if addr else ''}. Today is {date_str}."]
+
+    status_note = _notable_system_status()
+    if status_note:
+        lines.append(status_note)
+
+    memory_note = await _relevant_memory_mention()
+    if memory_note:
+        lines.append(memory_note)
+
+    return " ".join(lines) + "\n\n"
 
 def trim_messages_to_budget(messages: list[Message], max_tokens: int = 4000) -> list[Message]:
     """
@@ -515,6 +728,8 @@ Available UI actions:
 [UI_ACTION:modifier:none] - Set modifier to None (no modifier)
 [UI_ACTION:modifier:planner] - Enable Planner modifier (structured plans & validation)
 [UI_ACTION:modifier:quiet] - Enable Quiet modifier (concise minimal output)
+[UI_ACTION:address_preference:sir] - Set how you address the user (e.g. "sir", a name, "boss")
+[UI_ACTION:address_preference:] - Clear the address term entirely (address the user directly, no title/name)
 [UI_ACTION:new_chat] - Start a new chat session / clear conversation
 [UI_ACTION:new_chat:Title] - Start a new chat session and pre-set its title
 [UI_ACTION:open_chat:Title] - Open an existing past chat by its title
@@ -534,6 +749,8 @@ CRITICAL RULES FOR UI ACTIONS:
 - If the user asks to "turn on planner", "enable planner", or "planner mode", use [UI_ACTION:modifier:planner]
 - If the user asks to "turn on quiet mode", "be quiet", or "quiet mode", use [UI_ACTION:modifier:quiet]
 - If the user asks to "disable modifier" or "turn off planner/quiet", use [UI_ACTION:modifier:none]
+- If the user asks you to address them differently (e.g. "call me Alex", "address me as boss"), use [UI_ACTION:address_preference:Alex]
+- If the user asks you to stop using a title/name (e.g. "stop calling me sir", "don't address me at all"), use [UI_ACTION:address_preference:] with an empty value
 - If the user asks to open "memory index", "chat history", "list the chats", or "past chats", use [UI_ACTION:conversations_open]
 - If the user asks to "start a new chat", "open a new chat", or "clear the chat", use [UI_ACTION:new_chat]
 - If the user asks to start a new chat AND specifies a title, use [UI_ACTION:new_chat:Title]
@@ -546,6 +763,8 @@ Examples:
 - User: "switch to research mode" -> Assistant: "Switching to Research mode. [UI_ACTION:personality_mode:research]"
 - User: "turn on planner mode" -> Assistant: "Enabling Planner modifier. [UI_ACTION:modifier:planner]"
 - User: "be quiet" or "quiet mode" -> Assistant: "Enabling Quiet modifier. [UI_ACTION:modifier:quiet]"
+- User: "call me Alex from now on" -> Assistant: "Got it, I'll call you Alex. [UI_ACTION:address_preference:Alex]"
+- User: "stop calling me sir" -> Assistant: "Understood, I'll address you directly. [UI_ACTION:address_preference:]"
 - User: "open skills" -> Assistant: "Opening skills now. [UI_ACTION:graph_open_hub:Skills]"
 - User: "start a new chat" -> Assistant: "Starting a fresh conversation. [UI_ACTION:new_chat]"
 - User: "open a new chat and name it ai news" -> Assistant: "Starting a new chat titled 'ai news'. [UI_ACTION:new_chat:ai news]"
@@ -591,6 +810,14 @@ Rules for SYSTEM_QUERY:
 Rules for SYSTEM_CONTROL:
 - Use fixed command names: "lock_screen", "close_app:<name>", "volume_up", "volume_down", "volume_mute"
 
+Rules for FILE_OP (paths are Windows, NEVER Linux/macOS style):
+- command must be one of: "create_folder:<path>", "delete_file:<path>", "open_file:<path>", "show_explorer:<path>"
+- <path> MUST use Windows backslashes and a drive letter, in the form: C:\\Users\\%USERNAME%\\<Folder>\\<name>
+- Use the literal placeholder %USERNAME% for the user's home folder - do NOT invent a username.
+- Valid <Folder> values: Desktop, Downloads, Documents, Pictures, Music, Videos
+- NEVER output a path starting with "/", "/home/", "~/", or any other non-Windows form.
+- requires_confirmation is ADVISORY ONLY for delete_file - the backend always requires confirmation for deletes regardless of this field, so set it to true anyway for accuracy.
+
 Examples:
 open chrome → {{"action_type":"OPEN_APP","command":"chrome","browser":"firefox","description":"Open Chrome","requires_confirmation":false,"display_output":false}}
 close chrome → {{"action_type":"SYSTEM_CONTROL","command":"close_app:chrome","browser":"firefox","description":"Close Chrome","requires_confirmation":false,"display_output":false}}
@@ -599,6 +826,7 @@ what is my IP → {{"action_type":"SYSTEM_QUERY","command":"ip_address","browser
 top cpu processes → {{"action_type":"SYSTEM_QUERY","command":"top_processes","browser":"firefox","description":"Get Top CPU Processes","requires_confirmation":false,"display_output":true}}
 check battery → {{"action_type":"SYSTEM_QUERY","command":"battery_level","browser":"firefox","description":"Get Battery Level","requires_confirmation":false,"display_output":true}}
 check disk space → {{"action_type":"SYSTEM_QUERY","command":"disk_space","browser":"firefox","description":"Get Disk Space","requires_confirmation":false,"display_output":true}}
+delete test.txt on my desktop → {{"action_type":"FILE_OP","command":"delete_file:C:\\\\Users\\\\%USERNAME%\\\\Desktop\\\\test.txt","browser":"firefox","description":"Delete test.txt from Desktop","requires_confirmation":true,"display_output":false}}
 """
 
 FOREGROUND_TRIGGERS = [
@@ -804,6 +1032,33 @@ DESTRUCTIVE_PATTERNS = [
   r'\bclose\s+(?:all|every)\b',
   r'\bend\s+(?:process|task)\b',
 ]
+
+def enforce_destructive_confirmation(text: str) -> str:
+  """Backend-level guard: a raw, unconfirmed [UI_ACTION:delete_file:...]
+  tag must never leave this service, regardless of which code path
+  produced it - the deterministic fs_context prompt (which only tells the
+  model to use confirm_action, it doesn't enforce it), the LLM-generated
+  automation FILE_OP branch, or a hallucinated tag from free-form
+  generation. This is the actual enforcement point; prompt text alone is
+  just a request the model can ignore.
+
+  Rewrites to confirm_action rather than stripping, so the existing
+  two-step UX (frontend shows "reply yes to confirm") still fires - it
+  just can no longer be bypassed by the model skipping that step itself.
+  """
+  import re
+
+  def _rewrite(match):
+    path = match.group(1)
+    print(
+      f"[SAFETY] Blocked unconfirmed delete_file UI_ACTION for "
+      f"'{path}' - rewriting to require confirmation"
+    )
+    return f"[UI_ACTION:confirm_action:delete_file:{path}]"
+
+  return re.sub(
+    r'\[UI_ACTION:delete_file:([^\]]+)\]', _rewrite, text
+  )
 
 def is_destructive_action(message: str) -> bool:
   """
@@ -1096,8 +1351,12 @@ async def get_automation_context_str(automation_results: list[dict]) -> str:
                 path = cmd.replace("create_folder:", "").replace("%USERNAME%", username)
                 lines.append(f"[UI_ACTION:create_folder:{path}]")
             elif cmd.startswith("delete_file:"):
+                # Destructive - always require confirmation. Unlike the
+                # other FILE_OP branches, this must NOT trust whatever
+                # requires_confirmation the model returned; delete is
+                # inherently destructive regardless of what it claims.
                 path = cmd.replace("delete_file:", "").replace("%USERNAME%", username)
-                lines.append(f"[UI_ACTION:delete_file:{path}]")
+                lines.append(f"[UI_ACTION:confirm_action:delete_file:{path}]")
             elif cmd.startswith("open_file:"):
                 path = cmd.replace("open_file:", "")
                 lines.append(f"[UI_ACTION:open_file:{path}]")
@@ -1272,7 +1531,15 @@ async def generate_automation_command(
 async def chat_endpoint(request: ChatRequest):
     conversation_id_exists = request.conversation_id is not None
     conversation_id = request.conversation_id or str(uuid.uuid4())
-    
+
+    # Daily briefing check - computed once up front so it applies
+    # uniformly to whichever response path this request ends up taking
+    # (pure automation, file command, or the general LLM path).
+    briefing_address_preference = await get_setting(
+        "address_preference", settings.ADDRESS_PREFERENCE
+    )
+    briefing_prefix = await maybe_build_daily_briefing(briefing_address_preference)
+
     # Get relevant memories
     relevant_memories = await memory_manager.get_relevant_memories(request.message, limit=5)
     memory_context = ""
@@ -1305,7 +1572,8 @@ async def chat_endpoint(request: ChatRequest):
             
     personality_mode = await get_setting("personality_mode", settings.PERSONALITY_MODE)
     modifier = await get_setting("modifier", settings.MODIFIER)
-    base_prompt = get_system_prompt(personality_mode, modifier)
+    address_preference = await get_setting("address_preference", settings.ADDRESS_PREFERENCE)
+    base_prompt = get_system_prompt(personality_mode, modifier, address_preference)
 
     system_message = Message(
         role="system",
@@ -1365,11 +1633,15 @@ async def chat_endpoint(request: ChatRequest):
             )
 
         # Use MINIMAL context for file commands
-        # Skip conversation history, memory, search context
+        # Skip conversation history, memory, search context - but still use
+        # the real personality/modifier prompt (already fetched above),
+        # not the hardcoded default, and no truncation (see /voice/input's
+        # matching fix for why: truncating the prompt/capabilities silently
+        # drops functionality rather than shortening tone).
         minimal_messages = [
             Message(
                 role="system",
-                content=JARVIS_SYSTEM_PROMPT[:500],
+                content=get_system_prompt(personality_mode, modifier, address_preference),
                 timestamp=""
             ),
             Message(
@@ -1436,11 +1708,13 @@ async def chat_endpoint(request: ChatRequest):
 
         # Build natural response
         if len(descriptions) == 1:
-            response_text = f"{descriptions[0]}, sir. {action_tags}"
+            response_text = f"{descriptions[0]}{_address_suffix(address_preference)}. {action_tags}"
         else:
             items = ", ".join(descriptions[:-1])
             items += f" and {descriptions[-1]}"
-            response_text = f"Opening {items}, sir. {action_tags}"
+            response_text = f"Opening {items}{_address_suffix(address_preference)}. {action_tags}"
+
+        response_text = briefing_prefix + response_text
 
         # Broadcast and return
         await broadcast_voice_event({
@@ -1602,7 +1876,10 @@ async def chat_endpoint(request: ChatRequest):
         response_text = "I apologize, but all AI providers are currently unavailable."
         provider_used = "error"
         model_used = "error"
-    
+
+    response_text = enforce_destructive_confirmation(response_text)
+    response_text = briefing_prefix + response_text
+
     # Save assistant message to DB
     await save_message(
         conversation_id=conversation_id,
@@ -1637,7 +1914,15 @@ async def chat_stream_endpoint(
     conversation_id = (
       request.conversation_id or str(uuid.uuid4())
     )
-    
+
+    # Daily briefing check - computed once up front so it applies
+    # uniformly to whichever response path this request ends up taking
+    # (pure automation, file command, or the general LLM streaming path).
+    briefing_address_preference = await get_setting(
+      "address_preference", settings.ADDRESS_PREFERENCE
+    )
+    briefing_prefix = await maybe_build_daily_briefing(briefing_address_preference)
+
     # Get relevant memories
     relevant_memories = await memory_manager.get_relevant_memories(request.message, limit=5)
     memory_context = ""
@@ -1672,7 +1957,8 @@ async def chat_stream_endpoint(
 
     personality_mode = await get_setting("personality_mode", settings.PERSONALITY_MODE)
     modifier = await get_setting("modifier", settings.MODIFIER)
-    base_prompt = get_system_prompt(personality_mode, modifier)
+    address_preference = await get_setting("address_preference", settings.ADDRESS_PREFERENCE)
+    base_prompt = get_system_prompt(personality_mode, modifier, address_preference)
 
     system_message = Message(
       role="system",
@@ -1740,11 +2026,15 @@ async def chat_stream_endpoint(
             )
 
         # Use MINIMAL context for file commands
-        # Skip conversation history, memory, search context
+        # Skip conversation history, memory, search context - but still use
+        # the real personality/modifier prompt (already fetched above),
+        # not the hardcoded default, and no truncation (see /voice/input's
+        # matching fix for why: truncating the prompt/capabilities silently
+        # drops functionality rather than shortening tone).
         minimal_messages = [
             Message(
                 role="system",
-                content=JARVIS_SYSTEM_PROMPT[:500],
+                content=get_system_prompt(personality_mode, modifier, address_preference),
                 timestamp=""
             ),
             Message(
@@ -1837,11 +2127,13 @@ async def chat_stream_endpoint(
 
         # Build natural response
         if len(descriptions) == 1:
-            response_text = f"{descriptions[0]}, sir. {action_tags}"
+            response_text = f"{descriptions[0]}{_address_suffix(address_preference)}. {action_tags}"
         else:
             items = ", ".join(descriptions[:-1])
             items += f" and {descriptions[-1]}"
-            response_text = f"Opening {items}, sir. {action_tags}"
+            response_text = f"Opening {items}{_address_suffix(address_preference)}. {action_tags}"
+
+        response_text = briefing_prefix + response_text
 
         # Stream the response directly without AI
         async def generate_direct():
@@ -2076,6 +2368,13 @@ async def chat_stream_endpoint(
 
         # STEP 3: Save and send done
         complete_response = "".join(full_response_parts)
+        complete_response = enforce_destructive_confirmation(complete_response)
+        # Prepended here rather than seeded into full_response_parts up
+        # front - the provider-fallback path above resets
+        # full_response_parts to [] on retry, which would silently wipe a
+        # pre-seeded briefing. This point is reached exactly once
+        # regardless of how many providers were tried.
+        complete_response = briefing_prefix + complete_response
 
         if complete_response:
           try:

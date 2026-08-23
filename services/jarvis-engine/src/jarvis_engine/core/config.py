@@ -71,6 +71,14 @@ class Settings(BaseSettings):
     PERSONALITY_MODE: str = "assistant"
     MODIFIER: str = "none"
     CONVERSATION_DELETE_PIN: str = "0523"
+    # How the LLM addresses the user - "sir" matches the prior hardcoded
+    # behavior exactly. Empty string means no address term at all.
+    ADDRESS_PREFERENCE: str = "sir"
+
+    # Daily briefing (Phase 6 M3): prepended to the first response of each
+    # calendar day. "" means never briefed yet.
+    LAST_BRIEFING_DATE: str = ""
+    DAILY_BRIEFING_ENABLED: str = "true"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 

@@ -202,6 +202,23 @@ export function executeUIActions(
             })
           }
           break
+
+        case "address_preference":
+          // payload can legitimately be "" (clear the address term), so
+          // this checks !== undefined rather than truthiness like the
+          // other cases above - an empty string must not be skipped.
+          if (action.payload !== undefined) {
+            const addr = action.payload.trim().slice(0, 20)
+            import("../stores/useAIStore").then(m => {
+              m.useAIStore.getState().setAddressPreference(addr)
+            })
+            import("../services/jarvisApi").then(api => {
+              api.updateSettings({ address_preference: addr }).catch(err => {
+                console.error("Failed to update address_preference setting:", err)
+              })
+            })
+          }
+          break
           
           case "open_app":
           if (action.payload) {

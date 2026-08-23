@@ -14,6 +14,8 @@ export interface AIState {
   geminiKey: string;
   personalityMode: "assistant" | "developer" | "research";
   modifier: "none" | "planner" | "quiet";
+  addressPreference: string;
+  dailyBriefingEnabled: boolean;
   setProvider: (provider: AIState["provider"]) => void;
   setModel: (model: string) => void;
   setStatus: (status: AIState["status"]) => void;
@@ -26,6 +28,8 @@ export interface AIState {
   setGeminiKey: (key: string) => void;
   setPersonalityMode: (mode: AIState["personalityMode"]) => void;
   setModifier: (modifier: AIState["modifier"]) => void;
+  setAddressPreference: (value: string) => void;
+  setDailyBriefingEnabled: (value: boolean) => void;
 }
 
 export const useAIStore = create<AIState>((set) => ({
@@ -41,6 +45,8 @@ export const useAIStore = create<AIState>((set) => ({
   geminiKey: "",
   personalityMode: "assistant",
   modifier: "none",
+  addressPreference: "sir",
+  dailyBriefingEnabled: true,
   setProvider: (provider) => set({ provider }),
   setModel: (model) => set({ model }),
   setStatus: (status) => set({ status }),
@@ -53,4 +59,6 @@ export const useAIStore = create<AIState>((set) => ({
   setGeminiKey: (key) => set({ geminiKey: key }),
   setPersonalityMode: (personalityMode) => set({ personalityMode }),
   setModifier: (modifier) => set({ modifier }),
+  setAddressPreference: (addressPreference) => set({ addressPreference }),
+  setDailyBriefingEnabled: (dailyBriefingEnabled) => set({ dailyBriefingEnabled }),
 }));

@@ -3,7 +3,7 @@ import { useAIStore } from "../stores/useAIStore"
 import { checkHealth, getMemoryCount, getSettings } from "../services/jarvisApi"
 
 export function useEngineStatus() {
-  const { setStatus, setError, setMemoryCount, setPersonalityMode, setModifier } = useAIStore()
+  const { setStatus, setError, setMemoryCount, setPersonalityMode, setModifier, setAddressPreference, setDailyBriefingEnabled } = useAIStore()
 
   useEffect(() => {
     const check = async () => {
@@ -41,6 +41,15 @@ export function useEngineStatus() {
         if (settings.modifier) {
           setModifier(settings.modifier as any)
         }
+        // Empty string is a valid, meaningful value here (no address
+        // term at all) - check for undefined, not truthiness, so it
+        // isn't silently skipped.
+        if (settings.address_preference !== undefined) {
+          setAddressPreference(settings.address_preference)
+        }
+        if (settings.daily_briefing_enabled !== undefined) {
+          setDailyBriefingEnabled(settings.daily_briefing_enabled)
+        }
       } catch (err) {
         console.error("Failed to sync settings:", err)
       }
@@ -49,13 +58,13 @@ export function useEngineStatus() {
     check()
     checkMemories()
     checkSettings()
-    
+
     const interval = window.setInterval(check, 30000)
     const memoryInterval = window.setInterval(checkMemories, 60000)
-    
+
     return () => {
       window.clearInterval(interval)
       window.clearInterval(memoryInterval)
     }
-  }, [setStatus, setError, setMemoryCount, setPersonalityMode, setModifier])
+  }, [setStatus, setError, setMemoryCount, setPersonalityMode, setModifier, setAddressPreference, setDailyBriefingEnabled])
 }
