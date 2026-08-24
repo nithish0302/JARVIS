@@ -5,6 +5,7 @@ import { useAppStore } from "./stores/useAppStore";
 import { useEngineStatus } from "./hooks/useEngineStatus";
 import { useConversationLoader } from "./hooks/useConversationLoader";
 import { usePowerMode } from "./hooks/usePowerMode";
+import { useGlobalShortcuts } from "./hooks/useGlobalShortcuts";
 
 // New HUD Components
 import { Stage, Scene } from "./components/layout/Stage/Stage";
@@ -16,6 +17,8 @@ import { ChatShell } from "./components/chat/ChatShell/ChatShell";
 import { Dock } from "./components/layout/Dock/Dock";
 import { ConversationPanel } from "./components/conversations/ConversationPanel/ConversationPanel";
 import { ChatFullView } from "./components/chat/ChatFullView/ChatFullView";
+import { CommandPalette } from "./components/palette/CommandPalette/CommandPalette";
+import { ShortcutToast } from "./components/layout/ShortcutToast/ShortcutToast";
 
 function App() {
   const view = useAppStore((state) => state.view);
@@ -26,6 +29,9 @@ function App() {
   useEngineStatus();
   useConversationLoader();
   usePowerMode();
+  // Registered here at the composition root so shortcuts fire regardless
+  // of which panel currently holds focus.
+  useGlobalShortcuts();
 
   return (
     <LayoutProvider>
@@ -72,6 +78,10 @@ function App() {
           )}
         </motion.div>
       </AnimatePresence>
+      {/* Rendered outside the view switch so both are available from the
+          chat/graph view and the settings view alike. */}
+      <CommandPalette />
+      <ShortcutToast />
     </LayoutProvider>
   );
 }

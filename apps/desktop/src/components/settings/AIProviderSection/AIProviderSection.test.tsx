@@ -9,5 +9,8 @@ describe("AIProviderSection", () => {
     expect(screen.getByText("AI Provider")).toBeInTheDocument();
     expect(screen.getByLabelText("Provider")).toBeInTheDocument();
     expect(screen.getByLabelText("Model name")).toBeInTheDocument();
+    // Personality/security settings now live in PersonalitySection, not here.
+    expect(screen.queryByLabelText("Personality Mode")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("New PIN")).not.toBeInTheDocument();
   });
 });

@@ -12,6 +12,7 @@ export function SettingsSidebar({
 }: SettingsSidebarProps) {
   const navItems = [
     { id: "ai-provider", label: "AI Provider" },
+    { id: "personality", label: "Personality" },
     { id: "appearance", label: "Appearance" },
     { id: "about", label: "About" },
   ];

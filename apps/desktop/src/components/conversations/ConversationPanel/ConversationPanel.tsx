@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import "./ConversationPanel.css";
 import { PinAuthModal } from "./PinAuthModal";
 import { useAppStore } from "../../../stores/useAppStore";
-import { getConversations, getConversation, updateConversationTitle, deleteConversation, verifyDeletePin } from "../../../services/jarvisApi";
+import { getConversations, getConversation, updateConversationTitle, deleteConversation } from "../../../services/jarvisApi";
 import { useConversationStore } from "../../../stores/useConversationStore";
 import { cn } from "../../../lib/cn";
 
@@ -37,8 +37,11 @@ export function ConversationPanel() {
   const [conversations, setConversations] = useState<ConvoMeta[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
+  const [search, setSearch] = useState("");
+  const searchRef = useRef<HTMLInputElement>(null);
   const deletingConversationId = useAppStore(state => state.deletingConversationId);
   const setDeletingConversationId = useAppStore(state => state.setDeletingConversationId);
+  const conversationSearchFocusToken = useAppStore(state => state.conversationSearchFocusToken);
 
   const refreshConversations = () => {
     getConversations()
@@ -51,6 +54,25 @@ export function ConversationPanel() {
       refreshConversations();
     }
   }, [conversationPanelOpen]);
+
+  // Ctrl+F bumps the token in the store; focus the input on every bump so
+  // repeated presses re-focus rather than firing only once.
+  useEffect(() => {
+    if (conversationSearchFocusToken === 0) return;
+    const t = setTimeout(() => {
+      searchRef.current?.focus();
+      searchRef.current?.select();
+    }, 60);
+    return () => clearTimeout(t);
+  }, [conversationSearchFocusToken]);
+
+  const visibleConversations = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return conversations;
+    return conversations.filter((c) =>
+      `${c.title || "Session"} ${c.preview || ""}`.toLowerCase().includes(q)
+    );
+  }, [conversations, search]);
 
   const loadConversation = async (id: string, title: string) => {
     try {
@@ -106,19 +128,16 @@ export function ConversationPanel() {
   };
 
   const handleConfirmDelete = async (pin: string) => {
-    const isValid = await verifyDeletePin(pin);
-    if (isValid) {
-      if (deletingConversationId) {
-        await deleteConversation(deletingConversationId);
-        if (currentConversationId === deletingConversationId) {
-          clearConversation();
-        }
-        refreshConversations();
-      }
-      setDeletingConversationId(null);
-    } else {
-      throw new Error("Invalid PIN");
+    if (!deletingConversationId) return;
+    // deleteConversation now carries the PIN to the server, which is the
+    // actual enforcement point (DELETE /conversation/{id} checks it
+    // server-side) - a 403 here throws and PinAuthModal shows the shake.
+    await deleteConversation(deletingConversationId, pin);
+    if (currentConversationId === deletingConversationId) {
+      clearConversation();
     }
+    refreshConversations();
+    setDeletingConversationId(null);
   };
 
   const cancelDelete = () => {
@@ -136,8 +155,27 @@ export function ConversationPanel() {
           &times;
         </button>
       </div>
+      <div className="convo-search">
+        <input
+          ref={searchRef}
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Filter conversations…"
+          aria-label="Filter conversations"
+        />
+        {search && (
+          <button
+            className="convo-search-clear"
+            onClick={() => setSearch("")}
+            title="Clear filter"
+          >
+            &times;
+          </button>
+        )}
+      </div>
       <div className="convo-list">
-        {conversations.map((c) => (
+        {visibleConversations.map((c) => (
           <div
             key={c.id}
             className="convo-item group relative"
@@ -188,9 +226,13 @@ export function ConversationPanel() {
             )}
           </div>
         ))}
-        {conversations.length === 0 && (
+        {visibleConversations.length === 0 && (
           <div className="convo-item">
-            <div className="s">No previous conversations found.</div>
+            <div className="s">
+              {search.trim()
+                ? `No conversations match "${search.trim()}".`
+                : "No previous conversations found."}
+            </div>
           </div>
         )}
       </div>

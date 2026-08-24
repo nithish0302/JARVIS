@@ -3,7 +3,12 @@ import "./GraphCanvas.css";
 import { cn } from "../../../lib/cn";
 import { useAppStore } from "../../../stores/useAppStore";
 import { useConversationStore } from "../../../stores/useConversationStore";
-import { HUB_LEAVES as LEAVES_DATA, GRAPH_HUBS as HUBS } from "../../../data/graphHubs";
+import {
+  HUB_LEAVES as LEAVES_DATA,
+  GRAPH_HUBS as HUBS,
+  MEMORY_CATEGORY_COLORS,
+  MEMORY_CATEGORIES,
+} from "../../../data/graphHubs";
 
 function hexToRgb(hex: string) {
   const v = parseInt(hex.slice(1), 16);
@@ -20,6 +25,8 @@ export function GraphCanvas() {
   const graphLevel = useAppStore(state => state.graphLevel);
   const setGraphLevel = useAppStore(state => state.setGraphLevel);
   const graphMode = useAppStore(state => state.graphMode);
+  const memoriesVersion = useAppStore(state => state.memoriesVersion);
+  const setSelectedMemory = useAppStore(state => state.setSelectedMemory);
 
   // Use a ref so the animation loop sees graphMode updates
   const graphModeRef = useRef(graphMode);
@@ -183,6 +190,62 @@ export function GraphCanvas() {
 
   const hubNodesRef = useRef<any[]>([]);
 
+  // Fetches real memory records and lays them out as sub-clusters by
+  // category (personal/preference/project/goal/fact), each leaf tinted by
+  // its category and sized by importance (1-10 -> radius 4-10px). Re-run
+  // via memoriesVersion whenever an edit/delete happens so the hub stays
+  // in sync with the Inspector.
+  const populateMemories = () => {
+    import("../../../services/jarvisApi").then(({ getMemories }) => {
+      getMemories().then((data: any[]) => {
+        const memHub = hubNodesRef.current.find((h) => h.key === "memories");
+        if (!memHub) return;
+
+        const byCategory: Record<string, any[]> = {};
+        data.forEach((m) => {
+          const cat = MEMORY_CATEGORIES.includes(m.category) ? m.category : "fact";
+          (byCategory[cat] = byCategory[cat] || []).push(m);
+        });
+        const orderedCats = MEMORY_CATEGORIES.filter((c) => byCategory[c]?.length);
+        const sectorSize = (Math.PI * 2) / Math.max(1, orderedCats.length);
+
+        const leaves: any[] = [];
+        orderedCats.forEach((cat, ci) => {
+          const items = byCategory[cat];
+          const sectorStart = ci * sectorSize;
+          items.forEach((m, i) => {
+            const within = items.length > 1 ? i / (items.length - 1) : 0.5;
+            const angle = sectorStart + sectorSize * 0.15 + within * sectorSize * 0.7;
+            const importance = Math.max(1, Math.min(10, m.importance || 5));
+            let label = String(m.content || "").trim();
+            if (label.length > 26) label = label.substring(0, 26) + "...";
+            leaves.push({
+              id: "memories-leaf-" + m.id,
+              label,
+              color: MEMORY_CATEGORY_COLORS[cat] || MEMORY_CATEGORY_COLORS.general,
+              angle,
+              dist: 45 + Math.random() * 35,
+              x: 0,
+              y: 0,
+              vx: 0,
+              vy: 0,
+              radius: 4 + (importance / 10) * 6,
+              memory: m,
+            });
+          });
+        });
+
+        memHub.leavesList = leaves;
+        memHub.leaves = leaves.length;
+      }).catch((err) => console.error("Failed to fetch graph memories", err));
+    });
+  };
+
+  useEffect(() => {
+    if (hubNodesRef.current.length > 0) populateMemories();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [memoriesVersion]);
+
   useEffect(() => {
     // Initialize nodes
     hubNodesRef.current = HUBS.map((h, i) => ({
@@ -213,6 +276,8 @@ export function GraphCanvas() {
         });
       }
     });
+
+    populateMemories();
 
     // Fetch dynamic conversations
     import("../../../services/jarvisApi").then(({ getConversations }) => {
@@ -381,7 +446,7 @@ export function GraphCanvas() {
             ctx.globalAlpha = alpha;
             if (alpha > 0.01) {
               ctx.globalAlpha = alpha * (graphModeRef.current === "3d" ? 0.8 : 1.0);
-              drawNode(ctx, leaf.x, leaf.y, 5, leaf.color);
+              drawNode(ctx, leaf.x, leaf.y, leaf.radius || 5, leaf.color);
               ctx.globalAlpha = alpha;
               
               if (isSelectedHub && drillT > 0.5) {
@@ -584,6 +649,9 @@ export function GraphCanvas() {
   const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    // Cleared on every click; the memory-leaf-hit branch below re-sets it
+    // when the click actually lands on a memory leaf.
+    setSelectedMemory(null);
     const rect = canvas.getBoundingClientRect();
     const mx = e.clientX - rect.left;
     const my = e.clientY - rect.top;
@@ -604,6 +672,10 @@ export function GraphCanvas() {
       });
 
       if (hitLeaf) {
+        if (stateRef.current.selectedHub.key === "memories" && hitLeaf.memory) {
+          setSelectedMemory(hitLeaf.memory);
+          return;
+        }
         if (stateRef.current.selectedHub.key === "conversations") {
           const convoId = hitLeaf.id.replace("conversations-leaf-", "");
           import("../../../services/jarvisApi").then(({ getConversation }) => {

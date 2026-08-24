@@ -1,0 +1,157 @@
+/* Dedicated waveform area, relocated here from the dock rail where a real
+   multi-bar waveform had no room. Bars are driven from the mic level
+   store's rolling history buffer, so this reads as a live waveform rather
+   than a single-value accent detail. */
+.mic-waveform-panel {
+  position: relative;
+}
+
+.mic-waveform {
+  position: relative;
+  height: 64px;
+  border-radius: 8px;
+  border: 1px solid var(--color-line);
+  background: rgba(82, 236, 227, 0.04);
+  overflow: hidden;
+}
+
+/* Ambient glow that brightens with the live mic level - same reactive
+   formula the dock ring used to use, now sized to fill the waveform box
+   instead of a 42px badge. */
+.mic-waveform-glow {
+  position: absolute;
+  inset: 0;
+  border-radius: 8px;
+  box-shadow: 0 0 22px 4px rgba(82, 236, 227, 0.45) inset;
+  pointer-events: none;
+  transition: transform 90ms linear, opacity 90ms linear;
+  will-change: transform, opacity;
+}
+
+.mic-waveform-bars {
+  position: relative;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 10px;
+}
+
+.mic-waveform-bars span {
+  flex: 1;
+  height: 100%;
+  min-width: 3px;
+  border-radius: 4px;
+  background: var(--color-cyan);
+  transform-origin: center;
+  transition: transform 90ms linear;
+}
+
+.mic-waveform-caption {
+  margin-top: 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.5px;
+  color: var(--color-muted-dim);
+  text-transform: uppercase;
+}
+
+/* memory inspector */
+.memory-created {
+  margin-top: 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-muted-dim);
+}
+
+.memory-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.memory-edit-textarea {
+  width: 100%;
+  resize: vertical;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  color: var(--color-text, #e7f6f4);
+  font-size: 12px;
+  font-family: inherit;
+  padding: 8px;
+}
+
+.memory-edit-row {
+  display: flex;
+  gap: 10px;
+}
+
+.memory-edit-label {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--color-muted-dim);
+}
+
+.memory-edit-label select,
+.memory-edit-label input {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--color-line);
+  border-radius: 6px;
+  color: var(--color-text, #e7f6f4);
+  padding: 5px 6px;
+  font-size: 11px;
+  font-family: inherit;
+}
+
+.memory-edit-error {
+  font-size: 11px;
+  color: #ff6b6b;
+}
+
+.memory-edit-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.memory-btn {
+  flex: 1;
+  border-radius: 6px;
+  border: 1px solid var(--color-line);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--color-muted-dim);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 6px 0;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.memory-btn:hover:not(:disabled) {
+  color: #fff;
+  border-color: var(--color-line-strong);
+}
+
+.memory-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.memory-btn-save {
+  color: var(--color-cyan);
+  border-color: rgba(82, 236, 227, 0.3);
+}
+
+.memory-btn-delete {
+  color: #ff6b6b;
+  border-color: rgba(255, 107, 107, 0.3);
+}

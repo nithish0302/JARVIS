@@ -85,6 +85,22 @@ async def lifespan(app: FastAPI):
 
     audio_level_task = asyncio.create_task(_broadcast_audio_levels())
 
+    # Phase 7 M3: retrofit-embed any memory that predates the ChromaDB
+    # index. Fire-and-forget like the voice subsystem above - it checks
+    # what's already embedded before loading the (CPU-only) embedding
+    # model, so on every restart after the first this finishes almost
+    # instantly with no model load at all.
+    async def _migrate_memory_embeddings():
+        try:
+            from .memory.memory_manager import memory_manager
+            n = await memory_manager.migrate_embeddings()
+            if n:
+                print(f"[STARTUP] Embedded {n} pre-existing memories into ChromaDB")
+        except Exception as e:
+            print(f"[STARTUP] Memory embedding migration failed: {e}")
+
+    asyncio.create_task(_migrate_memory_embeddings())
+
     print(f"[TIMING] TOTAL lifespan startup (models still loading in background): {time.time() - _t0:.2f}s")
     yield
     # Shutdown

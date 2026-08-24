@@ -47,11 +47,13 @@ async def get_conversation_messages(conversation_id: str) -> List[Message]:
                 ))
     return messages
 
-async def delete_conversation(conversation_id: str) -> None:
+async def delete_conversation(conversation_id: str) -> bool:
     async with aiosqlite.connect(settings.DB_PATH) as db:
         await db.execute("DELETE FROM messages WHERE conversation_id = ?", (conversation_id,))
-        await db.execute("DELETE FROM conversations WHERE id = ?", (conversation_id,))
+        cursor = await db.execute("DELETE FROM conversations WHERE id = ?", (conversation_id,))
+        deleted = cursor.rowcount > 0
         await db.commit()
+        return deleted
 
 async def update_conversation_title(conversation_id: str, new_title: str) -> None:
     timestamp = datetime.datetime.now().isoformat()

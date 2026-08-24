@@ -1,8 +1,40 @@
 import { useEffect, useState } from "react";
 import "../../../styles/Panels.css";
+import "./LeftColumn.css";
 import { useAppStore } from "../../../stores/useAppStore";
+import { useMicLevelStore } from "../../../stores/useMicLevelStore";
 import { cn } from "../../../lib/cn";
 import { invoke } from "@tauri-apps/api/core";
+import { MemoryInspector } from "./MemoryInspector";
+
+// Mic RMS levels from the backend run well under 1.0 for normal room tone
+// and speech (silence_threshold=0.01, TTS_INTERRUPT_LEVEL_THRESHOLD=0.18 -
+// see core/config.py / speech_recorder.py), so rendering the raw value
+// directly as a 0-1 scale factor collapses every bar toward zero height -
+// it "reacts" per-sample but the variation is imperceptible, reading as a
+// flat line. Apply the same kind of gain the old dock meter used
+// (0.35 + level * 1.4) so realistic levels actually fill the visible range.
+const WAVEFORM_GAIN = 5;
+function ampLevel(raw: number): number {
+  return Math.min(1, Math.max(0, raw) * WAVEFORM_GAIN);
+}
+
+// Render fewer, denser bars than the store's raw 40-sample history buffer -
+// 40 individual hairline bars read as visual noise. Averaging consecutive
+// samples into groups keeps the underlying data (and responsiveness)
+// untouched while thinning the display down to a clean bar count.
+const WAVEFORM_BAR_COUNT = 20;
+function averageGroups(values: number[], groupCount: number): number[] {
+  if (values.length === 0) return Array(groupCount).fill(0);
+  const result: number[] = [];
+  for (let i = 0; i < groupCount; i++) {
+    const start = Math.floor((i * values.length) / groupCount);
+    const end = Math.max(start + 1, Math.floor(((i + 1) * values.length) / groupCount));
+    const slice = values.slice(start, end);
+    result.push(slice.reduce((a, b) => a + b, 0) / slice.length);
+  }
+  return result;
+}
 
 export function LeftColumn() {
   const graphOpen = useAppStore(state => state.graphOpen);
@@ -10,6 +42,9 @@ export function LeftColumn() {
   const chatMode = useAppStore(state => state.chatMode);
   const setChatMode = useAppStore(state => state.setChatMode);
   const inspectorMessage = useAppStore(state => state.inspectorMessage);
+  const micLevel = useMicLevelStore(state => state.level);
+  const micHistory = useMicLevelStore(state => state.history);
+  const waveformBars = averageGroups(micHistory, WAVEFORM_BAR_COUNT);
 
   const [cpuUsage, setCpuUsage] = useState(0);
   const [cpuName, setCpuName] = useState("Unknown CPU");
@@ -73,6 +108,9 @@ export function LeftColumn() {
   }, []);
 
   const renderInspectorContent = () => {
+    if (activeHub === "memories") {
+      return <MemoryInspector />;
+    }
     if (activeHub === "conversations") {
       return (
         <>
@@ -136,6 +174,37 @@ export function LeftColumn() {
             INSPECTOR — click a node
           </div>
         )}
+      </div>
+      <div className="panel mic-waveform-panel" id="mic-waveform">
+        <h3 className="flex items-center justify-between">
+          Audio Input
+          <span className="text-[10px] text-[var(--color-cyan)] opacity-70">LIVE</span>
+        </h3>
+        {/* Status indicator, not a control: listening cannot be turned off
+            from here (or anywhere) - wake-word detection is started
+            unconditionally by the backend's lifespan (voice_manager.initialize).
+            The bars are driven by the store's rolling history buffer, so this
+            reads as an actual waveform rather than a single-value meter. */}
+        <div
+          className="mic-waveform"
+          role="img"
+          aria-label="Live microphone input waveform, showing ambient and voice level"
+          title='Microphone is live — listening for "wake up jarvis". Bars react to the current mic level.'
+        >
+          <span
+            className="mic-waveform-glow"
+            style={{
+              opacity: 0.2 + ampLevel(micLevel) * 0.5,
+              transform: `scale(${1 + ampLevel(micLevel) * 0.06})`,
+            }}
+          />
+          <div className="mic-waveform-bars">
+            {waveformBars.map((v, i) => (
+              <span key={i} style={{ transform: `scaleY(${Math.max(0.05, ampLevel(v))})` }} />
+            ))}
+          </div>
+        </div>
+        <div className="mic-waveform-caption">Listening for "wake up jarvis"</div>
       </div>
       <div className="panel">
         <h3>System</h3>

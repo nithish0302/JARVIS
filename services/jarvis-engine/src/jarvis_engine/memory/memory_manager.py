@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime
 import aiosqlite
 from ..core.config import settings
+from . import vector_store
 
 class MemoryManager:
 
@@ -53,7 +54,11 @@ class MemoryManager:
              now, now, source_conversation_id)
         )
         await db.commit()
-        return memory_id
+
+    # Best-effort - vector_store swallows its own errors, so a slow model
+    # load or a chroma hiccup never blocks the memory actually being saved.
+    await vector_store.upsert_memory(memory_id, content, category, importance)
+    return memory_id
 
   async def get_relevant_memories(
     self,
@@ -112,8 +117,55 @@ class MemoryManager:
                 [now] + ids
             )
             await db.commit()
-        
+
+        # Semantic fallback: only kicks in when the keyword pass didn't
+        # already fill the requested limit, so a query that keyword-matches
+        # plenty of memories (e.g. the existing "quasarnetics" ranking
+        # behavior) is completely unaffected - this only ever ADDS results
+        # a pure LIKE-based search would have missed (conceptually related,
+        # no shared keywords), never re-ranks or replaces what's already
+        # there.
+        missing = limit - len(results)
+        if missing > 0:
+            existing_ids = {r["id"] for r in results}
+            semantic_hits = await vector_store.semantic_search(query, limit=missing + len(existing_ids))
+            fill_ids = [h["id"] for h in semantic_hits if h["id"] not in existing_ids][:missing]
+            if fill_ids:
+                placeholders = ",".join(["?" for _ in fill_ids])
+                cursor = await db.execute(
+                    f"SELECT * FROM memories WHERE id IN ({placeholders})", fill_ids
+                )
+                extra_rows = await cursor.fetchall()
+                # Preserve semantic-similarity order rather than SQL's
+                # arbitrary IN(...) row order.
+                by_id = {row["id"]: dict(row) for row in extra_rows}
+                extra = [by_id[i] for i in fill_ids if i in by_id]
+
+                if extra:
+                    now = datetime.utcnow().isoformat() + "Z"
+                    extra_placeholders = ",".join(["?" for _ in extra])
+                    await db.execute(
+                        f"""UPDATE memories
+                            SET last_accessed = ?,
+                            access_count = access_count + 1
+                            WHERE id IN ({extra_placeholders})""",
+                        [now] + [e["id"] for e in extra]
+                    )
+                    await db.commit()
+                    results = results + extra
+
         return results
+
+  async def migrate_embeddings(self) -> int:
+    """Retrofit: embed any existing memory that predates the embedding
+    index. Safe to call on every startup - vector_store checks what's
+    already embedded before loading the model, so this is a no-op cost
+    once the backfill has run once."""
+    async with aiosqlite.connect(settings.DB_PATH) as db:
+      db.row_factory = aiosqlite.Row
+      cursor = await db.execute("SELECT id, content, category, importance FROM memories")
+      rows = await cursor.fetchall()
+    return await vector_store.migrate_existing_memories([dict(r) for r in rows])
 
   async def get_all_memories(
     self,
@@ -125,6 +177,52 @@ class MemoryManager:
             rows = await cursor.fetchall()
         return [dict(r) for r in rows]
 
+  async def update_memory(
+    self,
+    memory_id: str,
+    content: str | None = None,
+    category: str | None = None,
+    importance: int | None = None
+  ) -> dict | None:
+    """Partial update - only fields that are not None are changed. Returns
+    the updated record, or None if no memory with that id exists."""
+    fields = []
+    params = []
+    if content is not None:
+      fields.append("content = ?")
+      params.append(content)
+    if category is not None:
+      fields.append("category = ?")
+      params.append(category)
+    if importance is not None:
+      fields.append("importance = ?")
+      params.append(importance)
+
+    async with aiosqlite.connect(settings.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+
+        if fields:
+          params.append(memory_id)
+          await db.execute(
+              f"UPDATE memories SET {', '.join(fields)} WHERE id = ?",
+              params
+          )
+          await db.commit()
+
+        cursor = await db.execute(
+            "SELECT * FROM memories WHERE id = ?", (memory_id,)
+        )
+        row = await cursor.fetchone()
+        updated = dict(row) if row else None
+
+    # Re-embed only on a genuine content change - category/importance-only
+    # edits don't invalidate the existing embedding.
+    if updated and content is not None:
+      await vector_store.upsert_memory(
+        memory_id, updated["content"], updated["category"], updated["importance"]
+      )
+    return updated
+
   async def delete_memory(
     self, memory_id: str
   ) -> bool:
@@ -132,7 +230,9 @@ class MemoryManager:
         cursor = await db.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
         deleted = cursor.rowcount > 0
         await db.commit()
-        return deleted
+    if deleted:
+      await vector_store.delete_memory(memory_id)
+    return deleted
 
   async def extract_and_save_memories(
     self,

@@ -1,3 +1,4 @@
+import contextlib
 import numpy as np
 import sounddevice as sd
 import threading
@@ -7,6 +8,33 @@ import os
 from pathlib import Path
 from openwakeword.model import Model
 from .audio_level_bus import push_level
+
+
+@contextlib.contextmanager
+def _force_cpu_onnx():
+  """Temporarily strip CUDAExecutionProvider from onnxruntime sessions.
+
+  openWakeWord hardcodes providers=["CUDAExecutionProvider", "CPUExecutionProvider"]
+  for its melspec/embedding preprocessor models with no way to override this
+  via its public API. See USE_GPU_WAKEWORD in core/config.py for why this
+  stays CPU by default (tiny model, already fast, saves VRAM for
+  Whisper/Kokoro on a 4GB card)."""
+  import onnxruntime as ort
+
+  orig_init = ort.InferenceSession.__init__
+
+  def _patched_init(self, *args, **kwargs):
+    if kwargs.get("providers"):
+      kwargs["providers"] = [
+        p for p in kwargs["providers"] if p != "CUDAExecutionProvider"
+      ]
+    return orig_init(self, *args, **kwargs)
+
+  ort.InferenceSession.__init__ = _patched_init
+  try:
+    yield
+  finally:
+    ort.InferenceSession.__init__ = orig_init
 
 class WakeWordDetector:
   def __init__(
@@ -82,13 +110,29 @@ class WakeWordDetector:
         
     _t = time.time()
     try:
-        # Load the ONNX model
-        self.model = Model(
-          wakeword_model_paths=[self.model_path],
-          enable_speex_noise_suppression=False,
-          vad_threshold=0
+        # Load the ONNX model. The wakeword classification head always runs
+        # on CPUExecutionProvider (openWakeWord hardcodes this); only the
+        # melspec/embedding preprocessor models are eligible for CUDA. Gated
+        # by USE_GPU_WAKEWORD - default off, see core/config.py.
+        use_gpu_wakeword = getattr(settings, "USE_GPU_WAKEWORD", False)
+        if use_gpu_wakeword:
+          self.model = Model(
+            wakeword_model_paths=[self.model_path],
+            enable_speex_noise_suppression=False,
+            vad_threshold=0
+          )
+        else:
+          with _force_cpu_onnx():
+            self.model = Model(
+              wakeword_model_paths=[self.model_path],
+              enable_speex_noise_suppression=False,
+              vad_threshold=0
+            )
+        provider = self.model.preprocessor.onnx_execution_provider
+        print(
+          f"Wake word model loaded successfully "
+          f"[provider={provider}] [{time.time() - _t:.2f}s]"
         )
-        print(f"Wake word model loaded successfully [{time.time() - _t:.2f}s]")
         print(f"Models: {list(self.model.models.keys())}")
     except Exception as e:
         print(f"Warning: Failed to load wake word model: {e} [{time.time() - _t:.2f}s]")

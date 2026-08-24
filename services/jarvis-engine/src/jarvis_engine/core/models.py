@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Literal
 
 class Message(BaseModel):
@@ -46,6 +46,13 @@ class CreateMemoryRequest(BaseModel):
     content: str
     category: str = "general"
     importance: int = 5
+
+class UpdateMemoryRequest(BaseModel):
+    # All fields optional - PUT only changes whatever is provided, existing
+    # values are kept for anything omitted.
+    content: str | None = None
+    category: str | None = None
+    importance: int | None = Field(default=None, ge=1, le=10)
 
 class SearchResult(BaseModel):
     title: str

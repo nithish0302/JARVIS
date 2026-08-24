@@ -8,6 +8,68 @@ import time
 from typing import Optional
 import numpy as np
 
+
+# --- Diagnostic instrumentation (Phase 6 TTS latency investigation) -------
+# Reports where wall-clock time actually goes inside a synthesis call, and
+# whether the process is faulting pages back in from disk while it happens.
+# Pure measurement: nothing here changes synthesis behaviour.
+
+def _mem_probe() -> dict:
+  """System RAM load + this process's cumulative hard/soft page-fault count.
+  A large PageFaultCount delta across a slow call means the process is
+  being served from the pagefile rather than RAM."""
+  out = {"ram_pct": -1, "avail_mb": -1, "faults": -1, "ws_mb": -1}
+  try:
+    import ctypes
+
+    class _MEMSTATUS(ctypes.Structure):
+      _fields_ = [
+        ("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong),
+        ("ullTotalPhys", ctypes.c_ulonglong), ("ullAvailPhys", ctypes.c_ulonglong),
+        ("ullTotalPageFile", ctypes.c_ulonglong), ("ullAvailPageFile", ctypes.c_ulonglong),
+        ("ullTotalVirtual", ctypes.c_ulonglong), ("ullAvailVirtual", ctypes.c_ulonglong),
+        ("sullAvailExtendedVirtual", ctypes.c_ulonglong),
+      ]
+
+    st = _MEMSTATUS()
+    st.dwLength = ctypes.sizeof(_MEMSTATUS)
+    ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(st))
+    out["ram_pct"] = st.dwMemoryLoad
+    out["avail_mb"] = int(st.ullAvailPhys / (1024 * 1024))
+
+    class _PMC(ctypes.Structure):
+      _fields_ = [
+        ("cb", ctypes.c_ulong), ("PageFaultCount", ctypes.c_ulong),
+        ("PeakWorkingSetSize", ctypes.c_size_t), ("WorkingSetSize", ctypes.c_size_t),
+        ("QuotaPeakPagedPoolUsage", ctypes.c_size_t), ("QuotaPagedPoolUsage", ctypes.c_size_t),
+        ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t), ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+        ("PagefileUsage", ctypes.c_size_t), ("PeakPagefileUsage", ctypes.c_size_t),
+      ]
+
+    from ctypes import wintypes
+
+    pmc = _PMC()
+    pmc.cb = ctypes.sizeof(_PMC)
+    k32 = ctypes.windll.kernel32
+    # GetCurrentProcess returns the pseudo-handle (HANDLE)-1; without an
+    # explicit restype/argtypes ctypes tries to marshal it as a C int and
+    # raises "int too long to convert".
+    k32.GetCurrentProcess.restype = wintypes.HANDLE
+    # K32GetProcessMemoryInfo (kernel32) is the modern export; the older
+    # psapi.dll name isn't always resolvable, so try both.
+    fn = getattr(k32, "K32GetProcessMemoryInfo", None)
+    if fn is None:
+      fn = ctypes.windll.psapi.GetProcessMemoryInfo
+    fn.argtypes = [wintypes.HANDLE, ctypes.POINTER(_PMC), ctypes.c_ulong]
+    fn.restype = wintypes.BOOL
+    if fn(k32.GetCurrentProcess(), ctypes.byref(pmc), pmc.cb):
+      out["faults"] = pmc.PageFaultCount
+      out["ws_mb"] = int(pmc.WorkingSetSize / (1024 * 1024))
+  except Exception:
+    pass
+  return out
+
+
 class TTSEngine:
   def __init__(self):
     self._is_speaking = False
@@ -35,7 +97,21 @@ class TTSEngine:
     # playback start instead of the speak_sync() call itself, which can
     # precede audible audio by seconds (Kokoro TTFB).
     self._on_speech_start = None
-    
+    # Callback invoked the moment is_speaking flips True -> False, i.e. the
+    # instant playback genuinely finishes. speak_sync()'s on_speech_end
+    # param sets this so callers (e.g. the post-wake-word recording window)
+    # can anchor a timeout to real playback completion instead of to
+    # whenever they happened to call speak_sync() or join() a synthesis
+    # thread with a fixed timeout - which drifts on a slow synthesis call.
+    self._on_speech_end = None
+    # DIAGNOSTIC: synthesis sequence counter + in-flight flag, used to
+    # detect whether two speak_sync() calls overlap on the shared engine
+    # state (audio_queue / stop_event / persistent OutputStream).
+    self._synth_seq = 0
+    self._synth_active = False
+    self._synth_active_seq = 0
+    self._diag_seq_current = 0
+
     self.audio_queue = queue.Queue()
     self.current_chunk: Optional[np.ndarray] = None
     self.chunk_offset = 0
@@ -108,9 +184,28 @@ class TTSEngine:
       try:
         from kokoro import KPipeline
         print(f"[TIMING] kokoro import: {time.time() - _t_kokoro:.2f}s")
+
+        device = "cpu"
+        try:
+          from jarvis_engine.core.config import settings as _settings
+          if getattr(_settings, "USE_GPU", True):
+            import torch
+            if torch.cuda.is_available():
+              device = "cuda"
+        except Exception as e:
+          print(f"[TTS] GPU check failed, using CPU: {e}")
+
         _t_kpipeline = time.time()
-        self.kokoro_pipeline = KPipeline(lang_code='a')
-        print(f"[TIMING] KPipeline(lang_code='a') construction: {time.time() - _t_kpipeline:.2f}s")
+        try:
+          self.kokoro_pipeline = KPipeline(lang_code='a', device=device)
+        except Exception as e:
+          if device == "cuda":
+            print(f"[TTS] Kokoro CUDA init failed ({e}), retrying on CPU")
+            device = "cpu"
+            self.kokoro_pipeline = KPipeline(lang_code='a', device=device)
+          else:
+            raise
+        print(f"[TIMING] KPipeline(lang_code='a', device={device!r}) construction: {time.time() - _t_kpipeline:.2f}s")
         print(f"[TTS] Kokoro TTS ready (voice: {self.kokoro_voice}) [total {time.time() - _t_kokoro:.2f}s]")
         self.kokoro_ready.set()
 
@@ -143,6 +238,11 @@ class TTSEngine:
     # extend past it by the configured buffer.
     if self._is_speaking and not value:
       self.last_speech_end_time = time.time()
+      if self._on_speech_end is not None:
+        try:
+          self._on_speech_end()
+        except Exception:
+          pass
     # Record the moment playback actually starts so the barge-in grace
     # period is measured from audible speech, not from the speak() call.
     if value and not self._is_speaking:
@@ -170,11 +270,19 @@ class TTSEngine:
       gen_error = None
       first_chunk_logged = False
       generation_finished = threading.Event()
+      seq = self._diag_seq_current
+      t_gen_enter = time.time()
+      diag = {"t_pipeline_call": None, "t_first_chunk": None, "chunks": 0}
 
       def generator_thread():
         nonlocal gen_error, first_chunk_logged
         try:
-          for result in self.kokoro_pipeline(clean, voice=self.kokoro_voice, speed=1.0):
+          # Time the KPipeline __call__ itself (model setup / graph build)
+          # separately from iterating it (actual inference per chunk).
+          t0 = time.time()
+          gen = self.kokoro_pipeline(clean, voice=self.kokoro_voice, speed=1.0)
+          diag["t_pipeline_call"] = time.time() - t0
+          for result in gen:
             if self.stop_requested or self.stop_event.is_set():
               break
 
@@ -193,9 +301,20 @@ class TTSEngine:
               self.is_speaking = True
               first_chunk_logged = True
               ttfb = (time.time() - self.speak_start_time) * 1000
+              diag["t_first_chunk"] = time.time() - t_gen_enter
               print(f"[TTS][Kokoro] Time to first audio: {ttfb:.1f}ms")
+              print(
+                f"[TTS][DIAG#{seq}] generation: "
+                f"pipeline_call={1000*(diag['t_pipeline_call'] or 0):.1f}ms "
+                f"first_chunk_inference={1000*diag['t_first_chunk']:.1f}ms"
+              )
 
+            diag["chunks"] += 1
+            t_q = time.time()
             self.audio_queue.put(audio_arr)
+            q_ms = 1000 * (time.time() - t_q)
+            if q_ms > 5:
+              print(f"[TTS][DIAG#{seq}] slow queue.put: {q_ms:.1f}ms")
         except Exception as e:
           gen_error = e
         finally:
@@ -217,6 +336,10 @@ class TTSEngine:
 
       if not self.stop_requested and not self.stop_event.is_set() and not gen_error:
         print("[TTS] Playback complete")
+        print(
+          f"[TTS][DIAG#{seq}] drain: gen+playback={1000*(time.time()-t_gen_enter):.1f}ms "
+          f"chunks={diag['chunks']}"
+        )
       return True if first_chunk_logged or not gen_error else False
     except Exception as e:
       print(f"[TTS] Kokoro execution error: {e}")
@@ -315,7 +438,12 @@ class TTSEngine:
     finally:
       self.is_speaking = False
 
-  def speak_sync(self, text: str, on_speech_start: Optional[callable] = None):
+  def speak_sync(
+    self,
+    text: str,
+    on_speech_start: Optional[callable] = None,
+    on_speech_end: Optional[callable] = None
+  ):
     if not text or not text.strip():
       return
 
@@ -323,20 +451,56 @@ class TTSEngine:
     if not clean:
       return
 
+    # --- DIAGNOSTIC: phase timing + overlap detection ---
+    self._synth_seq += 1
+    seq = self._synth_seq
+    t_call = time.time()
+    mem_before = _mem_probe()
+    # Was a previous synthesis still in flight when this call arrived?
+    overlapped = self._synth_active
+    if overlapped:
+      print(
+        f"[TTS][DIAG#{seq}] OVERLAP: another synthesis was still active "
+        f"when speak_sync() was called (prev seq {self._synth_active_seq})"
+      )
+    self._synth_active = True
+    self._synth_active_seq = seq
+
     self.stop()
+    t_after_stop = time.time()
+
     self.stop_requested = False
     self.stop_event.clear()
     self.speak_start_time = time.time()
     self._on_speech_start = on_speech_start
+    self._on_speech_end = on_speech_end
+    self._diag_seq_current = seq
 
     try:
       if not self.kokoro_ready.is_set():
         print("[TTS] Kokoro still warming up, waiting...")
         self.kokoro_ready.wait(timeout=30)
+      t_after_ready = time.time()
 
       if self.kokoro_pipeline is not None and self.stream is not None:
         print(f"[TTS] Engine: Kokoro | Speaking: {clean[:60]}...")
+        print(
+          f"[TTS][DIAG#{seq}] phase: stop()={1000*(t_after_stop-t_call):.1f}ms "
+          f"kokoro_ready_wait={1000*(t_after_ready-t_after_stop):.1f}ms | "
+          f"chars={len(clean)} overlap={overlapped} | "
+          f"RAM {mem_before['ram_pct']}% avail={mem_before['avail_mb']}MB "
+          f"ws={mem_before['ws_mb']}MB faults={mem_before['faults']}"
+        )
         success = self._speak_sync_kokoro(clean)
+        mem_after = _mem_probe()
+        if mem_before["faults"] >= 0 and mem_after["faults"] >= 0:
+          d_faults = mem_after["faults"] - mem_before["faults"]
+          print(
+            f"[TTS][DIAG#{seq}] total={1000*(time.time()-t_call):.1f}ms | "
+            f"page_faults_during_call={d_faults} | "
+            f"ws {mem_before['ws_mb']}MB -> {mem_after['ws_mb']}MB | "
+            f"RAM {mem_after['ram_pct']}% avail={mem_after['avail_mb']}MB"
+          )
         if success:
           return
         print("[TTS] Kokoro playback failed, falling back to edge-tts")
@@ -345,6 +509,8 @@ class TTSEngine:
       self._speak_sync_edge_tts(clean)
     finally:
       self._on_speech_start = None
+      self._on_speech_end = None
+      self._synth_active = False
 
   def stop(self):
     self.stop_requested = True

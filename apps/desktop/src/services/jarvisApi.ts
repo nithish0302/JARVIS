@@ -78,9 +78,9 @@ export async function getConversations(): Promise<any[]> {
   return response.json()
 }
 
-export async function deleteConversation(conversationId: string): Promise<void> {
+export async function deleteConversation(conversationId: string, pin: string): Promise<void> {
   const response = await window.fetch(
-    `${JARVIS_ENGINE_URL}/conversation/${conversationId}`,
+    `${JARVIS_ENGINE_URL}/conversation/${conversationId}?pin=${encodeURIComponent(pin)}`,
     { method: "DELETE" }
   )
   if (!response.ok) {
@@ -193,6 +193,17 @@ export async function sendMessageStream(
   }
 }
 
+export async function getMemories(): Promise<any[]> {
+  try {
+    const response = await window.fetch(`${JARVIS_ENGINE_URL}/memories`)
+    if (!response.ok) return []
+    const memories = await response.json()
+    return Array.isArray(memories) ? memories : []
+  } catch {
+    return []
+  }
+}
+
 export async function getMemoryCount(): Promise<number> {
   try {
     const response = await window.fetch(`${JARVIS_ENGINE_URL}/memories`)
@@ -201,6 +212,44 @@ export async function getMemoryCount(): Promise<number> {
     return Array.isArray(memories) ? memories.length : 0
   } catch {
     return 0
+  }
+}
+
+export interface MemoryItem {
+  id: string;
+  content: string;
+  category: string;
+  importance: number;
+  created_at: string;
+  last_accessed: string;
+  access_count: number;
+  source_conversation_id: string | null;
+}
+
+export async function updateMemory(
+  memoryId: string,
+  updates: { content?: string; category?: string; importance?: number }
+): Promise<MemoryItem> {
+  const response = await window.fetch(`${JARVIS_ENGINE_URL}/memories/${memoryId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(updates),
+  })
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}))
+    throw new Error(errorData.detail || "Failed to update memory")
+  }
+  return response.json()
+}
+
+export async function deleteMemory(memoryId: string, pin: string): Promise<void> {
+  const response = await window.fetch(
+    `${JARVIS_ENGINE_URL}/memories/${memoryId}?pin=${encodeURIComponent(pin)}`,
+    { method: "DELETE" }
+  )
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}))
+    throw new Error(errorData.detail || "Failed to delete memory")
   }
 }
 

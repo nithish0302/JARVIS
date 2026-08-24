@@ -8,7 +8,7 @@ import json as json_module
 from typing import List, Set
 import aiosqlite
 
-from ..core.models import ChatRequest, ChatResponse, HealthResponse, Message, Memory, CreateMemoryRequest
+from ..core.models import ChatRequest, ChatResponse, HealthResponse, Message, Memory, CreateMemoryRequest, UpdateMemoryRequest
 from ..core.config import settings
 from ..core.database import get_setting, set_setting
 from ..providers.manager import provider_manager
@@ -2527,8 +2527,17 @@ async def get_conversation_endpoint(conversation_id: str):
     return [msg for msg in messages if msg.role != "system"]
 
 @router.delete("/conversation/{conversation_id}")
-async def delete_conversation_endpoint(conversation_id: str):
-    await delete_conversation(conversation_id)
+async def delete_conversation_endpoint(conversation_id: str, pin: str = ""):
+    # Same server-side check as DELETE /memories/{id} - same stored
+    # conversation_delete_pin setting, same comparison - not a client-side
+    # comparison the frontend could be tricked into skipping.
+    stored_pin = await get_setting("conversation_delete_pin", settings.CONVERSATION_DELETE_PIN)
+    if str(pin).strip() != stored_pin:
+        raise HTTPException(status_code=403, detail="Invalid PIN")
+
+    deleted = await delete_conversation(conversation_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Conversation not found")
     return {"status": "deleted", "conversation_id": conversation_id}
 
 class UpdateTitleRequest(BaseModel):
@@ -2580,9 +2589,31 @@ async def create_memory_endpoint(request: CreateMemoryRequest):
         source_conversation_id=None
     )
 
+@router.put("/memories/{memory_id}", response_model=Memory)
+async def update_memory_endpoint(memory_id: str, request: UpdateMemoryRequest):
+    updated = await memory_manager.update_memory(
+        memory_id,
+        content=request.content,
+        category=request.category,
+        importance=request.importance
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Memory not found")
+    return updated
+
 @router.delete("/memories/{memory_id}")
-async def delete_memory_endpoint(memory_id: str):
+async def delete_memory_endpoint(memory_id: str, pin: str = ""):
+    # Same server-side check as /settings/verify-pin - same stored
+    # conversation_delete_pin setting, same comparison - not a separate
+    # memory-specific PIN and not a client-side comparison the frontend
+    # could be tricked into skipping.
+    stored_pin = await get_setting("conversation_delete_pin", settings.CONVERSATION_DELETE_PIN)
+    if str(pin).strip() != stored_pin:
+        raise HTTPException(status_code=403, detail="Invalid PIN")
+
     deleted = await memory_manager.delete_memory(memory_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Memory not found")
     return {"deleted": deleted}
 
 @router.get("/memories/search", response_model=List[Memory])

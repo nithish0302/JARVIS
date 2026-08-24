@@ -17,7 +17,22 @@ class Settings(BaseSettings):
     GEMINI_MODEL: str = "gemini-3.6-flash"
     WAKE_WORD_MODEL_PATH: str = "models/wake_up_jarvis.onnx"
     DB_PATH: str = "data/jarvis.db"
+    # Persistent ChromaDB store for memory embeddings (Phase 7 M3) - lives
+    # next to jarvis.db under data/, SQLite stays the source of truth for
+    # content/metadata, this is purely a similarity-search index.
+    CHROMA_PATH: str = "data/chroma"
     VERSION: str = "0.1.0"
+
+    # GPU acceleration (NVIDIA CUDA) for the voice pipeline. Set false to
+    # force everything back onto CPU without a code change - e.g. if the
+    # GPU build proves unstable or another process needs the VRAM.
+    USE_GPU: bool = True
+    # Wake-word (openWakeWord) inference is tiny and already fast on CPU
+    # (sub-second model load, real-time detection). On a 4GB card it's not
+    # worth spending VRAM on - keeping it on CPU leaves more headroom for
+    # Whisper + Kokoro. Independent of USE_GPU so it can be flipped on its
+    # own if a future card has VRAM to spare.
+    USE_GPU_WAKEWORD: bool = False
 
     # TTS Configuration
     EDGE_TTS_VOICE: str = "en-US-AndrewMultilingualNeural"

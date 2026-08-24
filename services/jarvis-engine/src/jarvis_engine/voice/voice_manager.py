@@ -48,6 +48,53 @@ VOICE_COMMAND_MAP = {
   "battery status": ("system_query", "battery"),
 }
 
+def _register_cuda_dll_dirs():
+  """faster-whisper's CTranslate2 backend links against cuBLAS/cuDNN by a
+  CUDA-12-specific filename (cublas64_12.dll, cudnn64_9.dll) regardless of
+  the driver's own CUDA version. Without this, WhisperModel(device="cuda")
+  *constructs* successfully but fails the moment it actually runs inference
+  ("cublas64_12.dll is not found").
+
+  os.add_dll_directory() does NOT fix this - CTranslate2's native extension
+  loads these libraries in a way that only honors PATH, not the
+  AddDllDirectory-registered search list. Prepending to PATH is the only
+  approach verified to work here.
+
+  cuBLAS comes from the nvidia-cublas-cu12 pip package (cublas64_12.dll -
+  no naming collision with torch's own cublas64_13.dll). cuDNN deliberately
+  does NOT come from a separate nvidia-cudnn-cu12 package: that DLL is
+  named cudnn64_9.dll in EVERY nvidia-cudnn-cu* package regardless of CUDA
+  major version, identical to the name torch already bundles under
+  torch/lib. Installing a second, differently-built copy causes Kokoro's
+  torch CUDA calls to intermix DLLs from both installs mid-process
+  ("CUDNN_STATUS_SUBLIBRARY_VERSION_MISMATCH"). Pointing CTranslate2 at
+  torch's own torch/lib instead gives both consumers the same, internally
+  consistent cuDNN build."""
+  if os.name != "nt":
+    return
+  try:
+    import importlib.util
+    dirs = []
+    spec = importlib.util.find_spec("nvidia.cublas")
+    if spec and spec.submodule_search_locations:
+      for loc in spec.submodule_search_locations:
+        bin_dir = os.path.join(loc, "bin")
+        if os.path.isdir(bin_dir):
+          dirs.append(bin_dir)
+
+    torch_spec = importlib.util.find_spec("torch")
+    if torch_spec and torch_spec.submodule_search_locations:
+      for loc in torch_spec.submodule_search_locations:
+        lib_dir = os.path.join(loc, "lib")
+        if os.path.isdir(lib_dir):
+          dirs.append(lib_dir)
+
+    if dirs:
+      os.environ["PATH"] = os.pathsep.join(dirs) + os.pathsep + os.environ.get("PATH", "")
+  except Exception as e:
+    print(f"[VOICE] Failed to register CUDA DLL directories: {e}")
+
+
 def execute_voice_command(text: str) -> str | None:
   """Try to execute a direct voice command. Returns response if handled, None if not."""
   msg = text.lower().strip().rstrip(".,!?")
@@ -181,20 +228,48 @@ class VoiceManager:
 
     def _load_whisper():
       _t_whisper = time.time()
-      try:
-        from faster_whisper import WhisperModel
-        print("Loading Whisper model in background...")
-        self.whisper_model = WhisperModel(
-          "small.en",
-          device="cpu",
-          compute_type="int8"
-        )
-        print(f"Whisper model ready! [{time.time() - _t_whisper:.2f}s]")
-      except Exception as e:
-        print(f"Whisper load failed: {e} [{time.time() - _t_whisper:.2f}s]")
-        self.whisper_model = None
-      finally:
-        self.whisper_ready.set()
+      if settings.USE_GPU:
+        _register_cuda_dll_dirs()
+      from faster_whisper import WhisperModel
+      print("Loading Whisper model in background...")
+
+      # GPU path: try float16 first, then int8 on the same device (some
+      # cards/driver combos choke on fp16 kernels), then fall back to CPU
+      # entirely if CUDA init fails. Log which path actually loaded so it's
+      # diagnosable in the field, not just at implementation time.
+      attempts = []
+      if settings.USE_GPU:
+        attempts.append(("cuda", "float16"))
+        attempts.append(("cuda", "int8_float16"))
+      attempts.append(("cpu", "int8"))
+
+      for device, compute_type in attempts:
+        try:
+          model = WhisperModel(
+            "small.en",
+            device=device,
+            compute_type=compute_type
+          )
+          # Construction alone doesn't prove the device works - CTranslate2
+          # loads cuBLAS/cuDNN lazily, so a missing DLL or incompatible
+          # kernel only surfaces on the first real inference. Run one to
+          # actually validate this attempt before committing to it.
+          list(model.transcribe(
+            np.zeros(16000, dtype=np.float32), language="en"
+          )[0])
+          self.whisper_model = model
+          print(
+            f"Whisper model ready! device={device} "
+            f"compute_type={compute_type} [{time.time() - _t_whisper:.2f}s]"
+          )
+          break
+        except Exception as e:
+          print(f"Whisper load failed on device={device} compute_type={compute_type}: {e}")
+          self.whisper_model = None
+      else:
+        print(f"Whisper load failed on all devices [{time.time() - _t_whisper:.2f}s]")
+
+      self.whisper_ready.set()
 
     def _load_wake_word():
       _t_wake = time.time()
@@ -238,19 +313,31 @@ class VoiceManager:
 
       from .tts_engine import tts_engine
 
+      # Set the instant "Yes sir?" playback genuinely finishes (is_speaking
+      # True -> False), not when this thread happens to be joined or timed
+      # out. The recording thread below starts immediately in parallel - it
+      # does NOT wait on this event before opening the mic, only before
+      # starting its own wait_for_speech_timeout countdown (see
+      # SpeechRecorder.record).
+      tts_finished_event = threading.Event()
+
       def say_yes():
-        tts_engine.speak_sync("Yes sir?")
+        tts_engine.speak_sync(
+          "Yes sir?",
+          on_speech_end=tts_finished_event.set
+        )
 
       t = threading.Thread(target=say_yes, daemon=True)
       t.start()
-      t.join(timeout=3)  # Wait for "Yes sir?" to finish before recording
 
       print("[VOICE] Recording command...")
 
       def process_voice():
           try:
-            # Record speech
-            audio = self.speech_recorder.record()
+            # Record speech - mic opens immediately, in parallel with
+            # "Yes sir?" still playing; only the no-speech timeout waits on
+            # tts_finished_event.
+            audio = self.speech_recorder.record(tts_finished_event=tts_finished_event)
 
             if len(audio) > 0:
               # Transcribe with faster-whisper

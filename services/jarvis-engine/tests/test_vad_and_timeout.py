@@ -66,6 +66,58 @@ def test_speech_recorder_no_speech_timeout():
     print(f"\n[TEST 2] Continuous silence returned audio length: {len(audio)}")
     assert len(audio) == 0, "Continuous silence should return empty array"
 
+def test_speech_recorder_timeout_anchors_to_tts_finished_event():
+    """wait_for_speech_timeout must not start counting down until
+    tts_finished_event is set (real 'Yes sir?' playback completion) - not
+    from whenever record() happened to be called. A slow TTS call should
+    not silently eat into the user's real window to respond."""
+
+    recorder = SpeechRecorder(
+        sample_rate=16000,
+        silence_threshold=0.01,
+        silence_duration=1.5,
+        wait_for_speech_timeout=6.0,
+        max_duration=30.0
+    )
+
+    silence_chunk = np.full((1024, 1), 0.001, dtype=np.float32)
+    event = threading.Event()  # unset = TTS still speaking
+
+    call_count = {"n": 0}
+    # Old frame-count-from-record-start behavior would give up after ~93
+    # chunks (6s @ 15.625 chunks/sec). Simulate a slow TTS call still
+    # playing well past that point before "finishing".
+    tts_finish_at_call = 150
+
+    def read_side_effect(size):
+        call_count["n"] += 1
+        if call_count["n"] == tts_finish_at_call:
+            event.set()
+        return (silence_chunk, None)
+
+    mock_stream = MagicMock()
+    mock_stream.read.side_effect = read_side_effect
+
+    with patch("sounddevice.InputStream") as mock_input_stream:
+        mock_input_stream.return_value.__enter__.return_value = mock_stream
+        audio = recorder.record(tts_finished_event=event)
+
+    assert len(audio) == 0, "Should still give up once TTS is done and 6s of silence passes"
+
+    # The call that flips the event also counts as the first post-TTS wait
+    # frame (the event is already set by the time this method checks it),
+    # so the give-up call is tts_finish_at_call + max_wait_frames - 1.
+    max_wait_frames = int(6.0 * (16000 // 1024))
+    assert call_count["n"] >= tts_finish_at_call + max_wait_frames - 1, (
+        f"Timeout fired before the post-TTS-completion countdown elapsed: "
+        f"{call_count['n']} calls"
+    )
+    # And well past where the OLD from-record-start counting would have
+    # given up (~max_wait_frames calls in) - proving the clock really did
+    # wait for TTS completion rather than starting immediately.
+    assert call_count["n"] > max_wait_frames + 50
+
+
 def test_empty_transcription_feedback():
     """Test that empty audio or empty transcription correctly triggers fallback
     status broadcasts and does not leave the pipeline hanging."""

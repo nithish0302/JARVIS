@@ -10,6 +10,7 @@ describe("SettingsSidebar", () => {
     );
 
     expect(screen.getByText("AI Provider")).toBeInTheDocument();
+    expect(screen.getByText("Personality")).toBeInTheDocument();
     expect(screen.getByText("Appearance")).toBeInTheDocument();
     expect(screen.getByText("About")).toBeInTheDocument();
   });
@@ -27,5 +28,20 @@ describe("SettingsSidebar", () => {
 
     await user.click(screen.getByText("Appearance"));
     expect(onSectionSelect).toHaveBeenCalledWith("appearance");
+  });
+
+  it("navigates to the Personality tab", async () => {
+    const onSectionSelect = vi.fn();
+    const user = userEvent.setup();
+
+    render(
+      <SettingsSidebar
+        activeSection="ai-provider"
+        onSectionSelect={onSectionSelect}
+      />
+    );
+
+    await user.click(screen.getByText("Personality"));
+    expect(onSectionSelect).toHaveBeenCalledWith("personality");
   });
 });

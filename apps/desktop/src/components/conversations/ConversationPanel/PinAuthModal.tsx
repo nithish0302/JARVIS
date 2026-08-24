@@ -7,9 +7,12 @@ interface PinAuthModalProps {
   // eslint-disable-next-line no-unused-vars
   onConfirm: (val: string) => Promise<void>;
   isOpen: boolean;
+  // What the description line says is being deleted, e.g. "conversation" or
+  // "memory". Defaults to "conversation" so the existing call site is unaffected.
+  itemLabel?: string;
 }
 
-export function PinAuthModal({ onCancel, onConfirm, isOpen }: PinAuthModalProps) {
+export function PinAuthModal({ onCancel, onConfirm, isOpen, itemLabel = "conversation" }: PinAuthModalProps) {
   const [pin, setPin] = useState('');
   const [error, setError] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -84,7 +87,7 @@ export function PinAuthModal({ onCancel, onConfirm, isOpen }: PinAuthModalProps)
           <div className="pin-divider"></div>
           
           <p className="pin-desc">
-            Please enter the security PIN to <b>delete this conversation</b>.
+            Please enter the security PIN to <b>delete this {itemLabel}</b>.
           </p>
           
           <div className="pin-label-text">4-Digit PIN</div>

@@ -30,8 +30,30 @@ export interface AppState {
   isCharging: boolean;
   setGraphMode: (mode: "2d" | "3d") => void;
   setIsCharging: (charging: boolean) => void;
-  voiceActive: boolean;
-  setVoiceActive: (active: boolean) => void;
+  commandPaletteOpen: boolean;
+  setCommandPaletteOpen: (open: boolean) => void;
+  // Incrementing token rather than a boolean flag: ConversationPanel
+  // watches it in an effect and focuses its search input on every change,
+  // so pressing Ctrl+F repeatedly re-focuses instead of latching once.
+  conversationSearchFocusToken: number;
+  requestConversationSearchFocus: () => void;
+  // Separate from actionFeedback (which only renders inside the Orb, and
+  // so is invisible in settings view) - this one renders at App level so
+  // shortcut confirmations show up from anywhere.
+  shortcutToast: string;
+  shortcutToastVisible: boolean;
+  showShortcutToast: (message: string) => void;
+  // Full memory record for the leaf last clicked in the memories hub - the
+  // Inspector panel reads this to show/edit it. Cleared whenever a
+  // different hub or leaf is selected.
+  selectedMemory: Record<string, any> | null;
+  setSelectedMemory: (memory: Record<string, any> | null) => void;
+  deletingMemoryId: string | null;
+  setDeletingMemoryId: (id: string | null) => void;
+  // Bumped after an edit/delete so GraphCanvas's memory-fetch effect
+  // re-runs and the hub's leaves reflect the change immediately.
+  memoriesVersion: number;
+  bumpMemoriesVersion: () => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -77,6 +99,29 @@ export const useAppStore = create<AppState>((set) => ({
   isCharging: true,
   setGraphMode: (mode) => set({ graphMode: mode }),
   setIsCharging: (charging) => set({ isCharging: charging }),
-  voiceActive: false,
-  setVoiceActive: (active) => set({ voiceActive: active }),
+  commandPaletteOpen: false,
+  setCommandPaletteOpen: (open) => set({ commandPaletteOpen: open }),
+  conversationSearchFocusToken: 0,
+  requestConversationSearchFocus: () =>
+    set((state) => ({
+      conversationSearchFocusToken: state.conversationSearchFocusToken + 1,
+    })),
+  shortcutToast: "",
+  shortcutToastVisible: false,
+  showShortcutToast: (message) => {
+    if ((window as any)._shortcutToastTimer) {
+      clearTimeout((window as any)._shortcutToastTimer);
+    }
+    set({ shortcutToast: message, shortcutToastVisible: true });
+    (window as any)._shortcutToastTimer = setTimeout(() => {
+      set({ shortcutToast: "", shortcutToastVisible: false });
+      (window as any)._shortcutToastTimer = null;
+    }, 2000);
+  },
+  selectedMemory: null,
+  setSelectedMemory: (memory) => set({ selectedMemory: memory }),
+  deletingMemoryId: null,
+  setDeletingMemoryId: (id) => set({ deletingMemoryId: id }),
+  memoriesVersion: 0,
+  bumpMemoriesVersion: () => set((state) => ({ memoriesVersion: state.memoriesVersion + 1 })),
 }));
