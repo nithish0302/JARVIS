@@ -82,6 +82,26 @@ class Settings(BaseSettings):
     # self-echo but below deliberate speech.
     TTS_INTERRUPT_LEVEL_THRESHOLD: float = 0.18
 
+    # Phrase-based interrupts: checked against the FINAL Whisper transcript
+    # of an open recording window (see voice_manager.py), case-insensitively,
+    # matching if the transcript IS the phrase or STARTS WITH it followed by
+    # a word boundary (so "stop please" / "wake up jarvis wake up jarvis"
+    # still count, but "stopwatch" doesn't). This is separate from - and
+    # complements - TTS_INTERRUPT_LEVEL_THRESHOLD above: that one detects
+    # ANY sufficiently loud speech as "interrupt me", this one recognizes
+    # SPECIFIC phrases regardless of loudness and decides what to do next.
+    #
+    # WAKE_PHRASE is split out from INTERRUPT_PHRASES because it behaves
+    # differently on match: it starts a genuinely fresh wake cycle (new
+    # "Yes sir?" + new recording window), the same effect saying it to the
+    # wake-word MODEL would have - that model is deliberately muted during
+    # TTS (prevents self-echo re-triggering), so this transcript-level
+    # check is the only way to reach the same effect while JARVIS is
+    # talking. The rest of INTERRUPT_PHRASES just stop playback and return
+    # to idle/listening - no new acknowledgment.
+    WAKE_PHRASE: str = "wake up jarvis"
+    INTERRUPT_PHRASES: list[str] = ["stop", "wait", "cancel", "never mind", "hold on"]
+
     # Personality and Modifier Defaults
     PERSONALITY_MODE: str = "assistant"
     MODIFIER: str = "none"

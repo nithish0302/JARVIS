@@ -5,6 +5,7 @@ import re
 import tempfile
 import threading
 import time
+import traceback
 from typing import Optional
 import numpy as np
 
@@ -220,6 +221,7 @@ class TTSEngine:
       except (ImportError, RuntimeError, Exception) as e:
         self.kokoro_pipeline = None
         print(f"[TTS] Kokoro TTS init failed: {e}. Falling back to edge-tts. [{time.time() - _t_kokoro:.2f}s]")
+        traceback.print_exc()
         self.kokoro_ready.set()
 
     threading.Thread(target=_load_kokoro, daemon=True, name="kokoro-loader").start()

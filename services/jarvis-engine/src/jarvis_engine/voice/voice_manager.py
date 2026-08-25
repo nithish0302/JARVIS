@@ -1,4 +1,5 @@
 import numpy as np
+import re
 import threading
 import tempfile
 import os
@@ -93,6 +94,30 @@ def _register_cuda_dll_dirs():
       os.environ["PATH"] = os.pathsep.join(dirs) + os.pathsep + os.environ.get("PATH", "")
   except Exception as e:
     print(f"[VOICE] Failed to register CUDA DLL directories: {e}")
+
+
+def _matches_interrupt_phrase(normalized_text: str, phrase: str) -> bool:
+  """True if normalized_text (already lowercased/stripped) IS phrase, or
+  starts with phrase followed by a word boundary - so "stop please" and
+  the doubled "wake up jarvis wake up jarvis" from the original bug
+  report both match, but "stopwatch" or "waiting" don't."""
+  if normalized_text == phrase:
+    return True
+  return re.match(re.escape(phrase) + r"\b", normalized_text) is not None
+
+
+def match_interrupt_phrase(text: str) -> str | None:
+  """Checks a FINAL Whisper transcript against settings.WAKE_PHRASE and
+  settings.INTERRUPT_PHRASES (see core/config.py for the full rationale).
+  Returns "wake" if it's the wake phrase, "stop" if it's one of the other
+  interrupt phrases, None if it's an ordinary command."""
+  normalized = text.lower().strip().rstrip(".,!?")
+  if _matches_interrupt_phrase(normalized, settings.WAKE_PHRASE.lower()):
+    return "wake"
+  for phrase in settings.INTERRUPT_PHRASES:
+    if _matches_interrupt_phrase(normalized, phrase.lower()):
+      return "stop"
+  return None
 
 
 def execute_voice_command(text: str) -> str | None:
@@ -295,126 +320,131 @@ class VoiceManager:
   
   def _on_wake_word_detected(self):
     try:
-      self.is_listening = True
-
-      # Respond immediately
-      print("[VOICE] Wake word detected - responding")
-
-      # Broadcast listening status immediately
-      import requests
-      try:
-        requests.post(
-          "http://localhost:8765/voice/status/update",
-          json={"status": "listening"},
-          timeout=2
-        )
-      except Exception:
-        pass
-
-      from .tts_engine import tts_engine
-
-      # Set the instant "Yes sir?" playback genuinely finishes (is_speaking
-      # True -> False), not when this thread happens to be joined or timed
-      # out. The recording thread below starts immediately in parallel - it
-      # does NOT wait on this event before opening the mic, only before
-      # starting its own wait_for_speech_timeout countdown (see
-      # SpeechRecorder.record).
-      tts_finished_event = threading.Event()
-
-      def say_yes():
-        tts_engine.speak_sync(
-          "Yes sir?",
-          on_speech_end=tts_finished_event.set
-        )
-
-      t = threading.Thread(target=say_yes, daemon=True)
-      t.start()
-
-      print("[VOICE] Recording command...")
-
-      def process_voice():
-          try:
-            # Record speech - mic opens immediately, in parallel with
-            # "Yes sir?" still playing; only the no-speech timeout waits on
-            # tts_finished_event.
-            audio = self.speech_recorder.record(tts_finished_event=tts_finished_event)
-
-            if len(audio) > 0:
-              # Transcribe with faster-whisper
-              text = self._transcribe(audio)
-              if text and text.strip():
-                # Try direct command first
-                direct_result = execute_voice_command(text.strip())
-                if direct_result:
-                  print(f"[VOICE DIRECT] {direct_result}")
-                  if self.on_transcription:
-                    self.on_transcription(text.strip(), direct_result)
-                else:
-                  # No direct command match - use LLM
-                  if self.on_transcription:
-                    self.on_transcription(text.strip(), None)
-              else:
-                print("[VOICE] Recorded audio but transcription was empty.")
-
-                def _broadcast_speaking():
-                  try:
-                    requests.post(
-                      "http://localhost:8765/voice/status/update",
-                      json={"status": "speaking"},
-                      timeout=2
-                    )
-                  except Exception:
-                    pass
-
-                tts_engine.speak_sync(
-                  "Didn't catch that, sir.",
-                  on_speech_start=_broadcast_speaking
-                )
-                try:
-                  requests.post(
-                    "http://localhost:8765/voice/status/update",
-                    json={"status": "idle"},
-                    timeout=2
-                  )
-                except Exception:
-                  pass
-            else:
-              print("[VOICE] No speech detected within timeout.")
-              try:
-                requests.post(
-                  "http://localhost:8765/voice/status/update",
-                  json={"status": "idle"},
-                  timeout=2
-                )
-              except Exception:
-                pass
-          except Exception as e:
-            print(f"Voice processing error: {e}")
-            try:
-              requests.post(
-                "http://localhost:8765/voice/status/update",
-                json={"status": "idle"},
-                timeout=2
-              )
-            except Exception:
-              pass
-          finally:
-            self.is_listening = False
-
-      t2 = threading.Thread(target=process_voice, daemon=True)
-      t2.start()
+      self._start_listening_cycle()
     except Exception as e:
       print(f"[VOICE] Wake word handling error: {e}")
-      try:
-        requests.post(
-          "http://localhost:8765/voice/status/update",
-          json={"status": "idle"},
-          timeout=2
-        )
-      except Exception:
-        pass
+      self._broadcast_status("idle")
       self.is_listening = False
-  
+
+  def _broadcast_status(self, status: str):
+    import requests
+    try:
+      requests.post(
+        "http://localhost:8765/voice/status/update",
+        json={"status": status},
+        timeout=2
+      )
+    except Exception:
+      pass
+
+  def _start_listening_cycle(self):
+    """Says "Yes sir?" and opens a new recording window in parallel - the
+    normal wake-word trigger path, but also reused by the wake-phrase
+    interrupt below (match_interrupt_phrase() returning "wake") so hearing
+    the wake phrase mid-response reaches the exact same fresh cycle the
+    wake-word MODEL would give if it weren't muted during TTS."""
+    self.is_listening = True
+
+    # Respond immediately
+    print("[VOICE] Wake word detected - responding")
+    self._broadcast_status("listening")
+
+    from .tts_engine import tts_engine
+
+    # Set the instant "Yes sir?" playback genuinely finishes (is_speaking
+    # True -> False), not when this thread happens to be joined or timed
+    # out. The recording thread below starts immediately in parallel - it
+    # does NOT wait on this event before opening the mic, only before
+    # starting its own wait_for_speech_timeout countdown (see
+    # SpeechRecorder.record).
+    tts_finished_event = threading.Event()
+
+    def say_yes():
+      tts_engine.speak_sync(
+        "Yes sir?",
+        on_speech_end=tts_finished_event.set
+      )
+
+    t = threading.Thread(target=say_yes, daemon=True)
+    t.start()
+
+    print("[VOICE] Recording command...")
+    t2 = threading.Thread(
+      target=self._process_voice_command, args=(tts_finished_event,), daemon=True
+    )
+    t2.start()
+
+  def _process_voice_command(self, tts_finished_event: threading.Event):
+    # Set (not reset to False in the finally below) only when this
+    # recording resolves to the wake-phrase interrupt, which re-arms a
+    # fresh cycle via _start_listening_cycle() - that call already sets
+    # is_listening back to True, and letting the finally below clobber it
+    # to False immediately after would create a race where the new cycle
+    # looks "not listening" until its own recording thread gets going.
+    rearmed = False
+    try:
+      # Record speech - mic opens immediately, in parallel with "Yes sir?"
+      # still playing; only the no-speech timeout waits on tts_finished_event.
+      audio = self.speech_recorder.record(tts_finished_event=tts_finished_event)
+
+      if len(audio) > 0:
+        # Transcribe with faster-whisper
+        text = self._transcribe(audio)
+        if text and text.strip():
+          clean_text = text.strip()
+
+          # PHRASE-BASED INTERRUPT CHECK - on the FINAL transcript only,
+          # before this text goes anywhere near execute_voice_command or
+          # the LLM. Complements (doesn't replace) the loudness-based
+          # barge-in in wake_word.py: that one reacts to volume alone and
+          # doesn't know what was said; this one recognizes specific
+          # phrases regardless of volume and decides what happens next.
+          interrupt = match_interrupt_phrase(clean_text)
+          if interrupt:
+            print(f"[VOICE] Interrupt phrase detected ({interrupt}): {clean_text!r}")
+            from .tts_engine import tts_engine
+            if tts_engine.is_speaking:
+              tts_engine.stop()
+            if interrupt == "wake":
+              # Fresh cycle: new "Yes sir?" + new recording window, same
+              # as a normal wake-word trigger.
+              rearmed = True
+              self._start_listening_cycle()
+            else:
+              # "stop"/"wait"/"cancel"/etc - just stop, no new
+              # acknowledgment, back to idle/listening.
+              self._broadcast_status("idle")
+            return
+
+          # Try direct command first
+          direct_result = execute_voice_command(clean_text)
+          if direct_result:
+            print(f"[VOICE DIRECT] {direct_result}")
+            if self.on_transcription:
+              self.on_transcription(clean_text, direct_result)
+          else:
+            # No direct command match - use LLM
+            if self.on_transcription:
+              self.on_transcription(clean_text, None)
+        else:
+          print("[VOICE] Recorded audio but transcription was empty.")
+
+          from .tts_engine import tts_engine
+          tts_engine.speak_sync(
+            "Didn't catch that, sir.",
+            on_speech_start=lambda: self._broadcast_status("speaking")
+          )
+          self._broadcast_status("idle")
+      else:
+        print("[VOICE] No speech detected within timeout.")
+        self._broadcast_status("idle")
+    except Exception as e:
+      print(f"Voice processing error: {e}")
+      self._broadcast_status("idle")
+    finally:
+      if not rearmed:
+        self.is_listening = False
+
   def _transcribe(
     self, audio: np.ndarray
   ) -> str:

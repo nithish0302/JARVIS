@@ -20,6 +20,7 @@ run once) costs nothing extra.
 import asyncio
 import os
 import threading
+import traceback
 
 from ..core.config import settings
 
@@ -173,4 +174,5 @@ async def migrate_existing_memories(memories: list[dict]) -> int:
         return await asyncio.to_thread(_migrate_sync, memories)
     except Exception as e:
         print(f"[VECTOR STORE] Retrofit migration failed: {e}")
+        traceback.print_exc()
         return 0

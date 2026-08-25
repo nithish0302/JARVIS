@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 import time
+import traceback
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .api.routes import router
@@ -46,6 +47,34 @@ async def lifespan(app: FastAPI):
         available = await provider.is_available()
         print(f"Provider {provider.name}: {'available' if available else 'unavailable'} ({time.time() - _tp:.2f}s)")
     print(f"[TIMING] provider availability checks total: {time.time() - _t1:.2f}s")
+
+    # `transformers` exposes its API via a _LazyModule whose __getattr__
+    # resolves and caches each symbol (e.g. AlbertModel) on first access -
+    # and that resolve-and-cache isn't guarded by a lock. Kokoro's loader
+    # thread (`from kokoro import KPipeline` -> `from transformers import
+    # AlbertModel`) and the memory embedding migration's thread (`from
+    # sentence_transformers import SentenceTransformer` -> transformers'
+    # own config loading) both first-touch transformers within
+    # milliseconds of each other during startup, and racing that
+    # __getattr__ intermittently raises "cannot import name 'AlbertModel'
+    # from 'transformers'" (confirmed via a captured traceback - this is a
+    # known thread-safety gap in transformers' lazy module, not a bug in
+    # either loader). Warming the exact symbols each thread needs here,
+    # synchronously and single-threaded, resolves and caches them as plain
+    # instance attributes before either background thread starts, so
+    # neither one ever hits the racy first-resolution path.
+    _t_warm = time.time()
+
+    def _warm_transformers():
+        try:
+            from transformers import AlbertModel  # noqa: F401 - kokoro's import chain
+            from transformers.configuration_utils import PretrainedConfig  # noqa: F401 - sentence-transformers' import chain
+            print(f"[STARTUP] transformers warmed ({time.time() - _t_warm:.2f}s)")
+        except Exception as e:
+            print(f"[STARTUP] transformers warmup failed (non-fatal): {e}")
+            traceback.print_exc()
+
+    await asyncio.to_thread(_warm_transformers)
 
     # --- Voice subsystem: TTS (Kokoro) and voice detection (Whisper +
     # wake word) are kicked off CONCURRENTLY here, but neither is awaited
