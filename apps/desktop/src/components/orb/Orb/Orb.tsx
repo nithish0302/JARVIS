@@ -1,12 +1,52 @@
 import { useEffect, useRef } from "react";
 import "./Orb.css";
 import { cn } from "../../../lib/cn";
-import { useAIStore } from "../../../stores/useAIStore";
+import { useAIStore, type AIState } from "../../../stores/useAIStore";
 import { useAppStore } from "../../../stores/useAppStore";
 import { ActionFeedback } from "../ActionFeedback/ActionFeedback";
 
-export function Orb() {
+type EffectiveStatus = "idle" | "listening" | "speaking" | "thinking" | "error";
+
+function getEffectiveStatus(status: AIState["status"], voiceStatus: AIState["voiceStatus"]): EffectiveStatus {
+  // Combine status - voice takes priority
+  return voiceStatus === "listening" ? "listening" :
+    voiceStatus === "speaking" ? "speaking" :
+    voiceStatus === "processing" ? "thinking" :
+    status === "streaming" ? "thinking" :
+    status === "connecting" ? "thinking" :
+    status === "error" ? "error" :
+    "idle";
+}
+
+function getOrbCaption(effectiveStatus: EffectiveStatus): string {
+  if (effectiveStatus === "listening") return "listening...";
+  if (effectiveStatus === "speaking") return "speaking...";
+  if (effectiveStatus === "thinking") return "processing...";
+  if (effectiveStatus === "error") return "check connection";
+  return 'say "wake up jarvis"...';
+}
+
+// Primary status readout: caption + provider/model, rendered prominently
+// above the graph canvas (GraphCanvas) and at the top of Chat Mode
+// (ChatFullView) - same component, same look, in both places. Reads the
+// same AI status as Orb but independently, since it no longer lives inside
+// Orb (or the sidebar at all).
+export function OrbCaption() {
   const { status, voiceStatus, provider, model } = useAIStore();
+  const effectiveStatus = getEffectiveStatus(status, voiceStatus);
+
+  return (
+    <div className="orb-caption-readout">
+      <div className="orb-caption">{getOrbCaption(effectiveStatus)}</div>
+      <div className="orb-sub">
+        {model} · {provider}
+      </div>
+    </div>
+  );
+}
+
+export function Orb() {
+  const { status, voiceStatus } = useAIStore();
   const { graphMode } = useAppStore();
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -14,15 +54,7 @@ export function Orb() {
   const voiceStatusRef = useRef(voiceStatus);
   const graphModeRef = useRef(graphMode);
 
-  // Combine status - voice takes priority
-  const effectiveStatus =
-    voiceStatus === "listening" ? "listening" :
-    voiceStatus === "speaking" ? "speaking" :
-    voiceStatus === "processing" ? "thinking" :
-    status === "streaming" ? "thinking" :
-    status === "connecting" ? "thinking" :
-    status === "error" ? "error" :
-    "idle";
+  const effectiveStatus = getEffectiveStatus(status, voiceStatus);
 
   const effectiveStatusRef = useRef(effectiveStatus);
 
@@ -39,24 +71,41 @@ export function Orb() {
   }, [graphMode]);
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+    const canvasEl = canvasRef.current;
+    if (!canvasEl) return;
+    const canvas: HTMLCanvasElement = canvasEl;
 
     const ctx = canvas.getContext("2d")!;
+    const wrapper = canvas.parentElement!;
 
-    const SIZE = 200;
     const DPR = window.devicePixelRatio || 1;
-    canvas.width = SIZE * DPR;
-    canvas.height = SIZE * DPR;
-    canvas.style.width = SIZE + "px";
-    canvas.style.height = SIZE + "px";
-    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-
     const TAU = Math.PI * 2;
     const DEG = Math.PI / 180;
-    const cx = 100;
-    const cy = 100;
-    const R = 76;
+
+    // Canvas geometry tracks the actual rendered size of orb-canvas-wrapper
+    // (which is clamp()-based on viewport height) rather than a fixed constant.
+    let SIZE = 200;
+    let cx = 100;
+    let cy = 100;
+    let R = 76;
+
+    function resize() {
+      const rect = wrapper.getBoundingClientRect();
+      const size = Math.max(1, Math.round(Math.min(rect.width, rect.height))) || 200;
+      SIZE = size;
+      cx = SIZE / 2;
+      cy = SIZE / 2;
+      R = SIZE * 0.38;
+      canvas.width = SIZE * DPR;
+      canvas.height = SIZE * DPR;
+      canvas.style.width = SIZE + "px";
+      canvas.style.height = SIZE + "px";
+      ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    }
+    resize();
+
+    const resizeObserver = new ResizeObserver(resize);
+    resizeObserver.observe(wrapper);
 
     // Drawing primitives
     function arc(cx: number, cy: number, r: number, s: number, e: number, w: number, c: string, a = 1) {
@@ -381,7 +430,7 @@ export function Orb() {
       // Loading bar inside center
       const barW = rC * 1.0;
       const barH = 3;
-      const barY = cy + 26;
+      const barY = cy + rC * 0.78;
       const barX = cx - barW / 2;
       const progress = (time * 0.3) % 1;
       ctx.save();
@@ -398,18 +447,19 @@ export function Orb() {
       ctx.restore();
 
       // J.A.R.V.I.S text in center
+      const textScale = SIZE / 200;
       ctx.save();
-      ctx.font = "bold 18px 'Orbitron', monospace";
+      ctx.font = `bold ${18 * textScale}px 'Orbitron', monospace`;
       ctx.fillStyle = "rgba(255,255,255,0.95)";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.shadowColor = "rgba(79,195,247,0.7)";
       ctx.shadowBlur = 20;
-      ctx.fillText("J.A.R.V.I.S.", 100, 92);
+      ctx.fillText("J.A.R.V.I.S.", cx, cy - 8);
       ctx.shadowBlur = 0;
-      ctx.font = "600 11px 'Rajdhani', monospace";
+      ctx.font = `600 ${11 * textScale}px 'Rajdhani', monospace`;
       ctx.fillStyle = "rgba(79,195,247,0.7)";
-      ctx.fillText("ONLINE", 100, 108);
+      ctx.fillText("ONLINE", cx, cy + 8);
       ctx.restore();
 
       // Cardinal dots on ring 2
@@ -486,6 +536,7 @@ export function Orb() {
     }
 
     return () => {
+      resizeObserver.disconnect();
       cancelAnimationFrame(animId);
       clearTimeout(animId);
     };
@@ -507,14 +558,6 @@ export function Orb() {
     error: "#ef4444",     // red
   }[effectiveStatus] || "#52ece3";
 
-  const getCaption = () => {
-    if (effectiveStatus === "listening") return "listening...";
-    if (effectiveStatus === "speaking") return "speaking...";
-    if (effectiveStatus === "thinking") return "processing...";
-    if (effectiveStatus === "error") return "check connection";
-    return 'say "wake up jarvis"...';
-  };
-
   return (
     <div className="orb-card">
       <div className="orb-canvas-wrapper">
@@ -525,10 +568,6 @@ export function Orb() {
         <span className="orb-status" style={{ color: statusColor }}>{statusText}</span>
       </div>
       <ActionFeedback />
-      <div className="orb-caption">{getCaption()}</div>
-      <div className="orb-sub">
-        {model} · {provider}
-      </div>
     </div>
   );
 }

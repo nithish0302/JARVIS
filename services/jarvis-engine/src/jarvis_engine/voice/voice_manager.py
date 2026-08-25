@@ -96,11 +96,20 @@ def _register_cuda_dll_dirs():
     print(f"[VOICE] Failed to register CUDA DLL directories: {e}")
 
 
+def _normalize_for_phrase_match(text: str) -> str:
+  """Lowercase, strip trailing punctuation, and drop apostrophes so
+  Whisper's inconsistent contractions ("that's" vs "thats") and config
+  phrase lists (written without apostrophes) compare equal."""
+  normalized = text.lower().strip().rstrip(".,!?")
+  return normalized.replace("'", "").replace("’", "")
+
+
 def _matches_interrupt_phrase(normalized_text: str, phrase: str) -> bool:
-  """True if normalized_text (already lowercased/stripped) IS phrase, or
-  starts with phrase followed by a word boundary - so "stop please" and
-  the doubled "wake up jarvis wake up jarvis" from the original bug
-  report both match, but "stopwatch" or "waiting" don't."""
+  """True if normalized_text (already normalized via
+  _normalize_for_phrase_match) IS phrase, or starts with phrase followed by
+  a word boundary - so "stop please" and the doubled "wake up jarvis wake
+  up jarvis" from the original bug report both match, but "stopwatch" or
+  "waiting" don't. `phrase` must also already be normalized."""
   if normalized_text == phrase:
     return True
   return re.match(re.escape(phrase) + r"\b", normalized_text) is not None
@@ -111,13 +120,26 @@ def match_interrupt_phrase(text: str) -> str | None:
   settings.INTERRUPT_PHRASES (see core/config.py for the full rationale).
   Returns "wake" if it's the wake phrase, "stop" if it's one of the other
   interrupt phrases, None if it's an ordinary command."""
-  normalized = text.lower().strip().rstrip(".,!?")
-  if _matches_interrupt_phrase(normalized, settings.WAKE_PHRASE.lower()):
+  normalized = _normalize_for_phrase_match(text)
+  if _matches_interrupt_phrase(normalized, _normalize_for_phrase_match(settings.WAKE_PHRASE)):
     return "wake"
   for phrase in settings.INTERRUPT_PHRASES:
-    if _matches_interrupt_phrase(normalized, phrase.lower()):
+    if _matches_interrupt_phrase(normalized, _normalize_for_phrase_match(phrase)):
       return "stop"
   return None
+
+
+def match_continuous_exit_phrase(text: str) -> bool:
+  """Checks a FINAL transcript against settings.CONTINUOUS_MODE_EXIT_PHRASES,
+  using the exact same phrase-matching mechanism as match_interrupt_phrase
+  above (reused, not a second matching system). Callers must check this
+  BEFORE match_interrupt_phrase and before treating text as a normal
+  command (see voice_manager._process_voice_command)."""
+  normalized = _normalize_for_phrase_match(text)
+  for phrase in settings.CONTINUOUS_MODE_EXIT_PHRASES:
+    if _matches_interrupt_phrase(normalized, _normalize_for_phrase_match(phrase)):
+      return True
+  return False
 
 
 def execute_voice_command(text: str) -> str | None:
@@ -227,6 +249,21 @@ class VoiceManager:
     self.whisper_ready = threading.Event()
     self.wake_word_ready = threading.Event()
     self._initialized = False
+
+    # Continuous conversation mode - session-only (never persisted, always
+    # starts False on a fresh VoiceManager). _continuous_generation
+    # disambiguates one continuous-mode session from the next (guards a
+    # stale in-flight recording loop from a just-exited session against
+    # racing a brand new one); _continuous_timer_token does the same for
+    # the silence timer specifically (guards a timer that's already about
+    # to fire against a reset that happened a moment earlier). Both follow
+    # the same atomic check-and-set-under-lock pattern as
+    # wake_word.py's _detection_lock.
+    self.continuous_mode = False
+    self._continuous_lock = threading.Lock()
+    self._continuous_generation = 0
+    self._continuous_timer: threading.Timer | None = None
+    self._continuous_timer_token = 0
 
   def _set_is_listening(self, val: bool):
     self.is_listening = val
@@ -374,70 +411,231 @@ class VoiceManager:
     )
     t2.start()
 
+  def _arm_continuous_timer(self):
+    """(Re)start the session-level continuous-mode silence timer. Caller
+    MUST hold self._continuous_lock. Always cancels any existing timer and
+    bumps the per-arm token first, so a timer that's already mid-fire (past
+    cancel()'s ability to stop it) is guaranteed to see a stale token in
+    _on_continuous_timeout and no-op - same atomic-under-lock pattern as
+    wake_word.py's _detection_lock."""
+    if self._continuous_timer is not None:
+      self._continuous_timer.cancel()
+    self._continuous_timer_token += 1
+    token = self._continuous_timer_token
+    timer = threading.Timer(
+      settings.CONTINUOUS_MODE_TIMEOUT_SECONDS,
+      self._on_continuous_timeout,
+      args=(token,)
+    )
+    timer.daemon = True
+    self._continuous_timer = timer
+    timer.start()
+
+  def _cancel_continuous_timer(self):
+    """Caller MUST hold self._continuous_lock."""
+    if self._continuous_timer is not None:
+      self._continuous_timer.cancel()
+      self._continuous_timer = None
+
+  def _on_continuous_timeout(self, token: int):
+    """Fires on the Timer's own thread after CONTINUOUS_MODE_TIMEOUT_SECONDS
+    of silence with no new speech resetting it. Only acts if this is still
+    the timer that's currently armed - a stale fire (real speech reset the
+    deadline a moment before this ran, or continuous mode already exited a
+    different way) is a no-op."""
+    with self._continuous_lock:
+      if not self.continuous_mode or token != self._continuous_timer_token:
+        return
+      self.continuous_mode = False
+      self._continuous_generation += 1
+      self._continuous_timer = None
+    print(
+      f"[VOICE] Continuous mode silence timeout "
+      f"({settings.CONTINUOUS_MODE_TIMEOUT_SECONDS}s) - exiting to wake-word-only"
+    )
+    self._exit_continuous_mode()
+
+  def _exit_continuous_mode(self):
+    """Speaks the closing acknowledgment and returns to wake-word-only
+    idle. Callers must have ALREADY flipped continuous_mode=False, bumped
+    _continuous_generation, and cancelled the timer under
+    self._continuous_lock - this only handles the TTS/status/is_listening
+    side effects, so there is exactly one place per exit path that performs
+    the actual state transition."""
+    from .tts_engine import tts_engine
+    tts_engine.speak_sync(
+      "Going to sleep, sir.",
+      on_speech_start=lambda: self._broadcast_status("speaking")
+    )
+    self._broadcast_status("idle")
+    self.is_listening = False
+
+  def continue_conversation(self):
+    """Called once a normal command's response has finished speaking (see
+    transcription_handler._speak_response, invoked for BOTH the
+    direct-command and LLM paths). Enters continuous_mode on the first call
+    after a wake-word trigger, and re-arms it on every later call - either
+    way, opens the next recording window directly: no new wake word, no
+    repeated "Yes sir?" (design doc points 2/3/6)."""
+    with self._continuous_lock:
+      was_continuous = self.continuous_mode
+      self.continuous_mode = True
+      if not was_continuous:
+        # Fresh session: a NEW generation so any stale thread left over
+        # from a just-exited previous session can never be mistaken for
+        # this one (see the class docstring note by continuous_mode).
+        self._continuous_generation += 1
+      self._arm_continuous_timer()
+
+    self.is_listening = True
+    self._broadcast_status("continuous")
+    threading.Thread(
+      target=self._process_voice_command,
+      args=(None,),
+      daemon=True,
+      name="continuous-voice-cycle"
+    ).start()
+
   def _process_voice_command(self, tts_finished_event: threading.Event):
     # Set (not reset to False in the finally below) only when this
-    # recording resolves to the wake-phrase interrupt, which re-arms a
-    # fresh cycle via _start_listening_cycle() - that call already sets
-    # is_listening back to True, and letting the finally below clobber it
-    # to False immediately after would create a race where the new cycle
-    # looks "not listening" until its own recording thread gets going.
+    # recording resolves to the wake-phrase interrupt outside continuous
+    # mode, which re-arms a fresh cycle via _start_listening_cycle() - that
+    # call already sets is_listening back to True, and letting the finally
+    # below clobber it to False immediately after would create a race
+    # where the new cycle looks "not listening" until its own recording
+    # thread gets going.
     rearmed = False
+    # Stamped once at entry, not re-read per iteration: this call represents
+    # ONE continuous-mode session (if any) for its entire lifetime, even
+    # across several no-speech/interrupt loop iterations below. Comparing
+    # against self._continuous_generation lets every continuous-mode branch
+    # detect "a different session has since taken over" (timer fired, or an
+    # exit phrase was handled) and abandon itself instead of racing it -
+    # see continue_conversation()'s docstring.
+    generation = self._continuous_generation
     try:
-      # Record speech - mic opens immediately, in parallel with "Yes sir?"
-      # still playing; only the no-speech timeout waits on tts_finished_event.
-      audio = self.speech_recorder.record(tts_finished_event=tts_finished_event)
+      while True:
+        # Record speech - mic opens immediately, in parallel with "Yes sir?"
+        # still playing (first window only; tts_finished_event is None for
+        # every continuous-mode window after that, so the wait starts
+        # counting down immediately).
+        audio = self.speech_recorder.record(tts_finished_event=tts_finished_event)
+        tts_finished_event = None
 
-      if len(audio) > 0:
+        if len(audio) == 0:
+          print("[VOICE] No speech detected within timeout.")
+          # This is a per-WINDOW timeout (SpeechRecorder's own
+          # wait_for_speech_timeout, ~6s) - NOT the session-level
+          # CONTINUOUS_MODE_TIMEOUT_SECONDS silence timer, which owns the
+          # decision to actually exit continuous mode and is not reset by
+          # this. Just open the next window and keep waiting.
+          if self.continuous_mode and generation == self._continuous_generation:
+            continue
+          self._broadcast_status("idle")
+          return
+
         # Transcribe with faster-whisper
         text = self._transcribe(audio)
-        if text and text.strip():
-          clean_text = text.strip()
-
-          # PHRASE-BASED INTERRUPT CHECK - on the FINAL transcript only,
-          # before this text goes anywhere near execute_voice_command or
-          # the LLM. Complements (doesn't replace) the loudness-based
-          # barge-in in wake_word.py: that one reacts to volume alone and
-          # doesn't know what was said; this one recognizes specific
-          # phrases regardless of volume and decides what happens next.
-          interrupt = match_interrupt_phrase(clean_text)
-          if interrupt:
-            print(f"[VOICE] Interrupt phrase detected ({interrupt}): {clean_text!r}")
-            from .tts_engine import tts_engine
-            if tts_engine.is_speaking:
-              tts_engine.stop()
-            if interrupt == "wake":
-              # Fresh cycle: new "Yes sir?" + new recording window, same
-              # as a normal wake-word trigger.
-              rearmed = True
-              self._start_listening_cycle()
-            else:
-              # "stop"/"wait"/"cancel"/etc - just stop, no new
-              # acknowledgment, back to idle/listening.
-              self._broadcast_status("idle")
-            return
-
-          # Try direct command first
-          direct_result = execute_voice_command(clean_text)
-          if direct_result:
-            print(f"[VOICE DIRECT] {direct_result}")
-            if self.on_transcription:
-              self.on_transcription(clean_text, direct_result)
-          else:
-            # No direct command match - use LLM
-            if self.on_transcription:
-              self.on_transcription(clean_text, None)
-        else:
+        if not (text and text.strip()):
           print("[VOICE] Recorded audio but transcription was empty.")
-
           from .tts_engine import tts_engine
           tts_engine.speak_sync(
             "Didn't catch that, sir.",
             on_speech_start=lambda: self._broadcast_status("speaking")
           )
+          if self.continuous_mode and generation == self._continuous_generation:
+            with self._continuous_lock:
+              if generation == self._continuous_generation and self.continuous_mode:
+                self._arm_continuous_timer()
+            self._broadcast_status("continuous")
+            continue
           self._broadcast_status("idle")
-      else:
-        print("[VOICE] No speech detected within timeout.")
-        self._broadcast_status("idle")
+          return
+
+        clean_text = text.strip()
+
+        # Real speech resolved to an actual transcript: reset the
+        # session-level silence timer (NOT reset by the no-speech/empty
+        # branches above - only genuine speech counts, per design).
+        if self.continuous_mode:
+          with self._continuous_lock:
+            if generation != self._continuous_generation or not self.continuous_mode:
+              # A different session (exit-then-re-enter, or the timer
+              # already fired) has since taken over - abandon this stale
+              # iteration rather than acting on its behalf.
+              return
+            self._arm_continuous_timer()
+
+        # CONTINUOUS-MODE EXIT PHRASES - on the FINAL transcript, checked
+        # BEFORE the interrupt-phrase list and before any command handling
+        # (reuses match_interrupt_phrase's matching mechanism via
+        # match_continuous_exit_phrase - see voice_manager module docstring
+        # helpers above). Only meaningful while actually in continuous mode.
+        if self.continuous_mode and match_continuous_exit_phrase(clean_text):
+          print(f"[VOICE] Continuous mode exit phrase detected: {clean_text!r}")
+          with self._continuous_lock:
+            if generation != self._continuous_generation or not self.continuous_mode:
+              return
+            self.continuous_mode = False
+            self._continuous_generation += 1
+            self._cancel_continuous_timer()
+          self._exit_continuous_mode()
+          return
+
+        # PHRASE-BASED INTERRUPT CHECK - on the FINAL transcript only,
+        # before this text goes anywhere near execute_voice_command or
+        # the LLM. Complements (doesn't replace) the loudness-based
+        # barge-in in wake_word.py: that one reacts to volume alone and
+        # doesn't know what was said; this one recognizes specific
+        # phrases regardless of volume and decides what happens next.
+        interrupt = match_interrupt_phrase(clean_text)
+        if interrupt:
+          print(f"[VOICE] Interrupt phrase detected ({interrupt}): {clean_text!r}")
+          from .tts_engine import tts_engine
+          if tts_engine.is_speaking:
+            tts_engine.stop()
+          if interrupt == "wake":
+            if self.continuous_mode:
+              # Already listening continuously - saying the wake phrase
+              # again is redundant. Ignore it silently (no new "Yes sir?",
+              # no fresh cycle) rather than restarting anything, and keep
+              # listening for the next real command.
+              if generation == self._continuous_generation:
+                continue
+              return
+            # Fresh cycle: new "Yes sir?" + new recording window, same
+            # as a normal wake-word trigger.
+            rearmed = True
+            self._start_listening_cycle()
+            return
+          else:
+            # "stop"/"wait"/"cancel"/etc - stop playback. Outside
+            # continuous mode this drops back to wake-word-only idle,
+            # unchanged from before. Inside continuous mode, an interrupt
+            # phrase is deliberately NOT one of the 4 explicit exit
+            # phrases, so it must not silently end the conversation -
+            # that would make it a second, undocumented exit path. Keep
+            # listening for the next command instead.
+            if self.continuous_mode and generation == self._continuous_generation:
+              self._broadcast_status("continuous")
+              continue
+            self._broadcast_status("idle")
+            return
+
+        # Try direct command first
+        direct_result = execute_voice_command(clean_text)
+        if direct_result:
+          print(f"[VOICE DIRECT] {direct_result}")
+          if self.on_transcription:
+            self.on_transcription(clean_text, direct_result)
+        else:
+          # No direct command match - use LLM
+          if self.on_transcription:
+            self.on_transcription(clean_text, None)
+        # Whether (and how) the conversation continues from here is decided
+        # once the response has actually been spoken - see
+        # continue_conversation() / transcription_handler._speak_response.
+        return
     except Exception as e:
       print(f"Voice processing error: {e}")
       self._broadcast_status("idle")
@@ -488,6 +686,15 @@ class VoiceManager:
     self._initialized = False
     self.whisper_ready.clear()
     self.wake_word_ready.clear()
+
+    # Continuous mode must not survive a shutdown - cancel its timer
+    # (never leave a background Timer thread outliving the engine) and
+    # bump the generation so any recording loop still unwinding treats
+    # itself as stale rather than looping back into another window.
+    with self._continuous_lock:
+      self.continuous_mode = False
+      self._continuous_generation += 1
+      self._cancel_continuous_timer()
 
     if self.wake_word_detector:
       self.wake_word_detector.stop()

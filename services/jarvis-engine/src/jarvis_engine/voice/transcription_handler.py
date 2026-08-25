@@ -61,8 +61,18 @@ def _speak_response(response_text: str):
     The "speaking" broadcast fires from on_speech_start, which tts_engine
     invokes the instant is_speaking flips False -> True - i.e. the moment
     audio actually starts playing, not when speak_sync() is called (which
-    can precede audible Kokoro audio by 1-3+ seconds of warmup/TTFB)."""
+    can precede audible Kokoro audio by 1-3+ seconds of warmup/TTFB).
+
+    Once the response has genuinely finished speaking, hands off to
+    continuous conversation mode (voice_manager.continue_conversation())
+    instead of just going idle - this is the ONLY caller of that method,
+    since it's the one place shared by both the direct-command and LLM
+    voice paths (see handle_transcription below). continue_conversation()
+    broadcasts its own status ("continuous"), so this does not also
+    broadcast "idle" itself - that would flash idle for a frame before
+    continuous mode's status immediately overwrote it."""
     from jarvis_engine.voice.tts_engine import tts_engine
+    from jarvis_engine.voice.voice_manager import voice_manager
 
     try:
         clean = clean_text_for_tts(response_text)
@@ -73,7 +83,7 @@ def _speak_response(response_text: str):
     except Exception as e:
         print(f"TTS error: {e}")
     finally:
-        _post_status("idle")
+        voice_manager.continue_conversation()
 
 
 def handle_transcription(text: str, direct_result: str = None):

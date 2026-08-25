@@ -5,6 +5,7 @@ import { useConversationStore } from "../../../stores/useConversationStore";
 import { SearchBadge } from "../SearchBadge/SearchBadge";
 import { SourcesList } from "../SourcesList/SourcesList";
 import { ConfirmationButtons } from "../ConfirmationButtons/ConfirmationButtons";
+import { OrbCaption } from "../../orb/Orb/Orb";
 import ReactMarkdown from 'react-markdown';
 
 export function ChatFullView() {
@@ -75,6 +76,10 @@ export function ChatFullView() {
 
   return (
     <div className="flex-1 min-h-0 flex flex-col h-full bg-transparent overflow-hidden px-8 pb-6 pt-8 z-10">
+      <div className="flex justify-center mb-4 flex-shrink-0">
+        <OrbCaption />
+      </div>
+
       <div className="flex items-center justify-between mb-4 px-2">
         <div className="w-[100px]"></div> {/* Spacer to center the title */}
         <div className="font-display text-[14px] uppercase tracking-wider text-[var(--color-muted)] text-center flex-1">

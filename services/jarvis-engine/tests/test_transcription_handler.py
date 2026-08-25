@@ -13,6 +13,7 @@ return to idle), not merely that no exception is raised.
 import inspect
 import sys
 import time
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -57,6 +58,14 @@ def captured(monkeypatch):
     import jarvis_engine.voice.tts_engine as te
     monkeypatch.setattr(te, "tts_engine", FakeTTS(), raising=False)
 
+    # _speak_response hands off to continuous conversation mode
+    # (voice_manager.continue_conversation()) once TTS finishes - that's
+    # covered by its own tests in test_continuous_mode.py. Here it's mocked
+    # to a no-op so these handler-level tests don't spawn a real recording
+    # thread / touch the microphone.
+    import jarvis_engine.voice.voice_manager as vm
+    monkeypatch.setattr(vm.voice_manager, "continue_conversation", MagicMock(), raising=False)
+
     return posts, spoken
 
 
@@ -65,6 +74,11 @@ def _settle(posts, expected, timeout=3.0):
     deadline = time.time() + timeout
     while len(posts) < expected and time.time() < deadline:
         time.sleep(0.02)
+    # continue_conversation() is the last statement in _speak_response's
+    # finally block, i.e. it can run a hair after the post count above is
+    # already satisfied - give it a moment too so assert_called_once()
+    # right after _settle() isn't a race.
+    time.sleep(0.02)
 
 
 def test_signature_matches_call_site():
@@ -77,7 +91,7 @@ def test_direct_command_branch_completes(captured):
     posts, spoken = captured
 
     th.handle_transcription("open notepad", "Opening Notepad, sir.")
-    _settle(posts, 3)
+    _settle(posts, 2)
 
     urls = [u for u, _ in posts]
     payloads = [j for _, j in posts]
@@ -86,17 +100,21 @@ def test_direct_command_branch_completes(captured):
     assert any(j and j.get("direct_response") == "Opening Notepad, sir." for j in payloads)
     # It was actually spoken
     assert spoken == ["Opening Notepad, sir."]
-    # Status went speaking -> idle
+    # Status went to speaking - the finally block hands off to continuous
+    # mode (mocked here) instead of broadcasting "idle" itself, so it never
+    # gets a chance to strand the orb mid-response either.
     statuses = [j.get("status") for j in payloads if j and "status" in j]
     assert "speaking" in statuses
-    assert statuses[-1] == "idle"
+
+    import jarvis_engine.voice.voice_manager as vm
+    vm.voice_manager.continue_conversation.assert_called_once()
 
 
 def test_llm_branch_completes(captured):
     posts, spoken = captured
 
     th.handle_transcription("what is the weather like", None)
-    _settle(posts, 3)
+    _settle(posts, 2)
 
     payloads = [j for _, j in posts]
 
@@ -106,12 +124,14 @@ def test_llm_branch_completes(captured):
     # The LLM's response was spoken
     assert spoken == ["The weather is clear, sir."]
 
-    statuses = [j.get("status") for j in payloads if j and "status" in j]
-    assert statuses[-1] == "idle"
+    import jarvis_engine.voice.voice_manager as vm
+    vm.voice_manager.continue_conversation.assert_called_once()
 
 
-def test_returns_to_idle_when_tts_fails(captured, monkeypatch):
-    """A TTS failure must not strand the orb in 'speaking'."""
+def test_continue_conversation_called_even_when_tts_fails(captured, monkeypatch):
+    """A TTS failure must not strand the orb - continue_conversation()
+    (which decides the next status, "continuous" or "idle") must still be
+    reached via the finally block."""
     posts, spoken = captured
 
     import jarvis_engine.voice.tts_engine as te
@@ -122,10 +142,10 @@ def test_returns_to_idle_when_tts_fails(captured, monkeypatch):
     monkeypatch.setattr(te.tts_engine, "speak_sync", boom, raising=False)
 
     th.handle_transcription("open notepad", "Opening Notepad, sir.")
-    _settle(posts, 3)
+    _settle(posts, 1)
 
-    statuses = [j.get("status") for _, j in posts if j and "status" in j]
-    assert statuses[-1] == "idle", "status stuck after TTS error"
+    import jarvis_engine.voice.voice_manager as vm
+    vm.voice_manager.continue_conversation.assert_called_once()
 
 
 def test_voice_start_route_uses_the_shared_handler():

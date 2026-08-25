@@ -5,7 +5,10 @@ export interface AIState {
   provider: "ollama" | "openrouter" | "groq" | "gemini";
   model: string;
   status: "idle" | "connecting" | "streaming" | "error" | "offline";
-  voiceStatus: "idle" | "listening" | "processing" | "speaking";
+  // "continuous" = continuous conversation mode is active and JARVIS is
+  // listening for a follow-up command directly, with no wake word needed
+  // (see services/jarvis-engine voice_manager.py's continue_conversation()).
+  voiceStatus: "idle" | "listening" | "processing" | "speaking" | "continuous";
   isStreaming: boolean;
   error: string | null;
   memoryCount: number;

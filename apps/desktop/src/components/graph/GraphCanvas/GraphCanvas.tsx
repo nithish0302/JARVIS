@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import "./GraphCanvas.css";
 import { cn } from "../../../lib/cn";
+import { OrbCaption } from "../../orb/Orb/Orb";
 import { useAppStore } from "../../../stores/useAppStore";
 import { useConversationStore } from "../../../stores/useConversationStore";
 import {
@@ -989,6 +990,9 @@ export function GraphCanvas() {
   return (
     <div className={cn("canvas-wrap", !graphFocused && "chat-focused")} ref={wrapRef}>
       <canvas id="graphCanvas" ref={canvasRef} onClick={handleCanvasClick} onMouseMove={handleMouseMove}></canvas>
+      <div className="graph-orb-readout">
+        <OrbCaption />
+      </div>
       <div className={cn("graph-caption transition-opacity duration-1000", (!showCaption || (graphOpen && stateRef.current.selectedHub)) && "opacity-0")}>
         {graphOpen
           ? 'graph navigation active — press ← BACK to zoom out'

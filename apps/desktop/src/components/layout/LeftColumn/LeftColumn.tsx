@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import "../../../styles/Panels.css";
 import "./LeftColumn.css";
 import { useAppStore } from "../../../stores/useAppStore";
+import { useAIStore } from "../../../stores/useAIStore";
 import { useMicLevelStore } from "../../../stores/useMicLevelStore";
 import { cn } from "../../../lib/cn";
 import { invoke } from "@tauri-apps/api/core";
@@ -45,6 +46,8 @@ export function LeftColumn() {
   const micLevel = useMicLevelStore(state => state.level);
   const micHistory = useMicLevelStore(state => state.history);
   const waveformBars = averageGroups(micHistory, WAVEFORM_BAR_COUNT);
+  const voiceStatus = useAIStore(state => state.voiceStatus);
+  const isContinuousMode = voiceStatus === "continuous";
 
   const [cpuUsage, setCpuUsage] = useState(0);
   const [cpuName, setCpuName] = useState("Unknown CPU");
@@ -189,7 +192,11 @@ export function LeftColumn() {
           className="mic-waveform"
           role="img"
           aria-label="Live microphone input waveform, showing ambient and voice level"
-          title='Microphone is live — listening for "wake up jarvis". Bars react to the current mic level.'
+          title={
+            isContinuousMode
+              ? 'Continuous conversation mode — say a command, or "go to sleep" to end it.'
+              : 'Microphone is live — listening for "wake up jarvis". Bars react to the current mic level.'
+          }
         >
           <span
             className="mic-waveform-glow"
@@ -204,7 +211,11 @@ export function LeftColumn() {
             ))}
           </div>
         </div>
-        <div className="mic-waveform-caption">Listening for "wake up jarvis"</div>
+        <div className="mic-waveform-caption">
+          {isContinuousMode
+            ? 'Continuous mode — say a command or "go to sleep"'
+            : 'Listening for "wake up jarvis"'}
+        </div>
       </div>
       <div className="panel">
         <h3>System</h3>

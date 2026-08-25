@@ -128,6 +128,27 @@ class Settings(BaseSettings):
     WAKE_PHRASE: str = "wake up jarvis"
     INTERRUPT_PHRASES: list[str] = ["stop", "wait", "cancel", "never mind", "hold on"]
 
+    # Continuous conversation mode: once a wake-word session's first command
+    # has been answered, JARVIS keeps listening directly for follow-up
+    # commands (no repeated "wake up jarvis") until an explicit exit phrase
+    # or this many seconds of silence. See voice_manager.py's
+    # continue_conversation() / _on_continuous_timeout() for the state
+    # machine this drives. Session-only - resets to inactive on every
+    # restart, never persisted.
+    CONTINUOUS_MODE_TIMEOUT_SECONDS: float = 50.0
+
+    # Checked against the FINAL transcript, using the SAME phrase-matching
+    # mechanism as WAKE_PHRASE/INTERRUPT_PHRASES above (case-insensitive,
+    # apostrophe/punctuation-insensitive - "that's all jarvis" also matches
+    # "thats all jarvis"), and BEFORE INTERRUPT_PHRASES/normal command
+    # handling - see match_continuous_exit_phrase() in voice_manager.py.
+    CONTINUOUS_MODE_EXIT_PHRASES: list[str] = [
+        "stop listening jarvis",
+        "jarvis go to sleep",
+        "thats all jarvis",
+        "jarvis i will talk to you later",
+    ]
+
     # Personality and Modifier Defaults
     PERSONALITY_MODE: str = "assistant"
     MODIFIER: str = "none"
