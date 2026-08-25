@@ -54,6 +54,14 @@ export interface AppState {
   // re-runs and the hub's leaves reflect the change immediately.
   memoriesVersion: number;
   bumpMemoriesVersion: () => void;
+  // "Jump to node" (command palette -> graph). GraphCanvas watches this to
+  // locate the leaf in the hub's full (real, backend-sourced) leaf list,
+  // page its pagination to whichever page actually contains it, and pulse
+  // the real rendered leaf there - independent of the activeHub-driven
+  // hub-selection flow, since jumping to a different leaf within the hub
+  // you're already viewing wouldn't otherwise re-trigger anything.
+  focusLeaf: { hub: string; leafId: string } | null;
+  setFocusLeaf: (focus: { hub: string; leafId: string } | null) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -124,4 +132,6 @@ export const useAppStore = create<AppState>((set) => ({
   setDeletingMemoryId: (id) => set({ deletingMemoryId: id }),
   memoriesVersion: 0,
   bumpMemoriesVersion: () => set((state) => ({ memoriesVersion: state.memoriesVersion + 1 })),
+  focusLeaf: null,
+  setFocusLeaf: (focus) => set({ focusLeaf: focus }),
 }));

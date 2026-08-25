@@ -27,6 +27,8 @@ export function GraphCanvas() {
   const graphMode = useAppStore(state => state.graphMode);
   const memoriesVersion = useAppStore(state => state.memoriesVersion);
   const setSelectedMemory = useAppStore(state => state.setSelectedMemory);
+  const focusLeaf = useAppStore(state => state.focusLeaf);
+  const setFocusLeaf = useAppStore(state => state.setFocusLeaf);
 
   // Use a ref so the animation loop sees graphMode updates
   const graphModeRef = useRef(graphMode);
@@ -133,6 +135,7 @@ export function GraphCanvas() {
     drillT: 0,
     selectedHub: null as any,
     lastSelectedHub: null as any,
+    hoveredHub: null as any,
     mouseX: -1000,
     mouseY: -1000,
   });
@@ -189,54 +192,63 @@ export function GraphCanvas() {
   }, [activeHub, graphLevel, setGraphLevel]);
 
   const hubNodesRef = useRef<any[]>([]);
+  // The leaf currently mid-pulse (command-palette "jump to node"), if any -
+  // kept as a direct ref so the draw loop can check "is anything pulsing
+  // right now" in O(1) instead of scanning every hub's leavesList every
+  // frame.
+  const pulsingLeafRef = useRef<any>(null);
+  const PULSE_DURATION_MS = 3200;
+  // Real pagination for a drilled-in hub: top PAGE_SIZE leaves by
+  // relevance (backend order - importance for memories, recency for
+  // conversations), plus a "+N more" node when there's another page.
+  const PAGE_SIZE = 12;
+  // At-rest hover preview: just a glance, always the first N (most
+  // relevant) leaves, never paginated.
+  const HOVER_PREVIEW_COUNT = 5;
+  const HOVER_RADIUS = 60;
+  // How quickly a hub's leaf cluster fades in/out when it becomes
+  // hovered/selected or stops being so - same easing style as
+  // expandT/drillT elsewhere in this component.
+  const LEAF_REVEAL_EASE = 0.12;
 
-  // Fetches real memory records and lays them out as sub-clusters by
-  // category (personal/preference/project/goal/fact), each leaf tinted by
-  // its category and sized by importance (1-10 -> radius 4-10px). Re-run
-  // via memoriesVersion whenever an edit/delete happens so the hub stays
-  // in sync with the Inspector.
+  // Fetches real memory records, ordered by relevance (importance - the
+  // backend already returns them importance DESC) so the pagination cap
+  // below keeps the most relevant items on page 1. Each leaf is still
+  // tinted by its own category for visual variety and sized by importance
+  // (1-10 -> radius 4-10px); angle is assigned later, per visible window,
+  // not here - see rebuildVisibleLeaves. Re-run via memoriesVersion
+  // whenever an edit/delete happens so the hub stays in sync with the
+  // Inspector.
   const populateMemories = () => {
     import("../../../services/jarvisApi").then(({ getMemories }) => {
       getMemories().then((data: any[]) => {
         const memHub = hubNodesRef.current.find((h) => h.key === "memories");
         if (!memHub) return;
 
-        const byCategory: Record<string, any[]> = {};
-        data.forEach((m) => {
+        const leaves = data.map((m) => {
           const cat = MEMORY_CATEGORIES.includes(m.category) ? m.category : "fact";
-          (byCategory[cat] = byCategory[cat] || []).push(m);
-        });
-        const orderedCats = MEMORY_CATEGORIES.filter((c) => byCategory[c]?.length);
-        const sectorSize = (Math.PI * 2) / Math.max(1, orderedCats.length);
-
-        const leaves: any[] = [];
-        orderedCats.forEach((cat, ci) => {
-          const items = byCategory[cat];
-          const sectorStart = ci * sectorSize;
-          items.forEach((m, i) => {
-            const within = items.length > 1 ? i / (items.length - 1) : 0.5;
-            const angle = sectorStart + sectorSize * 0.15 + within * sectorSize * 0.7;
-            const importance = Math.max(1, Math.min(10, m.importance || 5));
-            let label = String(m.content || "").trim();
-            if (label.length > 26) label = label.substring(0, 26) + "...";
-            leaves.push({
-              id: "memories-leaf-" + m.id,
-              label,
-              color: MEMORY_CATEGORY_COLORS[cat] || MEMORY_CATEGORY_COLORS.general,
-              angle,
-              dist: 45 + Math.random() * 35,
-              x: 0,
-              y: 0,
-              vx: 0,
-              vy: 0,
-              radius: 4 + (importance / 10) * 6,
-              memory: m,
-            });
-          });
+          const importance = Math.max(1, Math.min(10, m.importance || 5));
+          let label = String(m.content || "").trim();
+          if (label.length > 26) label = label.substring(0, 26) + "...";
+          return {
+            id: "memories-leaf-" + m.id,
+            label,
+            color: MEMORY_CATEGORY_COLORS[cat] || MEMORY_CATEGORY_COLORS.general,
+            angle: 0,
+            dist: 45 + Math.random() * 35,
+            x: memHub.x,
+            y: memHub.y,
+            vx: 0,
+            vy: 0,
+            radius: 4 + (importance / 10) * 6,
+            memory: m,
+          };
         });
 
         memHub.leavesList = leaves;
         memHub.leaves = leaves.length;
+        memHub.page = 0;
+        memHub._lastMode = undefined;
       }).catch((err) => console.error("Failed to fetch graph memories", err));
     });
   };
@@ -245,6 +257,33 @@ export function GraphCanvas() {
     if (hubNodesRef.current.length > 0) populateMemories();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [memoriesVersion]);
+
+  // "Jump to node" from the command palette. Runs independently of the
+  // activeHub-driven drill effect above (that one only fires on a hub
+  // CHANGE, so jumping to a different leaf within the hub you're already
+  // viewing wouldn't re-trigger it) - this effect's only job is finding
+  // the leaf's REAL index in the hub's full (backend-sourced) list, paging
+  // there, and starting its pulse. No synthetic leaves: real pagination
+  // means the target always genuinely exists somewhere in leavesList.
+  useEffect(() => {
+    if (!focusLeaf) return;
+    const hub = hubNodesRef.current.find((h) => h.key === focusLeaf.hub);
+    if (!hub) return;
+
+    const index = hub.leavesList.findIndex((l: any) => l.id === focusLeaf.leafId);
+    if (index === -1) return;
+    const leaf = hub.leavesList[index];
+
+    hub.page = Math.floor(index / PAGE_SIZE);
+    hub._lastMode = undefined; // force the next layout tick to rebuild visibleLeaves for the new page
+
+    leaf.pulseUntil = performance.now() + PULSE_DURATION_MS;
+    pulsingLeafRef.current = leaf;
+
+    const t = setTimeout(() => setFocusLeaf(null), PULSE_DURATION_MS);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusLeaf]);
 
   useEffect(() => {
     // Initialize nodes
@@ -256,6 +295,9 @@ export function GraphCanvas() {
       y: 0,
       isHub: true,
       leavesList: [] as any[],
+      visibleLeaves: [] as any[],
+      page: 0,
+      leafRevealT: 0,
     }));
 
     hubNodesRef.current.forEach((h) => {
@@ -279,28 +321,31 @@ export function GraphCanvas() {
 
     populateMemories();
 
-    // Fetch dynamic conversations
+    // Fetch dynamic conversations. leavesList holds the FULL fetched set
+    // (already recency-ordered by the backend) - real pagination (see
+    // rebuildVisibleLeaves) decides how many actually render per page,
+    // there's no artificial cap here anymore.
     import("../../../services/jarvisApi").then(({ getConversations }) => {
       getConversations().then(data => {
         const convoHub = hubNodesRef.current.find(h => h.key === "conversations");
         if (convoHub) {
-          const recent = data.slice(0, 8); // Max 8 leaves for graph
-          convoHub.leavesList = recent.map((c: any, i: number) => {
-            const angle = (Math.PI * 2 / recent.length) * i;
+          convoHub.leavesList = data.map((c: any) => {
             let label = c.title || c.preview || "Session";
             if (label.length > 20) label = label.substring(0, 20) + "...";
             return {
               id: "conversations-leaf-" + c.id,
               label,
               color: convoHub.color,
-              angle: angle,
+              angle: 0,
               dist: 45 + Math.random() * 35,
-              x: 0,
-              y: 0,
+              x: convoHub.x,
+              y: convoHub.y,
               vx: 0,
               vy: 0,
             };
           });
+          convoHub.page = 0;
+          convoHub._lastMode = undefined;
         }
       }).catch(err => console.error("Failed to fetch graph convos", err));
     });
@@ -336,14 +381,19 @@ export function GraphCanvas() {
       const cx = w / 2;
       const cy = h / 2;
 
-      // GPU OPTIMIZATION: Skip redraw in 2D mode if nothing changed
+      // GPU OPTIMIZATION: Skip redraw in 2D mode if nothing changed - but
+      // never while a leaf pulse is actively animating, or the pulse would
+      // freeze into a single stale frame under the once-a-second 2D loop.
       const currentMode = graphModeRef.current;
       const currentExpandT = stateRef.current.expandT;
       const currentDrillT = stateRef.current.drillT;
+      const pulseActive = !!pulsingLeafRef.current &&
+        pulsingLeafRef.current.pulseUntil > performance.now();
       const isStatic = currentMode === "2d" &&
                        Math.abs(currentExpandT - lastExpandT) < 0.001 &&
                        Math.abs(currentDrillT - lastDrillT) < 0.001 &&
-                       lastDrawMode === currentMode;
+                       lastDrawMode === currentMode &&
+                       !pulseActive;
 
       if (isStatic) {
         // Nothing changed - skip expensive redraw
@@ -419,13 +469,19 @@ export function GraphCanvas() {
       });
 
       if (expandT > 0.04) {
-        hubNodes.forEach((hub) =>
-          hub.leavesList.forEach((leaf: any) => {
-            const isSelectedHub = effectiveHub === hub;
-            const dim = effectiveHub && !isSelectedHub;
-            const alpha = Math.max(0, expandT - (dim ? drillT : 0));
-            
-            ctx.globalAlpha = alpha * edgeOpacity;
+        // Part 1: only hubs with a non-negligible reveal (hovered or
+        // drilled, or still mid-fade after losing either) have anything
+        // in visibleLeaves worth drawing - hubs at rest contribute nothing
+        // to either pass below.
+        hubNodes.forEach((hub) => {
+          const reveal = hub.leafRevealT || 0;
+          if (reveal < 0.001 || !hub.visibleLeaves) return;
+          const isSelectedHub = effectiveHub === hub;
+          const dim = effectiveHub && !isSelectedHub;
+          const baseAlpha = Math.max(0, expandT - (dim ? drillT : 0)) * reveal;
+
+          hub.visibleLeaves.forEach((leaf: any) => {
+            ctx.globalAlpha = baseAlpha * edgeOpacity;
             if (ctx.globalAlpha > 0.01) {
               ctx.strokeStyle = `rgba(${hexToRgb(hub.color)},${0.22})`;
               ctx.lineWidth = edgeWidth;
@@ -435,31 +491,84 @@ export function GraphCanvas() {
               ctx.stroke();
             }
             ctx.globalAlpha = 1;
-          })
-        );
-        hubNodes.forEach((hub) =>
-          hub.leavesList.forEach((leaf: any) => {
-            const isSelectedHub = effectiveHub === hub;
-            const dim = effectiveHub && !isSelectedHub;
-            const alpha = Math.max(0, expandT - (dim ? drillT : 0));
-            
+          });
+        });
+        hubNodes.forEach((hub) => {
+          const reveal = hub.leafRevealT || 0;
+          if (reveal < 0.001 || !hub.visibleLeaves) return;
+          const isSelectedHub = effectiveHub === hub;
+          const dim = effectiveHub && !isSelectedHub;
+          const alpha = Math.max(0, expandT - (dim ? drillT : 0)) * reveal;
+
+          hub.visibleLeaves.forEach((leaf: any) => {
             ctx.globalAlpha = alpha;
-            if (alpha > 0.01) {
-              ctx.globalAlpha = alpha * (graphModeRef.current === "3d" ? 0.8 : 1.0);
-              drawNode(ctx, leaf.x, leaf.y, leaf.radius || 5, leaf.color);
+            if (alpha <= 0.01) {
+              ctx.globalAlpha = 1;
+              return;
+            }
+
+            if (leaf.isNav) {
+              // Distinctly-styled overflow/pagination node - a hollow
+              // dashed ring rather than a filled leaf, so it reads as
+              // "control", not "data", at a glance.
+              ctx.globalAlpha = alpha * 0.9;
+              ctx.beginPath();
+              ctx.setLineDash([3, 3]);
+              ctx.arc(leaf.x, leaf.y, 7, 0, Math.PI * 2);
+              ctx.strokeStyle = `rgba(${hexToRgb(hub.color)},0.9)`;
+              ctx.lineWidth = 1.6;
+              ctx.stroke();
+              ctx.setLineDash([]);
+              ctx.font = "600 10px JetBrains Mono, monospace";
+              ctx.fillStyle = `rgba(${hexToRgb(hub.color)},0.95)`;
+              ctx.textAlign = "center";
+              ctx.fillText(leaf.label, leaf.x, leaf.y + 20);
+              ctx.textAlign = "start";
               ctx.globalAlpha = alpha;
-              
-              if (isSelectedHub && drillT > 0.5) {
-                ctx.font = "9px JetBrains Mono, monospace";
-                ctx.fillStyle = "rgba(231,246,244,0.6)";
-                ctx.textAlign = "center";
-                ctx.fillText(leaf.label, leaf.x, leaf.y + 15);
-                ctx.textAlign = "start";
+              return;
+            }
+
+            ctx.globalAlpha = alpha * (graphModeRef.current === "3d" ? 0.8 : 1.0);
+            drawNode(ctx, leaf.x, leaf.y, leaf.radius || 5, leaf.color);
+            ctx.globalAlpha = alpha;
+
+            // "Jump to node" highlight - a bright ring that repeatedly
+            // expands out from the leaf and fades, distinct from any
+            // other visual on the canvas, so a leaf found via the
+            // command palette is unmistakable among its siblings.
+            const pulseRemain = (leaf.pulseUntil || 0) - performance.now();
+            if (pulseRemain > 0) {
+              const cyclePos = ((performance.now() / 550) % 1);
+              const ringR = (leaf.radius || 5) + 3 + cyclePos * 16;
+              const fadeOut = Math.min(1, pulseRemain / 400);
+              const ringAlpha = alpha * (1 - cyclePos) * fadeOut;
+              if (ringAlpha > 0.02) {
+                ctx.globalAlpha = ringAlpha;
+                ctx.beginPath();
+                ctx.arc(leaf.x, leaf.y, ringR, 0, Math.PI * 2);
+                ctx.strokeStyle = "#ffffff";
+                ctx.lineWidth = 2.2;
+                ctx.stroke();
               }
+              ctx.globalAlpha = alpha;
+
+              // Always show the label while pulsing, regardless of
+              // drillT/hover state - that's the whole point of the jump.
+              ctx.font = "600 10px JetBrains Mono, monospace";
+              ctx.fillStyle = "#ffffff";
+              ctx.textAlign = "center";
+              ctx.fillText(leaf.label, leaf.x, leaf.y + 16);
+              ctx.textAlign = "start";
+            } else if (isSelectedHub && drillT > 0.5) {
+              ctx.font = "9px JetBrains Mono, monospace";
+              ctx.fillStyle = "rgba(231,246,244,0.6)";
+              ctx.textAlign = "center";
+              ctx.fillText(leaf.label, leaf.x, leaf.y + 15);
+              ctx.textAlign = "start";
             }
             ctx.globalAlpha = 1;
-          })
-        );
+          });
+        });
       }
 
       hubNodes.forEach((hub) => {
@@ -483,6 +592,25 @@ export function GraphCanvas() {
           ctx.lineWidth = edgeWidth;
           ctx.stroke();
         }
+
+        // Gentle ambient "breathing" glow so a collapsed, leafless hub at
+        // rest still reads as alive rather than static - a slow sine
+        // ring, phase-offset per hub so they don't all breathe in unison.
+        // Fades out while the hub's own leaves are revealed (hover/drill)
+        // so it never competes with the pulse-highlight ring above. 3D
+        // only - 2D mode is deliberately flat/glow-free everywhere else.
+        if (graphModeRef.current === "3d") {
+          const breathePhase = Math.sin(performance.now() / 1400 + hub.angle * 3);
+          const breatheAlpha = (0.12 + breathePhase * 0.08) * (1 - (hub.leafRevealT || 0));
+          if (breatheAlpha > 0.01) {
+            ctx.beginPath();
+            ctx.arc(hub.x, hub.y, baseR + 4 + breathePhase * 2, 0, Math.PI * 2);
+            ctx.strokeStyle = `rgba(${hexToRgb(hub.color)},${breatheAlpha})`;
+            ctx.lineWidth = 1;
+            ctx.stroke();
+          }
+        }
+
         ctx.globalAlpha = alpha;
         drawNode(ctx, hub.x, hub.y, baseR, hub.color);
         ctx.globalAlpha = 1;
@@ -515,6 +643,52 @@ export function GraphCanvas() {
       }
     };
 
+    // Rebuilds a hub's small on-screen leaf window from its full (real,
+    // backend-sourced) leavesList - "hover" is just a fixed-size glance
+    // (no pagination), "drilled" is the real paginated view: PAGE_SIZE
+    // leaves for the current page plus distinctly-styled nav nodes when
+    // there's a previous/next page. Angles are assigned fresh here (evenly
+    // spaced across whatever is actually visible right now) rather than
+    // carried from the full list, so a short hover preview or a partial
+    // last page doesn't inherit awkward gaps from angles meant for a
+    // bigger set.
+    const rebuildVisibleLeaves = (hub: any, mode: "hover" | "drilled") => {
+      let nodes: any[];
+      if (mode === "hover") {
+        nodes = hub.leavesList.slice(0, HOVER_PREVIEW_COUNT);
+      } else {
+        // Clamp in case leavesList shrank (e.g. a memory got deleted)
+        // since the page was last set.
+        const maxPage = Math.max(0, Math.ceil(hub.leavesList.length / PAGE_SIZE) - 1);
+        if (hub.page > maxPage) hub.page = maxPage;
+        const start = hub.page * PAGE_SIZE;
+        const pageItems = hub.leavesList.slice(start, start + PAGE_SIZE);
+        const hasPrev = hub.page > 0;
+        const hasMore = hub.leavesList.length > start + PAGE_SIZE;
+        nodes = pageItems.slice();
+        if (hasPrev) {
+          nodes.push({
+            id: "__prev__", isNav: true, isPrev: true,
+            label: "← prev", color: hub.color,
+          });
+        }
+        if (hasMore) {
+          const remaining = hub.leavesList.length - start - PAGE_SIZE;
+          nodes.push({
+            id: "__more__", isNav: true, isMore: true,
+            label: `+${remaining} more`, color: hub.color,
+          });
+        }
+      }
+
+      nodes.forEach((leaf, i) => {
+        leaf.angle = (i / Math.max(1, nodes.length)) * Math.PI * 2;
+        if (leaf.dist === undefined) leaf.dist = 45 + Math.random() * 35;
+        if (leaf.x === undefined) { leaf.x = hub.x; leaf.y = hub.y; }
+      });
+      hub.visibleLeaves = nodes;
+    };
+
     const layout = (speedMultiplier: number) => {
       const w = canvas.clientWidth || 800;
       const h = canvas.clientHeight || 600;
@@ -525,16 +699,16 @@ export function GraphCanvas() {
       // Increased to 0.70 per user request so the connecting lines are much longer
       const LEVEL_1_RADIUS = canvasRadius * 0.70;
       
-      const { expandT, drillT, selectedHub, lastSelectedHub } = stateRef.current;
+      const { expandT, drillT, selectedHub, lastSelectedHub, hoveredHub } = stateRef.current;
       const r = LEVEL_0_RADIUS + (LEVEL_1_RADIUS - LEVEL_0_RADIUS) * expandT;
       const effectiveHub = selectedHub || lastSelectedHub;
 
       hubNodesRef.current.forEach((hub) => {
         const a = hub.angle + stateRef.current.angleBase;
-        
+
         let targetHubX = cx + Math.cos(a) * r;
         let targetHubY = cy + Math.sin(a) * r;
-        
+
         if (effectiveHub && drillT > 0.01) {
             if (effectiveHub === hub) {
                 targetHubX = targetHubX + (cx - targetHubX) * drillT;
@@ -544,14 +718,46 @@ export function GraphCanvas() {
                 targetHubY = targetHubY + (targetHubY - cy) * 0.5 * drillT;
             }
         }
-        
+
         hub.x = targetHubX;
         hub.y = targetHubY;
-        
+
+        // --- Part 1: collapse-at-rest ------------------------------------
+        // A hub's leaf cluster is only ever populated/positioned/drawn
+        // while it's the drilled-in hub or the currently-hovered one (at
+        // rest, nothing is hovered/selected, so every hub sits idle as
+        // just its glowing point - no leaves computed or drawn at all).
+        const targetMode: "hidden" | "hover" | "drilled" =
+          selectedHub === hub ? "drilled" : hoveredHub === hub ? "hover" : "hidden";
+        const isActive = targetMode !== "hidden";
+
+        const prevReveal = hub.leafRevealT || 0;
+        hub.leafRevealT = prevReveal + ((isActive ? 1 : 0) - prevReveal) * LEAF_REVEAL_EASE;
+
+        // Rebuild the small visible-window array only when what SHOULD be
+        // shown actually changes (hover started, page turned, drilled in) -
+        // not every frame. While fading out after losing hover/selection,
+        // deliberately keep the stale visibleLeaves/mode as-is so the fade
+        // reads as a smooth dissolve of the last real content instead of
+        // popping to empty.
+        if (isActive && (hub._lastMode !== targetMode || hub._lastPage !== hub.page)) {
+          rebuildVisibleLeaves(hub, targetMode);
+          hub._lastMode = targetMode;
+          hub._lastPage = hub.page;
+        }
+
+        // Skip all per-leaf position math for a hub that is fully hidden
+        // and not mid-fade - this is the actual performance win: idle hubs
+        // (the common case) never touch their leaf list at all each frame.
+        if (!isActive && hub.leafRevealT < 0.001) {
+          return;
+        }
+
         const LEAF_ORBIT_RADIUS = canvasRadius * 0.60;
         const LEAF_ORBIT_SPEED = 0.003 * speedMultiplier;
+        const visibleLeaves: any[] = hub.visibleLeaves || [];
 
-        hub.leavesList.forEach((leaf: any) => {
+        visibleLeaves.forEach((leaf: any) => {
           if (effectiveHub === hub && drillT > 0.01) {
             // Only rotate in 3D mode - 2D mode is static
             if (graphModeRef.current === "3d") {
@@ -563,7 +769,9 @@ export function GraphCanvas() {
             leaf.x = hub.x + Math.cos(leaf.angle) * currentDist;
             leaf.y = hub.y + Math.sin(leaf.angle) * currentDist;
           } else {
-            const leafExpand = 0.2 + expandT * 0.2; // tight cluster around hub in level 0
+            // Hover preview: a tight, static-ish glance cluster right at
+            // the hub, scaled in by the hub's own reveal easing.
+            const leafExpand = (0.2 + expandT * 0.2) * hub.leafRevealT;
             leaf.x = hub.x + Math.cos(leaf.angle) * leaf.dist * leafExpand;
             leaf.y = hub.y + Math.sin(leaf.angle) * leaf.dist * leafExpand;
           }
@@ -572,7 +780,6 @@ export function GraphCanvas() {
     };
 
     const loop = () => {
-      const HOVER_RADIUS = 60;
       const NORMAL_SPEED = 1.0;
       const HOVER_SPEED = 0.15;
       let speedMultiplier = NORMAL_SPEED;
@@ -590,14 +797,20 @@ export function GraphCanvas() {
         isHovering = true;
       }
 
+      // Which hub (if any) the mouse is currently near - drives the Part 1
+      // collapse-at-rest leaf-cluster reveal. Only meaningful when nothing
+      // is drilled in; while drilled, the selected hub's own leaves are
+      // already shown via the existing expand/drill mechanics untouched.
+      let hoveredHub: any = null;
       hubNodesRef.current.forEach(hub => {
         if (Math.hypot(mx - hub.x, my - hub.y) < HOVER_RADIUS) {
           speedMultiplier = HOVER_SPEED;
           isHovering = true;
+          if (!stateRef.current.selectedHub) hoveredHub = hub;
         }
 
-        if (stateRef.current.expandT > 0.1) {
-          hub.leavesList.forEach((leaf: any) => {
+        if (stateRef.current.expandT > 0.1 && hub.visibleLeaves) {
+          hub.visibleLeaves.forEach((leaf: any) => {
             if (Math.hypot(mx - leaf.x, my - leaf.y) < 30) {
               speedMultiplier = HOVER_SPEED;
               isHovering = true;
@@ -605,6 +818,7 @@ export function GraphCanvas() {
           });
         }
       });
+      stateRef.current.hoveredHub = hoveredHub;
 
       canvas.style.cursor = isHovering ? "pointer" : "default";
 
@@ -663,7 +877,7 @@ export function GraphCanvas() {
     if (stateRef.current.selectedHub) {
       let hitLeaf: any = null;
       let bestLeaf = 15;
-      stateRef.current.selectedHub.leavesList.forEach((leaf: any) => {
+      (stateRef.current.selectedHub.visibleLeaves || []).forEach((leaf: any) => {
         const d = Math.hypot(leaf.x - mx, leaf.y - my);
         if (d < bestLeaf) {
           hitLeaf = leaf;
@@ -672,6 +886,15 @@ export function GraphCanvas() {
       });
 
       if (hitLeaf) {
+        // Pagination nav nodes - advance/retreat the page and force the
+        // next layout tick to rebuild the visible window; no other click
+        // behavior applies to them.
+        if (hitLeaf.isNav) {
+          if (hitLeaf.isMore) stateRef.current.selectedHub.page += 1;
+          else if (hitLeaf.isPrev) stateRef.current.selectedHub.page -= 1;
+          stateRef.current.selectedHub._lastMode = undefined;
+          return;
+        }
         if (stateRef.current.selectedHub.key === "memories" && hitLeaf.memory) {
           setSelectedMemory(hitLeaf.memory);
           return;

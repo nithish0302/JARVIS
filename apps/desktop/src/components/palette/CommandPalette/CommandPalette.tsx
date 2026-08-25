@@ -10,8 +10,9 @@ import {
   getMemories,
   updateSettings,
 } from "../../../services/jarvisApi"
+import { HUB_LEAVES } from "../../../data/graphHubs"
 
-type SectionKey = "Conversations" | "Actions" | "Settings" | "Memories"
+type SectionKey = "Conversations" | "Actions" | "Settings" | "Memories" | "Graph"
 
 interface PaletteItem {
   id: string
@@ -51,6 +52,7 @@ function fuzzyScore(query: string, text: string): number | null {
 
 const SECTION_ORDER: SectionKey[] = [
   "Conversations",
+  "Graph",
   "Actions",
   "Settings",
   "Memories",
@@ -77,8 +79,12 @@ export function CommandPalette() {
     getConversations()
       .then(setConversations)
       .catch(() => setConversations([]))
+    // No artificial cap here - the backend already bounds this list
+    // (get_all_memories(limit=50)), and now that the graph has real
+    // pagination, a palette jump needs the full set to be able to reach
+    // (and correctly page to) any memory, not just the first page's worth.
     getMemories()
-      .then((m) => setMemories(m.slice(0, 10)))
+      .then(setMemories)
       .catch(() => setMemories([]))
     const t = setTimeout(() => inputRef.current?.focus(), 20)
     return () => clearTimeout(t)
@@ -128,6 +134,36 @@ export function CommandPalette() {
         console.error("Failed to persist modifier:", err)
       )
       app.showShortcutToast(`Modifier · ${mod.toUpperCase()}`)
+    }
+
+    // Opens the graph (if closed), drills into the given hub, and tells
+    // GraphCanvas which specific leaf to page to and pulse - this is what
+    // lets a palette hit reach an item regardless of which page of a
+    // hub's real pagination it falls on (e.g. conversations render 12 per
+    // page; a jump to item #20 still pages there and finds it for real,
+    // no synthetic leaf involved).
+    //
+    // setActiveHub and setGraphLevel(2) must land together, matching the
+    // pattern uiActionExecutor.ts already uses for external hub-selection
+    // (graph_open_hub/conversations_open): GraphCanvas has an effect that
+    // resets activeHub back to null whenever graphLevel is still < 2 when
+    // activeHub changes (it's how canceling out of a hub works) - setting
+    // graphLevel synchronously in the same call avoids racing into that
+    // reset, which would otherwise leave activeHub null and the Inspector
+    // panel blank even though the canvas visually drilled in correctly.
+    const jumpToNode = (hub: string, leafId: string) => {
+      app.setChatMode(false)
+      const focus = () => {
+        app.setActiveHub(hub)
+        app.setGraphLevel(2)
+        app.setFocusLeaf({ hub, leafId })
+      }
+      if (app.graphLevel === 0 || app.chatMode) {
+        app.setGraphLevel(1)
+        setTimeout(focus, 800)
+      } else {
+        focus()
+      }
     }
 
     const list: PaletteItem[] = []
@@ -293,6 +329,54 @@ export function CommandPalette() {
         },
       })
     }
+
+    // "Jump to node" - additive section, separate from Conversations/
+    // Memories above (which keep their existing load-into-chat / toast
+    // behavior untouched). Every entry here does one thing: open the
+    // graph to the matching hub with that exact leaf pulsing, so a
+    // specific item can always be found by name even in a cluttered or
+    // paginated hub.
+    for (const c of conversations) {
+      const title = c.title || "Session"
+      list.push({
+        id: `graph-conversation-${c.id}`,
+        section: "Graph",
+        label: title,
+        detail: "Conversations node",
+        run: () => {
+          close()
+          jumpToNode("conversations", `conversations-leaf-${c.id}`)
+        },
+      })
+    }
+
+    for (const m of memories) {
+      const content = String(m.content || "")
+      if (!content) continue
+      list.push({
+        id: `graph-memory-${m.id}`,
+        section: "Graph",
+        label: content.length > 60 ? content.slice(0, 60) + "…" : content,
+        detail: "Memories node",
+        run: () => {
+          close()
+          jumpToNode("memories", `memories-leaf-${m.id}`)
+        },
+      })
+    }
+
+    HUB_LEAVES.files.forEach((fileLabel, i) => {
+      list.push({
+        id: `graph-file-${i}`,
+        section: "Graph",
+        label: fileLabel,
+        detail: "Files node",
+        run: () => {
+          close()
+          jumpToNode("files", `files-leaf-${i}`)
+        },
+      })
+    })
 
     return list
   }, [conversations, memories, setOpen])
