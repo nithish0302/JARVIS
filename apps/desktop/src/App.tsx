@@ -19,6 +19,7 @@ import { ConversationPanel } from "./components/conversations/ConversationPanel/
 import { ChatFullView } from "./components/chat/ChatFullView/ChatFullView";
 import { CommandPalette } from "./components/palette/CommandPalette/CommandPalette";
 import { ShortcutToast } from "./components/layout/ShortcutToast/ShortcutToast";
+import { FallbackToast } from "./components/layout/FallbackToast/FallbackToast";
 
 function App() {
   const view = useAppStore((state) => state.view);
@@ -82,6 +83,7 @@ function App() {
           chat/graph view and the settings view alike. */}
       <CommandPalette />
       <ShortcutToast />
+      <FallbackToast />
     </LayoutProvider>
   );
 }

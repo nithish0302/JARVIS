@@ -203,6 +203,35 @@ export function executeUIActions(
           }
           break
 
+        case "provider_override":
+          if (action.payload !== undefined) {
+            const override = action.payload.toLowerCase().trim()
+            const value = override === "none" || override === "" ? null : override
+            import("../stores/useAIStore").then(m => {
+              m.useAIStore.getState().setProviderOverride(value as any)
+            })
+            import("../services/jarvisApi").then(api => {
+              api.updateSettings({ provider_override: value }).catch(err => {
+                console.error("Failed to update provider_override setting:", err)
+              })
+            })
+          }
+          break
+
+        case "fallback_mode":
+          if (action.payload) {
+            const mode = action.payload.toLowerCase().trim() as "auto" | "ask"
+            import("../stores/useAIStore").then(m => {
+              m.useAIStore.getState().setFallbackMode(mode)
+            })
+            import("../services/jarvisApi").then(api => {
+              api.updateSettings({ fallback_mode: mode }).catch(err => {
+                console.error("Failed to update fallback_mode setting:", err)
+              })
+            })
+          }
+          break
+
         case "address_preference":
           // payload can legitimately be "" (clear the address term), so
           // this checks !== undefined rather than truthiness like the

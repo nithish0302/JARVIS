@@ -1,4 +1,30 @@
+import os
+from pathlib import Path
+
+from dotenv import dotenv_values
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Absolute path to the .env file this Settings() reads (SettingsConfigDict
+# below uses a bare relative "env_file", which only resolves correctly when
+# the process CWD happens to be this directory - this absolute path is used
+# purely for the diagnostics below, which must find the real .env
+# regardless of CWD).
+_ENV_FILE_PATH = Path(__file__).resolve().parents[3] / ".env"
+
+# API key settings worth a masked startup preview and a stale-system-env-var
+# check. Confirmed live bug this guards against: a Windows user/system
+# environment variable named GEMINI_API_KEY, set independently of .env and
+# holding an old, already-rotated key. pydantic-settings resolves real OS
+# environment variables with HIGHER priority than the .env file by design -
+# so editing .env silently did nothing while that stale system var existed,
+# and there was no signal anywhere that this was happening.
+_API_KEY_FIELDS = [
+    "GEMINI_API_KEY",
+    "GROQ_API_KEY",
+    "OPENROUTER_API_KEY",
+    "TAVILY_API_KEY",
+    "CEREBRAS_API_KEY",
+]
 
 class Settings(BaseSettings):
     JARVIS_HOST: str = "localhost"
@@ -115,6 +141,54 @@ class Settings(BaseSettings):
     LAST_BRIEFING_DATE: str = ""
     DAILY_BRIEFING_ENABLED: str = "true"
 
+    # Provider fallback controls. "" (empty) means no override - the normal
+    # Gemini -> OpenRouter -> Groq -> Ollama cascade applies. When set, ONLY
+    # that provider is tried; a failure is reported, never silently
+    # substituted. fallback_mode "ask" pauses the cascade on the first
+    # failure and asks the user which provider to try next, instead of
+    # auto-advancing to the next one in line.
+    PROVIDER_OVERRIDE: str = ""
+    FALLBACK_MODE: str = "auto"
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
 settings = Settings()
+
+
+def _mask(value: str) -> str:
+    """First 6 / last 6 characters only - never log a full key."""
+    if not value:
+        return "(not set)"
+    if len(value) <= 12:
+        return "*" * len(value)
+    return f"{value[:6]}...{value[-6:]}"
+
+
+def log_api_key_diagnostics() -> None:
+    """Prints a masked preview of every API key setting actually in effect,
+    and loudly warns if a real OS/system environment variable is silently
+    overriding what .env says - pydantic-settings (and the underlying
+    python-dotenv load) resolves real environment variables with HIGHER
+    priority than .env file values, so a stale system-level env var makes
+    every .env edit a no-op with zero visible signal. Call this once at
+    startup, right after `settings` is constructed.
+    """
+    env_file_values = dotenv_values(_ENV_FILE_PATH) if _ENV_FILE_PATH.exists() else {}
+
+    print("[CONFIG] API key sources in effect:")
+    for field in _API_KEY_FIELDS:
+        effective_value = getattr(settings, field, "")
+        print(f"[CONFIG]   {field} = {_mask(effective_value)}")
+
+        os_value = os.environ.get(field)
+        env_file_value = env_file_values.get(field)
+        if os_value and os_value != (env_file_value or ""):
+            print(
+                f"[CONFIG] WARNING: {field} is set as a system environment "
+                f"variable ({_mask(os_value)}) and differs from .env "
+                f"({_mask(env_file_value or '')}) - the system value will be "
+                f"used no matter what .env says. Run "
+                f"[System.Environment]::SetEnvironmentVariable('{field}', "
+                f"$null, 'User') to remove it if this is unintended, then "
+                f"restart the engine."
+            )

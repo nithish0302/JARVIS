@@ -62,6 +62,13 @@ export interface AppState {
   // you're already viewing wouldn't otherwise re-trigger anything.
   focusLeaf: { hub: string; leafId: string } | null;
   setFocusLeaf: (focus: { hub: string; leafId: string } | null) => void;
+  // Small visual indicator shown whenever a chat/voice response actually
+  // fell back to a different AI provider than the one that was first
+  // tried - separate from shortcutToast since it needs a longer, more
+  // informative message and a distinct timeout.
+  fallbackToast: string;
+  fallbackToastVisible: boolean;
+  showFallbackToast: (message: string) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -134,4 +141,16 @@ export const useAppStore = create<AppState>((set) => ({
   bumpMemoriesVersion: () => set((state) => ({ memoriesVersion: state.memoriesVersion + 1 })),
   focusLeaf: null,
   setFocusLeaf: (focus) => set({ focusLeaf: focus }),
+  fallbackToast: "",
+  fallbackToastVisible: false,
+  showFallbackToast: (message) => {
+    if ((window as any)._fallbackToastTimer) {
+      clearTimeout((window as any)._fallbackToastTimer);
+    }
+    set({ fallbackToast: message, fallbackToastVisible: true });
+    (window as any)._fallbackToastTimer = setTimeout(() => {
+      set({ fallbackToast: "", fallbackToastVisible: false });
+      (window as any)._fallbackToastTimer = null;
+    }, 5000);
+  },
 }));

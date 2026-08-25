@@ -63,7 +63,7 @@ export function useJarvisChat() {
         addMessage(userMessage)
       },
       // Voice response received - add as assistant message
-      (text: string, seq?: number) => {
+      (text: string, seq?: number, meta?: { providerUsed: string | null, modelUsed: string | null, fallbackOccurred: boolean, failedProvider: string | null }) => {
         if (seq !== undefined) {
           if (seq <= lastVoiceSeqRef.current) {
             console.warn(`[WS] Discarding stale voice_response event (seq ${seq} <= ${lastVoiceSeqRef.current})`)
@@ -71,6 +71,22 @@ export function useJarvisChat() {
           }
           lastVoiceSeqRef.current = seq
         }
+
+        // Reflect the ACTUAL provider/model that answered - not a static
+        // config value - and surface a fallback notice if one occurred.
+        if (meta?.providerUsed && !["direct", "asking", "override_unavailable", "error"].includes(meta.providerUsed)) {
+          useAIStore.getState().setProvider(meta.providerUsed as any)
+        }
+        if (meta?.modelUsed && !["direct", "asking", "unavailable", "error"].includes(meta.modelUsed)) {
+          useAIStore.getState().setModel(meta.modelUsed)
+        }
+        useAIStore.getState().setLastFallback(!!meta?.fallbackOccurred, meta?.failedProvider ?? null)
+        if (meta?.fallbackOccurred && meta.failedProvider && meta.providerUsed) {
+          useAppStore.getState().showFallbackToast(
+            `${meta.failedProvider} had an issue — switched to ${meta.providerUsed}`
+          )
+        }
+
         // Strip UI_ACTION tags before displaying
         const { cleanText, actions } = parseUIActions(text)
         const assistantMessage: Message = {
@@ -298,7 +314,7 @@ export function useJarvisChat() {
           useConversationStore.getState().appendStreamToken(token)
         },
         // onDone — add complete message
-        (convId, fullResponse, sources = [], providerUsed = "unknown", modelUsed = "unknown") => {
+        (convId, fullResponse, sources = [], providerUsed = "unknown", modelUsed = "unknown", fallbackOccurred = false, failedProvider = null) => {
           try {
             useConversationStore.getState().finishStreaming()
 
@@ -306,12 +322,21 @@ export function useJarvisChat() {
               setConversationId(convId)
             }
 
-            // Update AI store with actual provider/model used
-            if (providerUsed !== "unknown") {
+            // Update AI store with the ACTUAL provider/model that answered -
+            // this is what makes the Topbar badge honest instead of a
+            // static config value, and it visibly changes on a fallback.
+            const unresolvedProviders = ["unknown", "asking", "override_unavailable", "error"]
+            if (!unresolvedProviders.includes(providerUsed)) {
               useAIStore.getState().setProvider(providerUsed as any)
             }
-            if (modelUsed !== "unknown") {
+            if (modelUsed !== "unknown" && modelUsed !== "asking" && modelUsed !== "unavailable") {
               useAIStore.getState().setModel(modelUsed)
+            }
+            useAIStore.getState().setLastFallback(fallbackOccurred, failedProvider)
+            if (fallbackOccurred && failedProvider) {
+              useAppStore.getState().showFallbackToast(
+                `${failedProvider} had an issue — switched to ${providerUsed}`
+              )
             }
 
             // Parse UI actions FIRST

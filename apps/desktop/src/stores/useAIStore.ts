@@ -16,6 +16,16 @@ export interface AIState {
   modifier: "none" | "planner" | "quiet";
   addressPreference: string;
   dailyBriefingEnabled: boolean;
+  // provider_override: locks the cascade to a single provider (null = normal
+  // Gemini -> OpenRouter -> Groq -> Ollama fallback). fallbackMode "ask"
+  // pauses on a failure and asks which provider to use next instead of
+  // auto-advancing.
+  providerOverride: AIState["provider"] | null;
+  fallbackMode: "auto" | "ask";
+  // Set from the LAST ACTUAL response (chat or voice) so the Topbar badge
+  // is honest about what really answered, not a static config value.
+  lastFallbackOccurred: boolean;
+  lastFailedProvider: string | null;
   setProvider: (provider: AIState["provider"]) => void;
   setModel: (model: string) => void;
   setStatus: (status: AIState["status"]) => void;
@@ -30,6 +40,9 @@ export interface AIState {
   setModifier: (modifier: AIState["modifier"]) => void;
   setAddressPreference: (value: string) => void;
   setDailyBriefingEnabled: (value: boolean) => void;
+  setProviderOverride: (value: AIState["provider"] | null) => void;
+  setFallbackMode: (value: "auto" | "ask") => void;
+  setLastFallback: (occurred: boolean, failedProvider: string | null) => void;
 }
 
 export const useAIStore = create<AIState>((set) => ({
@@ -47,6 +60,10 @@ export const useAIStore = create<AIState>((set) => ({
   modifier: "none",
   addressPreference: "sir",
   dailyBriefingEnabled: true,
+  providerOverride: null,
+  fallbackMode: "auto",
+  lastFallbackOccurred: false,
+  lastFailedProvider: null,
   setProvider: (provider) => set({ provider }),
   setModel: (model) => set({ model }),
   setStatus: (status) => set({ status }),
@@ -61,4 +78,10 @@ export const useAIStore = create<AIState>((set) => ({
   setModifier: (modifier) => set({ modifier }),
   setAddressPreference: (addressPreference) => set({ addressPreference }),
   setDailyBriefingEnabled: (dailyBriefingEnabled) => set({ dailyBriefingEnabled }),
+  setProviderOverride: (providerOverride) => set({ providerOverride }),
+  setFallbackMode: (fallbackMode) => set({ fallbackMode }),
+  setLastFallback: (occurred, failedProvider) => set({
+    lastFallbackOccurred: occurred,
+    lastFailedProvider: failedProvider,
+  }),
 }));

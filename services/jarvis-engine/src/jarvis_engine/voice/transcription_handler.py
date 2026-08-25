@@ -22,6 +22,8 @@ voice_manager.process_voice():
 import re
 import threading
 
+from ..core.utils import safe_print
+
 VOICE_INPUT_URL = "http://localhost:8765/voice/input"
 VOICE_STATUS_URL = "http://localhost:8765/voice/status/update"
 
@@ -113,7 +115,7 @@ def handle_transcription(text: str, direct_result: str = None):
             if response.status_code == 200:
                 ai_response = response.json().get("response", "")
                 if ai_response:
-                    print(f"[JARVIS SPEAKING] {ai_response}")
+                    safe_print(f"[JARVIS SPEAKING] {ai_response}")
                     _speak_response(ai_response)
                 else:
                     _post_status("idle")

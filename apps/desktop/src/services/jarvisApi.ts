@@ -17,6 +17,8 @@ export interface ChatResponse {
   search_performed: boolean
   search_query: string
   sources: SearchSource[]
+  fallback_occurred: boolean
+  failed_provider: string | null
 }
 
 export interface ProviderStatus {
@@ -114,7 +116,9 @@ export async function sendMessageStream(
     fullResponse: string,
     sources: SearchSource[],
     providerUsed: string,
-    modelUsed: string
+    modelUsed: string,
+    fallbackOccurred: boolean,
+    failedProvider: string | null
   ) => void,
   onError: (error: string) => void
 ): Promise<void> {
@@ -176,7 +180,9 @@ export async function sendMessageStream(
               data.full_response || "",
               Array.isArray(data.sources) ? data.sources : [],
               data.provider_used || "unknown",
-              data.model_used || "unknown"
+              data.model_used || "unknown",
+              !!data.fallback_occurred,
+              data.failed_provider || null
             )
           }
         } catch {
@@ -362,9 +368,16 @@ export function disconnectVoiceWebSocket(): void {
   }
 }
 
+export interface VoiceResponseMeta {
+  providerUsed: string | null
+  modelUsed: string | null
+  fallbackOccurred: boolean
+  failedProvider: string | null
+}
+
 export function connectVoiceWebSocket(
   onVoiceInput: (text: string, seq?: number) => void,
-  onVoiceResponse: (text: string, seq?: number) => void,
+  onVoiceResponse: (text: string, seq?: number, meta?: VoiceResponseMeta) => void,
   onVoiceStatus: (status: string, seq?: number) => void,
   onAudioLevel?: (level: number) => void
 ): () => void {
@@ -403,7 +416,12 @@ export function connectVoiceWebSocket(
       if (data.type === "voice_input") {
         onVoiceInput(data.text, seq)
       } else if (data.type === "voice_response") {
-        onVoiceResponse(data.text, seq)
+        onVoiceResponse(data.text, seq, {
+          providerUsed: data.provider_used ?? null,
+          modelUsed: data.model_used ?? null,
+          fallbackOccurred: !!data.fallback_occurred,
+          failedProvider: data.failed_provider ?? null
+        })
       } else if (data.type === "voice_status") {
         onVoiceStatus(data.status, seq)
       } else if (data.type === "audio_level") {
@@ -438,7 +456,17 @@ export function connectVoiceWebSocket(
   }
 }
 
-export async function getSettings(): Promise<{ personality_mode: string; modifier: string; address_preference: string; daily_briefing_enabled: boolean; last_briefing_date: string }> {
+export interface JarvisSettings {
+  personality_mode: string
+  modifier: string
+  address_preference: string
+  daily_briefing_enabled: boolean
+  last_briefing_date: string
+  provider_override: string | null
+  fallback_mode: "auto" | "ask"
+}
+
+export async function getSettings(): Promise<JarvisSettings> {
   const response = await window.fetch(`${JARVIS_ENGINE_URL}/settings`)
   if (!response.ok) {
     throw new Error("Failed to fetch settings")
@@ -447,8 +475,8 @@ export async function getSettings(): Promise<{ personality_mode: string; modifie
 }
 
 export async function updateSettings(
-  settings: { personality_mode?: string; modifier?: string; conversation_delete_pin?: string; address_preference?: string; daily_briefing_enabled?: boolean; last_briefing_date?: string }
-): Promise<{ personality_mode: string; modifier: string; address_preference: string; daily_briefing_enabled: boolean; last_briefing_date: string }> {
+  settings: { personality_mode?: string; modifier?: string; conversation_delete_pin?: string; address_preference?: string; daily_briefing_enabled?: boolean; last_briefing_date?: string; provider_override?: string | null; fallback_mode?: string }
+): Promise<JarvisSettings> {
   const response = await window.fetch(`${JARVIS_ENGINE_URL}/settings`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

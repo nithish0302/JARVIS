@@ -6,7 +6,7 @@ import { Select } from "../../ui/Select/Select";
 import { Input } from "../../ui/Input/Input";
 import { Button } from "../../ui/Button/Button";
 import { useAIStore } from "../../../stores/useAIStore";
-import { switchProvider, checkHealth } from "../../../services/jarvisApi";
+import { switchProvider, checkHealth, updateSettings } from "../../../services/jarvisApi";
 import { CURRENT_MODEL_DEFAULTS } from "../../../data/currentModels";
 
 export function AIProviderSection() {
@@ -16,9 +16,31 @@ export function AIProviderSection() {
     openrouterKey, setOpenrouterKey,
     groqKey, setGroqKey,
     geminiKey, setGeminiKey,
+    providerOverride, setProviderOverride,
+    fallbackMode, setFallbackMode,
   } = useAIStore();
 
   const [testResult, setTestResult] = useState<string | null>(null);
+
+  const handleProviderOverrideChange = async (e: ChangeEvent<HTMLSelectElement>) => {
+    const value = e.target.value === "none" ? null : e.target.value as "ollama" | "openrouter" | "groq" | "gemini";
+    setProviderOverride(value);
+    try {
+      await updateSettings({ provider_override: value });
+    } catch (err) {
+      console.error("Failed to update provider override:", err);
+    }
+  };
+
+  const handleFallbackModeChange = async (e: ChangeEvent<HTMLSelectElement>) => {
+    const value = e.target.value as "auto" | "ask";
+    setFallbackMode(value);
+    try {
+      await updateSettings({ fallback_mode: value });
+    } catch (err) {
+      console.error("Failed to update fallback mode:", err);
+    }
+  };
 
   const handleProviderChange = async (e: ChangeEvent<HTMLSelectElement>) => {
     const newProvider = e.target.value as "ollama" | "openrouter" | "groq" | "gemini";
@@ -165,6 +187,29 @@ export function AIProviderSection() {
             </span>
           )}
         </div>
+
+        <Select
+          label="Provider override"
+          description="Locks the AI brain to ONLY this provider - no fallback cascade, fails cleanly instead of silently substituting another provider."
+          value={providerOverride ?? "none"}
+          onChange={handleProviderOverrideChange}
+        >
+          <option value="none">None (normal fallback cascade)</option>
+          <option value="gemini">Gemini only</option>
+          <option value="openrouter">OpenRouter only</option>
+          <option value="groq">Groq only</option>
+          <option value="ollama">Ollama only</option>
+        </Select>
+
+        <Select
+          label="Fallback mode"
+          description="When a provider fails: Auto immediately tries the next one. Ask pauses and asks which provider to use next."
+          value={fallbackMode}
+          onChange={handleFallbackModeChange}
+        >
+          <option value="auto">Auto (switch automatically)</option>
+          <option value="ask">Ask before switching</option>
+        </Select>
       </div>
     </SettingsSection>
   );

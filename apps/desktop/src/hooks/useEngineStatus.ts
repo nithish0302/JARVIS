@@ -6,17 +6,27 @@ export function useEngineStatus() {
   const { setStatus, setError, setMemoryCount, setPersonalityMode, setModifier, setAddressPreference, setDailyBriefingEnabled } = useAIStore()
 
   useEffect(() => {
+    // Only used to seed the badge ONCE, before any real response has come
+    // back. After that, the badge must reflect the LAST ACTUAL
+    // provider/model that answered (set by useJarvisChat's onDone / voice
+    // response handler) - re-running this on every poll would silently
+    // overwrite an honest post-fallback badge with "whichever provider
+    // happens to be first available" every 30s.
+    let seeded = false
+
     const check = async () => {
       try {
         const health = await checkHealth()
         const activeProvider = health.providers.find(p => p.available)
-        
+
         if (activeProvider) {
           setStatus("idle")
           setError(null)
-          // Ensure store typings are respected while syncing
-          useAIStore.getState().setProvider(activeProvider.name as any)
-          useAIStore.getState().setModel(activeProvider.model)
+          if (!seeded) {
+            useAIStore.getState().setProvider(activeProvider.name as any)
+            useAIStore.getState().setModel(activeProvider.model)
+            seeded = true
+          }
         } else {
           setStatus("offline")
           setError("No AI providers available")
@@ -49,6 +59,10 @@ export function useEngineStatus() {
         }
         if (settings.daily_briefing_enabled !== undefined) {
           setDailyBriefingEnabled(settings.daily_briefing_enabled)
+        }
+        useAIStore.getState().setProviderOverride((settings.provider_override as any) ?? null)
+        if (settings.fallback_mode) {
+          useAIStore.getState().setFallbackMode(settings.fallback_mode)
         }
       } catch (err) {
         console.error("Failed to sync settings:", err)

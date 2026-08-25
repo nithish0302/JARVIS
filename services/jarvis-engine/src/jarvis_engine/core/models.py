@@ -20,6 +20,8 @@ class ChatResponse(BaseModel):
     search_performed: bool = False
     search_query: str = ""
     sources: list[dict] = []
+    fallback_occurred: bool = False
+    failed_provider: str | None = None
 
 class ProviderStatus(BaseModel):
     name: str

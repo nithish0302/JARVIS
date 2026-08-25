@@ -21,6 +21,9 @@ from ..tools.search_detector import (
   needs_web_search, extract_search_query
 )
 from ..voice.voice_manager import voice_manager
+from ..core.utils import safe_print
+from ..providers import fallback as fallback_module
+from ..providers.fallback import run_cascade, build_fallback_note, build_ask_message, build_override_unavailable_message
 
 router = APIRouter()
 
@@ -98,12 +101,18 @@ async def get_settings_endpoint():
     last_briefing_date = await get_setting(
         "last_briefing_date", settings.LAST_BRIEFING_DATE
     )
+    provider_override = await get_setting(
+        "provider_override", settings.PROVIDER_OVERRIDE
+    )
+    fallback_mode = await get_setting("fallback_mode", settings.FALLBACK_MODE)
     return {
         "personality_mode": personality_mode,
         "modifier": modifier,
         "address_preference": address_preference,
         "daily_briefing_enabled": daily_briefing_enabled,
-        "last_briefing_date": last_briefing_date
+        "last_briefing_date": last_briefing_date,
+        "provider_override": provider_override or None,
+        "fallback_mode": fallback_mode
     }
 
 @router.post("/settings/verify-pin")
@@ -151,6 +160,21 @@ async def update_settings_endpoint(request: dict):
                 await set_setting("last_briefing_date", raw)
             except ValueError:
                 pass
+    if "provider_override" in request:
+        raw_override = request["provider_override"]
+        override = "" if raw_override is None else str(raw_override).strip().lower()
+        if override in ("none", "null"):
+            override = ""
+        if override == "" or override in fallback_module.VALID_PROVIDERS:
+            await set_setting("provider_override", override)
+    if "fallback_mode" in request:
+        mode = str(request["fallback_mode"]).strip().lower()
+        if mode in ("auto", "ask"):
+            await set_setting("fallback_mode", mode)
+            if mode == "auto":
+                # Switching back to auto clears any pending "which provider
+                # would you like?" state - it no longer applies.
+                await set_setting("awaiting_provider_choice", "false")
 
     personality_mode = await get_setting("personality_mode", settings.PERSONALITY_MODE)
     modifier = await get_setting("modifier", settings.MODIFIER)
@@ -161,12 +185,18 @@ async def update_settings_endpoint(request: dict):
     last_briefing_date = await get_setting(
         "last_briefing_date", settings.LAST_BRIEFING_DATE
     )
+    provider_override = await get_setting(
+        "provider_override", settings.PROVIDER_OVERRIDE
+    )
+    fallback_mode = await get_setting("fallback_mode", settings.FALLBACK_MODE)
     return {
         "personality_mode": personality_mode,
         "modifier": modifier,
         "address_preference": address_preference,
         "daily_briefing_enabled": daily_briefing_enabled,
-        "last_briefing_date": last_briefing_date
+        "last_briefing_date": last_briefing_date,
+        "provider_override": provider_override or None,
+        "fallback_mode": fallback_mode
     }
 
 @router.post("/voice/status/update")
@@ -360,37 +390,103 @@ async def voice_input_endpoint(request: dict):
     )
   ]
 
-  # Use ollama first for voice
-  voice_providers = sorted(
-    [p for p in provider_manager.providers
-     if p.name in ["ollama","groq","openrouter"]],
-    key=lambda p: (
-      0 if p.name == "ollama" else
-      1 if p.name == "groq" else 2
-    )
+  # Web search - same detection/fetch as chat_endpoint (needs_web_search,
+  # extract_search_query, search_web with the same 10s timeout and
+  # max_results=5), inserted into minimal_messages the same way chat
+  # inserts into full_messages (right before the user's own message).
+  #
+  # Deliberately NOT wired: needs_foreground_search/build_foreground_url.
+  # That opens a visible browser tab, which makes sense for chat (there's
+  # a UI to show it in) but not for voice - a spoken question shouldn't
+  # silently pop a browser window as its answer. Background search
+  # (results synthesized into the spoken response) is what a voice query
+  # actually needs.
+  search_needed = needs_web_search(text)
+  if search_needed:
+    search_query_used = extract_search_query(text)
+    try:
+      search_results = await asyncio.wait_for(
+        search_web(search_query_used, max_results=5),
+        timeout=10.0
+      )
+      if search_results:
+        search_context = (
+          f"\n\nWeb search results for '{search_query_used}':\n\n"
+        )
+        for i, r in enumerate(search_results, 1):
+          search_context += (
+            f"{i}. Source: {r.get('source', 'Unknown')}\n"
+            f"   {r['snippet'][:200]}\n\n"
+          )
+        # Stricter than chat's "3-4 key points" - this gets read aloud by
+        # TTS, not displayed as text a user can skim, so the model needs
+        # to synthesize down to something actually speakable rather than
+        # a multi-point rundown.
+        search_context += (
+          "\nInstructions: This will be spoken aloud, not displayed as "
+          "text. Answer in 1-2 short spoken sentences using these "
+          "results - state the key fact(s) directly, no lists, no "
+          "headers, no URLs. Cite a source by name only if it flows "
+          "naturally in speech (e.g. 'According to TechCrunch...')."
+        )
+        search_context = search_context[:1500]
+        minimal_messages.insert(-1, Message(
+          role="system",
+          content=search_context,
+          timestamp=""
+        ))
+    except (asyncio.TimeoutError, Exception) as e:
+      print(f"[VOICE] Search error: {e}")
+
+  # Same fallback cascade chat_endpoint/chat_stream_endpoint use - no
+  # voice-specific reordering. This used to filter out Gemini entirely
+  # and sort Ollama first ("Use ollama first for voice"), which meant
+  # voice silently never even tried Gemini/the documented Gemini ->
+  # OpenRouter -> Groq -> Ollama cascade, always landing on Ollama (a much
+  # smaller local model) whenever it merely wasn't the FIRST option tried,
+  # not because the other three had actually failed.
+  # Pass providers explicitly (routes.py's own provider_manager reference)
+  # rather than letting run_cascade fall back to its own import - fallback.py
+  # imports provider_manager independently, so relying on its default here
+  # would silently ignore a provider_manager swapped out at this module's
+  # name (e.g. in tests, or any future per-request override upstream).
+  cascade = await run_cascade(
+    minimal_messages, user_text=text, providers=provider_manager.providers
   )
 
-  response_text = ""
-  provider_used = "unknown"
-  for provider in voice_providers:
-    try:
-      if await provider.is_available():
-        response_text = await provider.chat(
-          minimal_messages
-        )
-        provider_used = provider.name
-        print(f"[VOICE] Used provider: {provider.name}")
-        break
-    except Exception as e:
-      print(f"[VOICE] {provider.name} failed: {e}")
-      continue
+  fallback_occurred = False
+  failed_provider = None
 
-  if not response_text:
+  if cascade["status"] == "ok":
+    response_text = cascade["response_text"]
+    provider_used = cascade["provider_used"]
+    model_used = cascade["model_used"]
+    fallback_occurred = cascade.get("fallback_occurred", False)
+    failed_provider = cascade.get("failed_provider")
+    if fallback_occurred and failed_provider:
+      # Spoken note, naturally prepended to the actual answer rather than
+      # a separate interruption - see routes.py PART 2 in the fallback
+      # notification work.
+      response_text = build_fallback_note(failed_provider, provider_used) + response_text
+    print(f"[VOICE] Used provider: {provider_used}" + (
+      f" (after {failed_provider} failed)" if fallback_occurred else ""
+    ))
+  elif cascade["status"] == "asking":
+    response_text = build_ask_message(cascade["failed_provider"], cascade.get("remaining", []))
+    provider_used = "asking"
+    model_used = "asking"
+  elif cascade["status"] == "override_unavailable":
+    response_text = build_override_unavailable_message(cascade["failed_provider"])
+    provider_used = "override_unavailable"
+    model_used = "unavailable"
+  else:
     response_text = "All voice providers unavailable."
+    provider_used = "error"
+    model_used = "error"
 
   response_text = briefing_prefix + response_text
 
-  print(f"[JARVIS VOICE RESPONSE] {response_text}")
+  safe_print(f"[JARVIS VOICE RESPONSE] {response_text}")
 
   # Broadcast via WebSocket. Keep UI_ACTION tags intact here - the frontend
   # (useJarvisChat.ts) parses and strips them for display itself, and also
@@ -404,7 +500,11 @@ async def voice_input_endpoint(request: dict):
   })
   await broadcast_voice_event({
     "type": "voice_response",
-    "text": response_text
+    "text": response_text,
+    "provider_used": provider_used,
+    "model_used": model_used,
+    "fallback_occurred": fallback_occurred,
+    "failed_provider": failed_provider
   })
   # Note: TTS status (speaking->idle) is handled in main.py callback
 
@@ -412,7 +512,9 @@ async def voice_input_endpoint(request: dict):
     "response": response_text,
     "conversation_id": "",
     "provider_used": provider_used,
-    "model_used": "voice"
+    "model_used": model_used,
+    "fallback_occurred": fallback_occurred,
+    "failed_provider": failed_provider
   }
 
 @router.websocket("/ws/voice")
@@ -702,6 +804,7 @@ UI_ACTION_REMINDER = (
     "chat_mode_on, chat_mode_off, graph_collapse, "
     "conversations_open, switch_provider:name, "
     "personality_mode:assistant/developer/research, modifier:none/planner/quiet, "
+    "provider_override:gemini/openrouter/groq/ollama/none, fallback_mode:auto/ask, "
     "new_chat[:title], rename_chat:title, delete_conversation:title, open_chat:title"
 )
 
@@ -730,6 +833,13 @@ Available UI actions:
 [UI_ACTION:modifier:quiet] - Enable Quiet modifier (concise minimal output)
 [UI_ACTION:address_preference:sir] - Set how you address the user (e.g. "sir", a name, "boss")
 [UI_ACTION:address_preference:] - Clear the address term entirely (address the user directly, no title/name)
+[UI_ACTION:provider_override:gemini] - Lock the AI brain to ONLY Gemini - no other provider is tried, ever, even if Gemini fails
+[UI_ACTION:provider_override:openrouter] - Lock the AI brain to ONLY OpenRouter
+[UI_ACTION:provider_override:groq] - Lock the AI brain to ONLY Groq
+[UI_ACTION:provider_override:ollama] - Lock the AI brain to ONLY Ollama (local, offline)
+[UI_ACTION:provider_override:none] - Clear the provider lock - restore the normal Gemini -> OpenRouter -> Groq -> Ollama fallback cascade
+[UI_ACTION:fallback_mode:auto] - Automatically fall back to the next provider on failure (default)
+[UI_ACTION:fallback_mode:ask] - On a provider failure, ask which provider to use next instead of auto-switching
 [UI_ACTION:new_chat] - Start a new chat session / clear conversation
 [UI_ACTION:new_chat:Title] - Start a new chat session and pre-set its title
 [UI_ACTION:open_chat:Title] - Open an existing past chat by its title
@@ -751,6 +861,10 @@ CRITICAL RULES FOR UI ACTIONS:
 - If the user asks to "disable modifier" or "turn off planner/quiet", use [UI_ACTION:modifier:none]
 - If the user asks you to address them differently (e.g. "call me Alex", "address me as boss"), use [UI_ACTION:address_preference:Alex]
 - If the user asks you to stop using a title/name (e.g. "stop calling me sir", "don't address me at all"), use [UI_ACTION:address_preference:] with an empty value
+- If the user asks to "lock" or "stick to" a specific AI provider/brain (e.g. "only use Groq", "lock to Gemini", "stay on Ollama"), use [UI_ACTION:provider_override:name]
+- If the user asks to "unlock" the provider, "stop locking the provider", or "use the normal fallback" again, use [UI_ACTION:provider_override:none]
+- If the user asks you to "ask before switching providers" or "don't auto-fallback", use [UI_ACTION:fallback_mode:ask]
+- If the user asks you to "auto fallback" or "just switch automatically" again, use [UI_ACTION:fallback_mode:auto]
 - If the user asks to open "memory index", "chat history", "list the chats", or "past chats", use [UI_ACTION:conversations_open]
 - If the user asks to "start a new chat", "open a new chat", or "clear the chat", use [UI_ACTION:new_chat]
 - If the user asks to start a new chat AND specifies a title, use [UI_ACTION:new_chat:Title]
@@ -1847,27 +1961,31 @@ async def chat_endpoint(request: ChatRequest):
         full_messages = trim_messages_to_budget(full_messages, max_tokens=4000)
         print(f"[CHAT] Attempting providers: {[p.name for p in providers_to_try]}")
 
-        response_text = ""
-        provider_used = "unknown"
-        model_used = "unknown"
+        cascade = await run_cascade(
+            full_messages, user_text=request.message, providers=providers_to_try
+        )
 
-        for provider in providers_to_try:
-            if not await provider.is_available():
-                print(f"[CHAT] Provider {provider.name} not available, skipping")
-                continue
+        fallback_occurred = False
+        failed_provider = None
 
-            try:
-                print(f"[CHAT] Using provider: {provider.name}, model: {provider.model}")
-                response_text = await provider.chat(full_messages)
-                provider_used = provider.name
-                model_used = provider.model
-                print(f"[CHAT] Successfully got response from {provider.name}")
-                break
-            except Exception as provider_err:
-                print(f"[CHAT] Provider {provider.name} failed: {provider_err}")
-                continue
-
-        if not response_text:
+        if cascade["status"] == "ok":
+            response_text = cascade["response_text"]
+            provider_used = cascade["provider_used"]
+            model_used = cascade["model_used"]
+            fallback_occurred = cascade.get("fallback_occurred", False)
+            failed_provider = cascade.get("failed_provider")
+            print(f"[CHAT] Successfully got response from {provider_used}" + (
+                f" (after {failed_provider} failed)" if fallback_occurred else ""
+            ))
+        elif cascade["status"] == "asking":
+            response_text = build_ask_message(cascade["failed_provider"], cascade.get("remaining", []))
+            provider_used = "asking"
+            model_used = "asking"
+        elif cascade["status"] == "override_unavailable":
+            response_text = build_override_unavailable_message(cascade["failed_provider"])
+            provider_used = "override_unavailable"
+            model_used = "unavailable"
+        else:
             print(f"[CHAT] All providers failed")
             raise Exception("All AI providers are currently unavailable")
 
@@ -1876,6 +1994,8 @@ async def chat_endpoint(request: ChatRequest):
         response_text = "I apologize, but all AI providers are currently unavailable."
         provider_used = "error"
         model_used = "error"
+        fallback_occurred = False
+        failed_provider = None
 
     response_text = enforce_destructive_confirmation(response_text)
     response_text = briefing_prefix + response_text
@@ -1888,13 +2008,13 @@ async def chat_endpoint(request: ChatRequest):
         provider_used=provider_used,
         model_used=model_used
     )
-    
+
     # Extract and save memories from user message
     await memory_manager.extract_and_save_memories(
         request.message,
         conversation_id
     )
-    
+
     return ChatResponse(
         response=response_text,
         conversation_id=conversation_id,
@@ -1902,7 +2022,9 @@ async def chat_endpoint(request: ChatRequest):
         model_used=model_used,
         search_performed=search_performed,
         search_query=search_query_used,
-        sources=search_sources
+        sources=search_sources,
+        fallback_occurred=fallback_occurred,
+        failed_provider=failed_provider
     )
 
 @router.post("/chat/stream")
@@ -2294,6 +2416,8 @@ async def chat_stream_endpoint(
         provider_used_name = "unknown"
         model_used_name = "unknown"
         stream_started = False
+        fallback_occurred = False
+        failed_provider_name = None
 
         try:
           # For file commands, use first available provider
@@ -2309,11 +2433,41 @@ async def chat_stream_endpoint(
             providers_to_try = provider_manager.providers
 
           full_messages = trim_messages_to_budget(full_messages, max_tokens=4000)
+
+          # Provider override / ask-before-fallback settings - same rules
+          # the non-streaming /chat and /voice/input endpoints apply, see
+          # providers/fallback.py.
+          override, fallback_mode = await fallback_module.get_provider_settings()
+          one_shot_provider = await fallback_module.consume_awaiting_choice(request.message)
+          if one_shot_provider:
+            override = one_shot_provider
+
+          asking_message = None
+          override_unavailable_provider = None
+
+          if override:
+            matched = next((p for p in providers_to_try if p.name == override), None)
+            if matched is None or not await matched.is_available():
+              override_unavailable_provider = override
+              providers_to_try = []
+            else:
+              providers_to_try = [matched]
+
           print(f"[STREAM] Attempting providers: {[p.name for p in providers_to_try]}")
+
+          failed_providers: list[str] = []
 
           for provider in providers_to_try:
             if not await provider.is_available():
                 print(f"[STREAM] Provider {provider.name} not available, skipping")
+                failed_providers.append(provider.name)
+                if fallback_mode == "ask" and not override:
+                  await set_setting("awaiting_provider_choice", "true")
+                  asking_message = build_ask_message(
+                    provider.name,
+                    [p.name for p in providers_to_try if p.name != provider.name]
+                  )
+                  break
                 continue
 
             provider_used_name = provider.name
@@ -2330,6 +2484,9 @@ async def chat_stream_endpoint(
                 }) + "\n"
 
               # Stream completed successfully
+              if failed_providers:
+                fallback_occurred = True
+                failed_provider_name = failed_providers[0]
               print(f"[STREAM] Successfully completed with {provider.name}")
               break
             except asyncio.CancelledError:
@@ -2342,13 +2499,38 @@ async def chat_stream_endpoint(
                 # Already yielded tokens - complete with what we have
                 print(f"[STREAM] Completing with partial response from {provider.name}")
                 break
+              failed_providers.append(provider.name)
+              if fallback_mode == "ask" and not override:
+                await set_setting("awaiting_provider_choice", "true")
+                asking_message = build_ask_message(
+                  provider.name,
+                  [p.name for p in providers_to_try if p.name != provider.name]
+                )
+                break
               # No tokens sent yet - try next provider
               print(f"[STREAM] Falling back to next provider")
               full_response_parts = []  # Reset
               continue
 
+          if override_unavailable_provider:
+            error_msg = build_override_unavailable_message(override_unavailable_provider)
+            full_response_parts = [error_msg]
+            provider_used_name = "override_unavailable"
+            model_used_name = "unavailable"
+            yield json_module.dumps({
+              "type": "token",
+              "content": error_msg
+            }) + "\n"
+          elif asking_message:
+            full_response_parts = [asking_message]
+            provider_used_name = "asking"
+            model_used_name = "asking"
+            yield json_module.dumps({
+              "type": "token",
+              "content": asking_message
+            }) + "\n"
           # If no provider succeeded at all
-          if not stream_started and not full_response_parts:
+          elif not stream_started and not full_response_parts:
             print(f"[STREAM] All providers failed, sending error token")
             error_msg = "I apologize, but all AI providers are currently unavailable."
             full_response_parts = [error_msg]
@@ -2417,6 +2599,11 @@ async def chat_stream_endpoint(
               clean = re.sub(r'```[\s\S]*?```', '', clean)  # Code blocks
               clean = clean.strip()
 
+              if fallback_occurred and failed_provider_name:
+                # Natural spoken note about the switch, prepended to the
+                # actual answer rather than a separate interruption.
+                clean = build_fallback_note(failed_provider_name, provider_used_name) + clean
+
               if clean and len(clean) > 10:
                 # Broadcast "speaking" only once audio actually starts
                 # playing, via tts_engine's on_speech_start callback (fires
@@ -2461,6 +2648,8 @@ async def chat_stream_endpoint(
           "full_response": complete_response,
           "provider_used": provider_used_name,
           "model_used": model_used_name,
+          "fallback_occurred": fallback_occurred,
+          "failed_provider": failed_provider_name,
           "sources": [
             {
               "title": str(s.get("title", "")),

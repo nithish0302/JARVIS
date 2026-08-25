@@ -1,12 +1,31 @@
 import asyncio
 import contextlib
+import sys
 import time
 import traceback
+
+# Windows' default console encoding (cp1252) can't represent every
+# character an LLM provider may legitimately return (e.g. Groq emitting a
+# narrow no-break space, U+202F), which previously crashed any print() of
+# that text with UnicodeEncodeError. Reconfigure here - at the top of the
+# module that both `start.py` and uvicorn's --reload subprocess import
+# first - so this holds regardless of how the app is launched or what
+# PYTHONIOENCODING (if anything) the environment sets.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .api.routes import router
 from .core.database import init_db
-from .core.config import settings
+from .core.config import settings, log_api_key_diagnostics
+
+# Runs at import time (before the lifespan/DB/model-loading work below) so
+# the masked key previews and any stale-system-env-var warning are the
+# first thing visible in every startup log, not buried after several
+# seconds of provider/model init output.
+log_api_key_diagnostics()
 
 async def _broadcast_audio_levels():
     """Drains audio_level_bus at a throttled ~12Hz and broadcasts the
