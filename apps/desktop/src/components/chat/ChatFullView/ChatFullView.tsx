@@ -75,11 +75,10 @@ export function ChatFullView() {
   }
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col h-full bg-transparent overflow-hidden px-8 pb-6 pt-8 z-10">
-      <div className="flex justify-center mb-4 flex-shrink-0">
+    <div className="relative flex-1 min-h-0 flex flex-col h-full bg-transparent overflow-hidden px-8 pb-6 pt-8 z-10">
+      <div className="orb-readout-corner">
         <OrbCaption />
       </div>
-
       <div className="flex items-center justify-between mb-4 px-2">
         <div className="w-[100px]"></div> {/* Spacer to center the title */}
         <div className="font-display text-[14px] uppercase tracking-wider text-[var(--color-muted)] text-center flex-1">

@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 from .base import BaseProvider
 from .ollama import OllamaProvider
 from .groq_provider import GroqProvider
@@ -74,3 +74,33 @@ class ProviderManager:
 
 # Process-wide global singleton. Shared across all routes, streams, and background tasks.
 provider_manager = ProviderManager()
+
+
+async def restore_preferred_provider() -> Optional[str]:
+    """Reads back the PREFERRED provider/model persisted by a manual
+    /provider/switch (see api/routes.py) and reorders provider_manager the
+    same way set_active_provider() does for a live switch - the restart
+    resumes with the same first-choice provider instead of the hardcoded
+    Gemini -> OpenRouter -> Groq -> Ollama default.
+
+    This is deliberately the SAME reordering mechanism as a live
+    /provider/switch call, not provider_override's hard lock (see
+    core/config.py's PREFERRED_PROVIDER / PROVIDER_OVERRIDE docs) - a
+    provider restored this way still falls back to the next one in the
+    cascade if it's unavailable.
+
+    Returns the restored provider name, or None if there was no
+    preference to restore (fresh install, or never manually switched) -
+    in which case provider_manager's default order is left untouched.
+    Called once, early in main.py's lifespan startup, before the app
+    serves any requests.
+    """
+    from ..core.config import settings
+    from ..core.database import get_setting
+
+    preferred_provider = await get_setting("preferred_provider", settings.PREFERRED_PROVIDER)
+    if not preferred_provider:
+        return None
+    preferred_model = await get_setting("preferred_model", settings.PREFERRED_MODEL)
+    provider_manager.set_active_provider(preferred_provider, preferred_model)
+    return preferred_provider

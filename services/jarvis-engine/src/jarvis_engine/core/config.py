@@ -142,11 +142,23 @@ class Settings(BaseSettings):
     # apostrophe/punctuation-insensitive - "that's all jarvis" also matches
     # "thats all jarvis"), and BEFORE INTERRUPT_PHRASES/normal command
     # handling - see match_continuous_exit_phrase() in voice_manager.py.
+    # Includes both the original "<phrase> jarvis" / "jarvis <phrase>" forms
+    # AND bare natural variants without "jarvis" attached - CONFIRMED
+    # INCIDENT: a user said "Go to sleep." (no "jarvis"), it matched
+    # nothing here, fell through to the LLM, which fabricated "Understood.
+    # Ending session." even though continuous mode never actually exited -
+    # see voice_manager.py's _looks_like_uncertain_exit_intent() for the
+    # additional, phrase-list-independent defense against exactly this
+    # class of gap (an exit-sounding phrase that isn't in this list at
+    # all, not just a wording variant of one that is).
     CONTINUOUS_MODE_EXIT_PHRASES: list[str] = [
         "stop listening jarvis",
         "jarvis go to sleep",
         "thats all jarvis",
         "jarvis i will talk to you later",
+        "go to sleep",
+        "stop listening",
+        "thats all",
     ]
 
     # Personality and Modifier Defaults
@@ -170,6 +182,17 @@ class Settings(BaseSettings):
     # auto-advancing to the next one in line.
     PROVIDER_OVERRIDE: str = ""
     FALLBACK_MODE: str = "auto"
+
+    # Preferred provider (distinct from PROVIDER_OVERRIDE above): set by a
+    # manual /provider/switch, this only reorders the normal cascade so the
+    # chosen provider is tried FIRST on restart - it does not disable
+    # fallback to the others if it's unavailable, unlike PROVIDER_OVERRIDE's
+    # hard lock. Empty means no preference recorded yet - use the default
+    # Gemini -> OpenRouter -> Groq -> Ollama order. See main.py's lifespan
+    # startup, where this is read back and applied via
+    # provider_manager.set_active_provider() before the app serves requests.
+    PREFERRED_PROVIDER: str = ""
+    PREFERRED_MODEL: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 

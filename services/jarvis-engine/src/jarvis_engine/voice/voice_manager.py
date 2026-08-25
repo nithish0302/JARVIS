@@ -142,6 +142,69 @@ def match_continuous_exit_phrase(text: str) -> bool:
   return False
 
 
+# CONFIRMED INCIDENT: a user said "Go to sleep." while in continuous mode.
+# It matched none of the (then narrower) CONTINUOUS_MODE_EXIT_PHRASES, so it
+# fell through all the way to the LLM as an ordinary command - and the LLM,
+# having no idea it can't actually end the session, replied "Understood.
+# Ending session." while continuous mode kept right on listening. The LLM
+# must never be in a position to claim a state change (session ended, mode
+# switched) that the code hasn't actually performed BEFORE generating that
+# response.
+#
+# CONTINUOUS_MODE_EXIT_PHRASES was broadened with the missing bare variants
+# (see core/config.py), but exact-phrase-list matching can never be
+# exhaustive against free-form speech. This is the second, independent
+# layer: a short, exit-*sounding* utterance that doesn't match the
+# configured list at all still never reaches the LLM - it gets a
+# deterministic, code-generated confirmation question instead, and the
+# actual exit only happens once THAT is answered "yes" by
+# _process_voice_command's pending-confirmation check, also without
+# involving the LLM.
+_UNCERTAIN_EXIT_KEYWORDS = (
+  "sleep",
+  "stop listening",
+  "shut down",
+  "power down",
+  "im done",
+  "thats enough",
+)
+_UNCERTAIN_EXIT_MAX_WORDS = 6
+
+_AFFIRMATIVE_PHRASES = (
+  "yes", "yeah", "yep", "yup", "correct", "please",
+  "affirmative", "do it", "please do", "thats right", "right", "go ahead",
+)
+
+
+def _looks_like_uncertain_exit_intent(text: str) -> bool:
+  """True for a SHORT utterance that sounds like it MIGHT be trying to end
+  a continuous-mode session, even though match_continuous_exit_phrase()
+  above didn't match it exactly. Deliberately loose/substring-based (not
+  meant to enumerate every phrasing) and gated on length specifically so it
+  doesn't fire on a normal, longer sentence that happens to mention one of
+  these words for an unrelated reason (see _process_voice_command's caller
+  for the full false-positive reasoning, e.g. "what's the nearest bus
+  stop")."""
+  normalized = _normalize_for_phrase_match(text)
+  if not normalized:
+    return False
+  if len(normalized.split()) > _UNCERTAIN_EXIT_MAX_WORDS:
+    return False
+  return any(keyword in normalized for keyword in _UNCERTAIN_EXIT_KEYWORDS)
+
+
+def _is_affirmative(text: str) -> bool:
+  """True if text is a short, clear "yes" to the deterministic exit
+  confirmation question above - checked the same word-boundary way as
+  every other phrase match in this module, never via the LLM."""
+  normalized = _normalize_for_phrase_match(text)
+  if not normalized:
+    return False
+  return any(
+    _matches_interrupt_phrase(normalized, phrase) for phrase in _AFFIRMATIVE_PHRASES
+  )
+
+
 def execute_voice_command(text: str) -> str | None:
   """Try to execute a direct voice command. Returns response if handled, None if not."""
   msg = text.lower().strip().rstrip(".,!?")
@@ -264,6 +327,31 @@ class VoiceManager:
     self._continuous_generation = 0
     self._continuous_timer: threading.Timer | None = None
     self._continuous_timer_token = 0
+
+    # ONE thread runs the whole continuous-mode session's recording loop
+    # (spawned by continue_conversation() only on the FIRST call that
+    # enters continuous mode - see its docstring). After dispatching a
+    # normal command it does not return: it waits here for
+    # continue_conversation()'s LATER calls (once that command's response
+    # has actually been spoken) to signal it, then loops back and records
+    # the next turn itself. This is what makes it correct to only ever
+    # spawn one thread per session - without this wait, the thread would
+    # exit after the first dispatched command and nothing would ever open
+    # the mic again. Bounded by _continuous_turn_wait_timeout so a pipeline
+    # that never reaches _speak_response can't strand this thread alive
+    # forever (tests shorten this to keep the suite fast).
+    self._continuous_turn_ready = threading.Event()
+    self._continuous_turn_wait_timeout = 120.0
+
+    # Set when an utterance looked like an uncertain exit intent (see
+    # _looks_like_uncertain_exit_intent) and JARVIS asked a deterministic
+    # confirmation question instead of guessing or asking the LLM. The
+    # VERY NEXT transcript is checked against it (see _process_voice_command)
+    # - "yes" performs the real exit, anything else is treated as this
+    # turn's actual command instead of being silently discarded. Reset
+    # whenever a continuous-mode session starts or ends so a stale pending
+    # confirmation can never bleed into a different session.
+    self._pending_exit_confirmation = False
 
   def _set_is_listening(self, val: bool):
     self.is_listening = val
@@ -462,6 +550,7 @@ class VoiceManager:
     self._continuous_lock - this only handles the TTS/status/is_listening
     side effects, so there is exactly one place per exit path that performs
     the actual state transition."""
+    self._pending_exit_confirmation = False
     from .tts_engine import tts_engine
     tts_engine.speak_sync(
       "Going to sleep, sir.",
@@ -473,28 +562,41 @@ class VoiceManager:
   def continue_conversation(self):
     """Called once a normal command's response has finished speaking (see
     transcription_handler._speak_response, invoked for BOTH the
-    direct-command and LLM paths). Enters continuous_mode on the first call
-    after a wake-word trigger, and re-arms it on every later call - either
-    way, opens the next recording window directly: no new wake word, no
-    repeated "Yes sir?" (design doc points 2/3/6)."""
+    direct-command and LLM paths).
+
+    Enters continuous_mode and spawns the session's ONE recording thread on
+    the FIRST call after a wake-word trigger. Every LATER call within the
+    same session does NOT spawn another thread - that thread is already
+    alive, waiting (see the post-dispatch wait in _process_voice_command)
+    for exactly this signal, so re-arming here just re-arms the silence
+    timer and wakes it up to record the next turn itself. Spawning a new
+    thread on every call used to race that already-alive thread (duplicate
+    recordings, exit phrases only working intermittently - see this
+    function's git history for the incident)."""
     with self._continuous_lock:
       was_continuous = self.continuous_mode
       self.continuous_mode = True
       if not was_continuous:
         # Fresh session: a NEW generation so any stale thread left over
         # from a just-exited previous session can never be mistaken for
-        # this one (see the class docstring note by continuous_mode).
+        # this one (see the class docstring note by continuous_mode), and
+        # no confirmation question from a prior (now-ended) session can
+        # still be "pending" here.
         self._continuous_generation += 1
+        self._pending_exit_confirmation = False
       self._arm_continuous_timer()
 
     self.is_listening = True
     self._broadcast_status("continuous")
-    threading.Thread(
-      target=self._process_voice_command,
-      args=(None,),
-      daemon=True,
-      name="continuous-voice-cycle"
-    ).start()
+    if not was_continuous:
+      threading.Thread(
+        target=self._process_voice_command,
+        args=(None,),
+        daemon=True,
+        name="continuous-voice-cycle"
+      ).start()
+    else:
+      self._continuous_turn_ready.set()
 
   def _process_voice_command(self, tts_finished_event: threading.Event):
     # Set (not reset to False in the finally below) only when this
@@ -566,6 +668,28 @@ class VoiceManager:
               return
             self._arm_continuous_timer()
 
+        # PENDING EXIT CONFIRMATION - if the PREVIOUS turn asked "Did you
+        # want me to stop listening, sir?" (see the uncertain-exit-intent
+        # check below), THIS transcript is the answer, checked
+        # deterministically (never via the LLM - see the module-level
+        # comment above _looks_like_uncertain_exit_intent for why). A clear
+        # "yes" performs the real exit, backed by the same state-changing
+        # code as an exact exit phrase; anything else clears the pending
+        # flag and falls through to treat this transcript as this turn's
+        # actual command, rather than silently discarding it.
+        if self.continuous_mode and self._pending_exit_confirmation:
+          self._pending_exit_confirmation = False
+          if _is_affirmative(clean_text):
+            print(f"[VOICE] Exit confirmation answered yes: {clean_text!r}")
+            with self._continuous_lock:
+              if generation != self._continuous_generation or not self.continuous_mode:
+                return
+              self.continuous_mode = False
+              self._continuous_generation += 1
+              self._cancel_continuous_timer()
+            self._exit_continuous_mode()
+            return
+
         # CONTINUOUS-MODE EXIT PHRASES - on the FINAL transcript, checked
         # BEFORE the interrupt-phrase list and before any command handling
         # (reuses match_interrupt_phrase's matching mechanism via
@@ -580,6 +704,34 @@ class VoiceManager:
             self._continuous_generation += 1
             self._cancel_continuous_timer()
           self._exit_continuous_mode()
+          return
+
+        # UNCERTAIN EXIT INTENT - a short utterance that sounds like it
+        # MIGHT be trying to end the session but didn't exactly match the
+        # configured phrase list above (the confirmed incident: "Go to
+        # sleep." with no "jarvis" reached the LLM, which fabricated
+        # "Understood. Ending session." while the session kept running -
+        # see _looks_like_uncertain_exit_intent's docstring). Ask a
+        # deterministic, code-generated confirmation question INSTEAD of
+        # ever handing this to execute_voice_command/the LLM - the actual
+        # exit only happens if the NEXT turn confirms it (handled by the
+        # PENDING EXIT CONFIRMATION check above, next time through this
+        # loop).
+        if self.continuous_mode and _looks_like_uncertain_exit_intent(clean_text):
+          print(f"[VOICE] Uncertain exit intent, asking for confirmation: {clean_text!r}")
+          self._pending_exit_confirmation = True
+          from .tts_engine import tts_engine
+          tts_engine.speak_sync(
+            "Did you want me to stop listening, sir?",
+            on_speech_start=lambda: self._broadcast_status("speaking")
+          )
+          if generation == self._continuous_generation and self.continuous_mode:
+            with self._continuous_lock:
+              if generation == self._continuous_generation and self.continuous_mode:
+                self._arm_continuous_timer()
+            self._broadcast_status("continuous")
+            continue
+          self._broadcast_status("idle")
           return
 
         # PHRASE-BASED INTERRUPT CHECK - on the FINAL transcript only,
@@ -622,6 +774,12 @@ class VoiceManager:
             self._broadcast_status("idle")
             return
 
+        # Cleared BEFORE dispatch (not just before the wait below) so
+        # there's no window, however unlikely, where an async response
+        # that finishes unusually fast could call continue_conversation()
+        # -> set() before we get to clear() and wait() for it.
+        self._continuous_turn_ready.clear()
+
         # Try direct command first
         direct_result = execute_voice_command(clean_text)
         if direct_result:
@@ -632,6 +790,26 @@ class VoiceManager:
           # No direct command match - use LLM
           if self.on_transcription:
             self.on_transcription(clean_text, None)
+
+        if self.continuous_mode and generation == self._continuous_generation:
+          # Stay alive as the session's ONE thread rather than returning:
+          # on_transcription() just fired the response pipeline off
+          # asynchronously (it hasn't been spoken yet), so wait here for
+          # continue_conversation() to signal that it has - see this
+          # thread's docstring at the top of _process_voice_command and
+          # continue_conversation()'s docstring. A signal that arrives
+          # after a DIFFERENT session has already superseded this one
+          # (generation mismatch, or continuous_mode already false) means
+          # abandon this iteration instead of recording on its behalf.
+          self.is_listening = False
+          signaled = self._continuous_turn_ready.wait(
+            timeout=self._continuous_turn_wait_timeout
+          )
+          if not signaled or generation != self._continuous_generation or not self.continuous_mode:
+            return
+          self.is_listening = True
+          continue
+
         # Whether (and how) the conversation continues from here is decided
         # once the response has actually been spoken - see
         # continue_conversation() / transcription_handler._speak_response.
@@ -688,13 +866,19 @@ class VoiceManager:
     self.wake_word_ready.clear()
 
     # Continuous mode must not survive a shutdown - cancel its timer
-    # (never leave a background Timer thread outliving the engine) and
-    # bump the generation so any recording loop still unwinding treats
-    # itself as stale rather than looping back into another window.
+    # (never leave a background Timer thread outliving the engine), bump
+    # the generation so any recording loop still unwinding treats itself
+    # as stale rather than looping back into another window, and wake the
+    # session's thread if it's currently parked waiting for the next turn
+    # (see _process_voice_command's post-dispatch wait) - otherwise it
+    # would sit there for up to _continuous_turn_wait_timeout instead of
+    # noticing the stale generation and exiting immediately.
     with self._continuous_lock:
       self.continuous_mode = False
       self._continuous_generation += 1
       self._cancel_continuous_timer()
+    self._pending_exit_confirmation = False
+    self._continuous_turn_ready.set()
 
     if self.wake_word_detector:
       self.wake_word_detector.stop()

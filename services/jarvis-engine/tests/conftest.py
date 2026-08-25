@@ -30,8 +30,9 @@ async def _reset_provider_state():
     """Provider-cascade tests mutate global, process-wide state:
     provider_manager.providers (the singleton's active provider list, the
     same object every route module imports) and the
-    provider_override/fallback_mode/awaiting_provider_choice settings in
-    the real settings table. Reset both BEFORE and AFTER every test - not
+    provider_override/fallback_mode/awaiting_provider_choice/
+    preferred_provider/preferred_model settings in the real settings
+    table. Reset both BEFORE and AFTER every test - not
     just after - so state left behind by a test that errors before
     reaching its own cleanup, or by test ordering, can never leak into the
     next test.
@@ -42,6 +43,8 @@ async def _reset_provider_state():
         await set_setting("provider_override", "")
         await set_setting("fallback_mode", "auto")
         await set_setting("awaiting_provider_choice", "false")
+        await set_setting("preferred_provider", "")
+        await set_setting("preferred_model", "")
 
     await _reset_settings()
     provider_manager.providers = list(original_providers)

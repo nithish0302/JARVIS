@@ -105,6 +105,12 @@ async def get_settings_endpoint():
         "provider_override", settings.PROVIDER_OVERRIDE
     )
     fallback_mode = await get_setting("fallback_mode", settings.FALLBACK_MODE)
+    preferred_provider = await get_setting(
+        "preferred_provider", settings.PREFERRED_PROVIDER
+    )
+    preferred_model = await get_setting(
+        "preferred_model", settings.PREFERRED_MODEL
+    )
     return {
         "personality_mode": personality_mode,
         "modifier": modifier,
@@ -112,7 +118,13 @@ async def get_settings_endpoint():
         "daily_briefing_enabled": daily_briefing_enabled,
         "last_briefing_date": last_briefing_date,
         "provider_override": provider_override or None,
-        "fallback_mode": fallback_mode
+        "fallback_mode": fallback_mode,
+        # Read-only here - written by /provider/switch, not by this
+        # endpoint. Soft first-choice preference, distinct from
+        # provider_override's hard lock (see PREFERRED_PROVIDER in
+        # core/config.py).
+        "preferred_provider": preferred_provider or None,
+        "preferred_model": preferred_model or None,
     }
 
 @router.post("/settings/verify-pin")
@@ -189,6 +201,12 @@ async def update_settings_endpoint(request: dict):
         "provider_override", settings.PROVIDER_OVERRIDE
     )
     fallback_mode = await get_setting("fallback_mode", settings.FALLBACK_MODE)
+    preferred_provider = await get_setting(
+        "preferred_provider", settings.PREFERRED_PROVIDER
+    )
+    preferred_model = await get_setting(
+        "preferred_model", settings.PREFERRED_MODEL
+    )
     return {
         "personality_mode": personality_mode,
         "modifier": modifier,
@@ -196,7 +214,9 @@ async def update_settings_endpoint(request: dict):
         "daily_briefing_enabled": daily_briefing_enabled,
         "last_briefing_date": last_briefing_date,
         "provider_override": provider_override or None,
-        "fallback_mode": fallback_mode
+        "fallback_mode": fallback_mode,
+        "preferred_provider": preferred_provider or None,
+        "preferred_model": preferred_model or None,
     }
 
 @router.post("/voice/status/update")
@@ -2751,6 +2771,17 @@ class SwitchProviderRequest(BaseModel):
 @router.post("/provider/switch")
 async def switch_provider_endpoint(request: SwitchProviderRequest):
     provider_manager.set_active_provider(request.provider, request.model)
+
+    # Persist as the PREFERRED provider (soft: just the cascade's first
+    # choice on next restart) - distinct from provider_override (hard
+    # lock, no fallback). Only recorded for a name the manager actually
+    # recognizes, so a bad/unknown value can't get "restored" into a
+    # silent no-op reorder on the next startup - matches how
+    # provider_override validates in update_settings_endpoint above.
+    if request.provider in fallback_module.VALID_PROVIDERS:
+        await set_setting("preferred_provider", request.provider)
+        await set_setting("preferred_model", request.model)
+
     return {"status": "success", "provider": request.provider, "model": request.model}
 
 @router.get("/memories", response_model=List[Memory])

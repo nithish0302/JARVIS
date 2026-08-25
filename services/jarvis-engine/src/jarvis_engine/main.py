@@ -60,7 +60,20 @@ async def lifespan(app: FastAPI):
     print(f"[TIMING] init_db: {time.time() - _t0:.2f}s")
 
     _t1 = time.time()
-    from .providers.manager import provider_manager
+    from .providers.manager import provider_manager, restore_preferred_provider
+
+    # Restore the manually-selected provider PREFERENCE from the last
+    # session (set via /provider/switch - see routes.py), before anything
+    # below tries a provider or reports availability in cascade order.
+    # This is a soft, reorder-only preference - distinct from
+    # provider_override (config.py / fallback.py), which hard-locks the
+    # cascade to a single provider with no fallback. Unset (fresh
+    # install, or never manually switched) leaves provider_manager's
+    # default Gemini -> OpenRouter -> Groq -> Ollama order untouched.
+    restored = await restore_preferred_provider()
+    if restored:
+        print(f"[STARTUP] Restored preferred provider: {restored}")
+
     for provider in provider_manager.providers:
         _tp = time.time()
         available = await provider.is_available()

@@ -16,8 +16,8 @@ provider_manager.providers and the provider_override/fallback_mode/
 awaiting_provider_choice settings before AND after every test."""
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from jarvis_engine.core.database import set_setting
-from jarvis_engine.providers.manager import provider_manager
+from jarvis_engine.core.database import get_setting, set_setting
+from jarvis_engine.providers.manager import provider_manager, restore_preferred_provider
 
 
 def _provider(name: str, model: str, *, available=True, chat_result=None, chat_error=None):
@@ -177,3 +177,104 @@ async def test_fallback_mode_ask_pauses_instead_of_auto_switching_then_routes_ne
     body2 = res2.json()
     assert body2["provider_used"] == "groq"
     groq.chat.assert_awaited_once()
+
+
+# --- Preferred provider (soft, persisted reorder) - distinct from
+# provider_override (hard lock) -------------------------------------------
+
+async def test_switch_provider_persists_preference_distinct_from_override(api_client):
+    """POST /provider/switch must persist preferred_provider/preferred_model
+    for restart-restoration, but must NEVER touch provider_override - the
+    two are separate mechanisms (soft reorder vs. hard lock)."""
+    gemini = _provider("gemini", "gemini-3.6-flash")
+    groq = _provider("groq", "openai/gpt-oss-20b")
+
+    with _patch_providers([gemini, groq]):
+        res = api_client.post("/provider/switch", json={"provider": "groq", "model": "openai/gpt-oss-20b"})
+
+    assert res.status_code == 200
+    assert await get_setting("preferred_provider", "") == "groq"
+    assert await get_setting("preferred_model", "") == "openai/gpt-oss-20b"
+    # The hard-lock setting must be completely untouched by a soft switch.
+    assert await get_setting("provider_override", "") == ""
+
+    settings_res = api_client.get("/settings")
+    body = settings_res.json()
+    assert body["preferred_provider"] == "groq"
+    assert body["preferred_model"] == "openai/gpt-oss-20b"
+    assert body["provider_override"] is None
+
+
+async def test_switch_provider_ignores_unknown_provider_name(api_client):
+    """A garbage provider name must not get persisted and silently
+    "restored" into a no-op reorder on the next startup."""
+    with _patch_providers([_provider("gemini", "gemini-3.6-flash")]):
+        res = api_client.post("/provider/switch", json={"provider": "not-a-real-provider", "model": "x"})
+
+    assert res.status_code == 200  # endpoint itself doesn't reject it (matches existing lenient behavior)
+    assert await get_setting("preferred_provider", "") == ""
+    assert await get_setting("preferred_model", "") == ""
+
+
+async def test_restore_preferred_provider_reorders_cascade_on_startup():
+    """Simulates the exact restart scenario: a preference was persisted by
+    a previous session, restore_preferred_provider() (called once from
+    main.py's lifespan, before the app serves requests) must reorder the
+    cascade so that provider is tried first - a real restart resumes with
+    the same provider, no need to switch again."""
+    await set_setting("preferred_provider", "groq")
+    await set_setting("preferred_model", "openai/gpt-oss-20b")
+
+    gemini = _provider("gemini", "gemini-3.6-flash")
+    groq = _provider("groq", "openai/gpt-oss-20b")
+    ollama = _provider("ollama", "phi4-mini")
+
+    with _patch_providers([gemini, groq, ollama]):
+        restored = await restore_preferred_provider()
+        assert restored == "groq"
+        assert provider_manager.providers[0].name == "groq"
+
+
+async def test_restore_preferred_provider_is_noop_when_unset():
+    """Fresh install / never manually switched: no preference recorded, so
+    the default cascade order must be left completely untouched."""
+    await set_setting("preferred_provider", "")
+    await set_setting("preferred_model", "")
+
+    gemini = _provider("gemini", "gemini-3.6-flash")
+    groq = _provider("groq", "openai/gpt-oss-20b")
+
+    with _patch_providers([gemini, groq]):
+        restored = await restore_preferred_provider()
+        assert restored is None
+        assert provider_manager.providers[0].name == "gemini"
+
+
+async def test_restored_preferred_provider_still_falls_back_unlike_override(api_client):
+    """The core distinction under test: restoring a PREFERRED provider that
+    then fails must still cascade to the next provider (soft preference) -
+    unlike provider_override, which fails cleanly with no substitution
+    (see test_provider_override_only_tries_that_provider_even_if_it_fails
+    above for the contrasting hard-lock behavior)."""
+    await set_setting("preferred_provider", "groq")
+    await set_setting("preferred_model", "openai/gpt-oss-20b")
+
+    groq = _provider("groq", "openai/gpt-oss-20b", available=False)
+    gemini = _provider("gemini", "gemini-3.6-flash", chat_result="Gemini stepped in, sir.")
+
+    with _patch_providers([gemini, groq]):
+        restored = await restore_preferred_provider()
+        assert restored == "groq"
+        # groq was moved to the front by the restore...
+        assert provider_manager.providers[0].name == "groq"
+
+        # ...but since it's unavailable, the cascade must still fall
+        # through to gemini rather than failing outright like
+        # provider_override would.
+        res = api_client.post("/voice/input", json={"text": "hello"})
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["provider_used"] == "gemini"
+    assert body["fallback_occurred"] is True
+    assert body["failed_provider"] == "groq"

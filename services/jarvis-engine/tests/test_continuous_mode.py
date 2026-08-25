@@ -16,7 +16,12 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-from jarvis_engine.voice.voice_manager import VoiceManager, match_continuous_exit_phrase
+from jarvis_engine.voice.voice_manager import (
+    VoiceManager,
+    match_continuous_exit_phrase,
+    _looks_like_uncertain_exit_intent,
+    _is_affirmative,
+)
 
 
 # --- match_continuous_exit_phrase: pure matching logic -------------------
@@ -32,6 +37,15 @@ from jarvis_engine.voice.voice_manager import VoiceManager, match_continuous_exi
     "That's All Jarvis",
     "jarvis i will talk to you later",
     "Jarvis I Will Talk To You Later",
+    # Bare variants without "jarvis" attached - CONFIRMED INCIDENT: "Go to
+    # sleep." (no wake word) matched nothing and reached the LLM, which
+    # fabricated a fake "session ended" response.
+    "go to sleep",
+    "Go to sleep.",
+    "stop listening",
+    "Stop Listening.",
+    "thats all",
+    "that's all",
 ])
 def test_matches_continuous_exit_phrases(text):
     assert match_continuous_exit_phrase(text) is True
@@ -49,6 +63,51 @@ def test_normal_text_is_not_a_continuous_exit_phrase(text):
     assert match_continuous_exit_phrase(text) is False
 
 
+# --- _looks_like_uncertain_exit_intent / _is_affirmative: the second,
+# phrase-list-independent defense layer -----------------------------------
+
+@pytest.mark.parametrize("text", [
+    "sleep",
+    "I need sleep",
+    "shut down",
+    "power down",
+    "im done",
+    "I'm done",
+    "thats enough",
+    "that's enough",
+])
+def test_uncertain_exit_intent_matches_short_sleep_stop_phrases(text):
+    assert _looks_like_uncertain_exit_intent(text) is True
+
+
+@pytest.mark.parametrize("text", [
+    "what time is it",
+    "open notepad",
+    "what's the nearest bus stop",  # contains "stop" but NOT "stop listening"
+    "how do I get more sleep at night without waking up early",  # "sleep" present but > 6 words
+    "",
+    "hello",
+])
+def test_uncertain_exit_intent_does_not_false_positive(text):
+    assert _looks_like_uncertain_exit_intent(text) is False
+
+
+@pytest.mark.parametrize("text", [
+    "yes", "Yes.", "yeah", "yep", "yup", "correct", "please",
+    "affirmative", "do it", "please do", "thats right", "right", "go ahead",
+    "yes please",  # word-boundary prefix match, same style as other phrase checks
+])
+def test_is_affirmative_matches_clear_yes(text):
+    assert _is_affirmative(text) is True
+
+
+@pytest.mark.parametrize("text", [
+    "no", "what time is it", "open notepad", "", "maybe", "not really",
+])
+def test_is_affirmative_rejects_anything_else(text):
+    assert _is_affirmative(text) is False
+
+
 # --- end-to-end: _process_voice_command while continuous_mode -----------
 
 def _make_manager(audio_sequence, transcripts) -> VoiceManager:
@@ -61,6 +120,11 @@ def _make_manager(audio_sequence, transcripts) -> VoiceManager:
     vm.speech_recorder.record.side_effect = list(audio_sequence) + [audio_sequence[-1]] * 10
     vm._transcribe = MagicMock(side_effect=list(transcripts) + [transcripts[-1]] * 10)
     vm.on_transcription = MagicMock()
+    # These tests call _process_voice_command directly/synchronously (no
+    # continue_conversation() running concurrently to ever signal
+    # _continuous_turn_ready), so a dispatched normal command would
+    # otherwise block on the real 120s default - keep it near-instant.
+    vm._continuous_turn_wait_timeout = 0.05
     return vm
 
 
@@ -83,6 +147,112 @@ def test_exit_phrase_ends_continuous_mode(mock_tts):
     assert mock_tts.speak_sync.call_count == 1
     assert "sleep" in mock_tts.speak_sync.call_args[0][0].lower()
     assert vm.is_listening is False
+
+
+@patch("jarvis_engine.voice.tts_engine.tts_engine")
+def test_bare_go_to_sleep_ends_session_with_no_llm_involvement(mock_tts):
+    """CONFIRMED INCIDENT regression check: "go to sleep" with no "jarvis"
+    must now end the session directly - never reach on_transcription (the
+    LLM path), which previously fabricated a fake "session ended" reply."""
+    mock_tts.is_speaking = False
+    vm = _make_manager([NONEMPTY], ["go to sleep"])
+    vm.continuous_mode = True
+    vm.is_listening = True
+
+    vm._process_voice_command(None)
+
+    assert vm.continuous_mode is False
+    vm.on_transcription.assert_not_called()
+    assert "sleep" in mock_tts.speak_sync.call_args[0][0].lower()
+
+
+@patch("jarvis_engine.voice.tts_engine.tts_engine")
+def test_uncertain_exit_intent_asks_deterministic_confirmation_not_llm(mock_tts):
+    """An exit-*sounding* phrase that ISN'T in the configured list (e.g. a
+    phrasing variant CONTINUOUS_MODE_EXIT_PHRASES doesn't cover) must never
+    reach execute_voice_command/on_transcription - it gets a hardcoded
+    confirmation question instead. The session's single persistent thread
+    loops straight back to record the answer (same pattern as the
+    pre-existing "Didn't catch that, sir." branch) all within this one
+    _process_voice_command call - the second turn here is an ordinary
+    non-affirmative reply, just so the call terminates naturally via the
+    normal dispatch return path."""
+    mock_tts.is_speaking = False
+    vm = _make_manager([NONEMPTY, NONEMPTY], ["I think I should sleep now", "no thanks"])
+    vm.continuous_mode = True
+    vm.is_listening = True
+
+    vm._process_voice_command(None)
+
+    # The uncertain phrase itself never reached the LLM - only the
+    # (non-affirmative) reply to the confirmation question did, once it
+    # fell through as an ordinary command.
+    vm.on_transcription.assert_called_once()
+    call_text, _ = vm.on_transcription.call_args[0]
+    assert call_text == "no thanks"
+
+    # The confirmation question was spoken deterministically, first.
+    first_spoken = mock_tts.speak_sync.call_args_list[0][0][0].lower()
+    assert "stop listening" in first_spoken
+    assert vm.continuous_mode is True  # never actually exited
+
+
+@patch("jarvis_engine.voice.tts_engine.tts_engine")
+def test_confirmation_answered_yes_performs_real_exit(mock_tts):
+    """The exit only actually happens once "yes" is heard - backed by the
+    same continuous_mode=False / timer-cancel / _exit_continuous_mode()
+    state change as every other exit path, not an LLM-generated claim."""
+    mock_tts.is_speaking = False
+    vm = _make_manager([NONEMPTY, NONEMPTY], ["I think I should sleep now", "yes"])
+    vm.continuous_mode = True
+    vm.is_listening = True
+
+    vm._process_voice_command(None)
+
+    assert vm.continuous_mode is False
+    assert vm._pending_exit_confirmation is False
+    vm.on_transcription.assert_not_called()
+    assert mock_tts.speak_sync.call_count == 2
+    assert "stop listening" in mock_tts.speak_sync.call_args_list[0][0][0].lower()
+    assert "sleep" in mock_tts.speak_sync.call_args_list[1][0][0].lower()
+
+
+@patch("jarvis_engine.voice.tts_engine.tts_engine")
+def test_confirmation_answered_with_something_else_is_treated_as_a_command(mock_tts):
+    """If the "answer" isn't a clear yes, it must NOT be silently discarded
+    - it's processed as this turn's actual command instead."""
+    mock_tts.is_speaking = False
+    vm = _make_manager([NONEMPTY, NONEMPTY], ["I think I should sleep now", "open notepad"])
+    vm.continuous_mode = True
+    vm.is_listening = True
+
+    vm._process_voice_command(None)
+
+    assert vm._pending_exit_confirmation is False
+    assert vm.continuous_mode is True  # NOT exited - "open notepad" wasn't a yes
+    vm.on_transcription.assert_called_once()
+    call_text, _ = vm.on_transcription.call_args[0]
+    assert call_text == "open notepad"
+
+
+@patch("jarvis_engine.voice.tts_engine.tts_engine")
+def test_unrelated_command_with_stop_substring_reaches_llm_normally(mock_tts):
+    """False-positive guard: a normal command that happens to contain
+    "stop" in an unrelated context (not "stop listening") must go straight
+    to on_transcription like any other command, no confirmation asked."""
+    mock_tts.is_speaking = False
+    vm = _make_manager([NONEMPTY], ["what's the nearest bus stop"])
+    vm.continuous_mode = True
+    vm.is_listening = True
+
+    vm._process_voice_command(None)
+
+    assert vm._pending_exit_confirmation is False
+    assert vm.continuous_mode is True
+    mock_tts.speak_sync.assert_not_called()
+    vm.on_transcription.assert_called_once()
+    call_text, _ = vm.on_transcription.call_args[0]
+    assert call_text == "what's the nearest bus stop"
 
 
 @patch("jarvis_engine.voice.tts_engine.tts_engine")
@@ -228,6 +398,119 @@ def test_continue_conversation_broadcasts_continuous_status():
     vm.continue_conversation()
 
     vm._broadcast_status.assert_called_once_with("continuous")
+    vm.shutdown()
+
+
+def test_continue_conversation_spawns_thread_exactly_once_per_session():
+    """Regression test: continue_conversation() used to spawn a brand new
+    thread on EVERY call (once per turn), racing the session's own
+    already-alive recording thread (duplicate recordings, exit phrases
+    only working intermittently). Only the FIRST call (entering continuous
+    mode) may spawn a thread - every later call in the same session must
+    only re-arm the timer and signal the existing thread.
+
+    Patching threading.Thread itself isn't safe here - Timer subclasses
+    Thread, and _arm_continuous_timer() (called by every
+    continue_conversation() call) constructs one, so mocking Thread
+    globally breaks Timer's own __init__. Track spawns by wrapping the
+    thread's target callable instead."""
+    vm = VoiceManager()
+    spawn_count = {"n": 0}
+
+    def counting_target(*args, **kwargs):
+        spawn_count["n"] += 1
+        # No real recording loop needed for this test - just prove it ran.
+
+    vm._process_voice_command = counting_target
+
+    vm.continue_conversation()  # first entry: should spawn
+    vm.continue_conversation()  # same session: must NOT spawn again
+    vm.continue_conversation()  # same session: must NOT spawn again
+
+    # Give the one legitimate spawned thread a moment to actually run.
+    deadline = time.time() + 2.0
+    while spawn_count["n"] == 0 and time.time() < deadline:
+        time.sleep(0.01)
+
+    assert spawn_count["n"] == 1
+    assert vm.continuous_mode is True
+    vm.shutdown()
+
+
+def test_continue_conversation_signals_existing_thread_on_later_calls():
+    """The second+ call must wake the already-waiting thread instead of
+    spawning a new one."""
+    vm = VoiceManager()
+    vm._process_voice_command = MagicMock()
+
+    vm.continue_conversation()  # spawns the (mocked-away) thread
+    assert not vm._continuous_turn_ready.is_set()
+
+    vm.continue_conversation()  # re-arm: should signal it
+
+    assert vm._continuous_turn_ready.is_set()
+
+
+@patch("jarvis_engine.voice.tts_engine.tts_engine")
+def test_five_real_turns_run_on_a_single_thread_with_no_duplicate_recordings(mock_tts):
+    """End-to-end regression check for the actual reported bug: 5
+    back-to-back turns, each simulating continue_conversation() being
+    called once its (mocked) response has been spoken - exactly like
+    transcription_handler._speak_response does in production. Must use
+    the SAME thread throughout (real _process_voice_command only ever
+    invoked once) and record/transcribe exactly once per turn - no
+    duplicates from a second competing thread."""
+    mock_tts.is_speaking = False
+    vm = VoiceManager()
+    vm.speech_recorder = MagicMock()
+    vm.speech_recorder.record.return_value = NONEMPTY
+    vm._transcribe = MagicMock(side_effect=[
+        "open notepad", "what time is it", "volume up", "lock screen", "mute",
+    ])
+    vm.on_transcription = MagicMock()
+    vm._continuous_turn_wait_timeout = 2.0
+    # _broadcast_status does a real (localhost, but still real) HTTP POST -
+    # nothing is listening on it in this test process, and depending on
+    # the environment that can take close to its own timeout to fail
+    # rather than failing instantly, which was silently eating into this
+    # test's own polling budgets below. Mock it out like the other
+    # broadcast-focused tests in this file already do.
+    vm._broadcast_status = MagicMock()
+
+    spawn_count = {"n": 0}
+    real_target = vm._process_voice_command
+
+    def counting_target(*args, **kwargs):
+        spawn_count["n"] += 1
+        return real_target(*args, **kwargs)
+
+    vm._process_voice_command = counting_target
+
+    def wait_for(predicate, timeout=2.0):
+        deadline = time.time() + timeout
+        while not predicate() and time.time() < deadline:
+            time.sleep(0.01)
+        assert predicate(), "condition not met before timeout"
+
+    # Turn 1's "response spoken" -> enters continuous mode, spawns the
+    # session's one thread, which immediately records+dispatches turn 2.
+    vm.continue_conversation()
+
+    for turn in range(2, 6):
+        wait_for(lambda t=turn: vm.on_transcription.call_count >= t - 1)
+        # Simulate that turn's response finishing speaking, exactly as
+        # _speak_response's finally block does.
+        vm.continue_conversation()
+
+    wait_for(lambda: vm.on_transcription.call_count >= 5)
+
+    assert vm.on_transcription.call_count == 5
+    assert vm.speech_recorder.record.call_count == 5
+    assert vm._transcribe.call_count == 5
+    # The one and only thing that matters for the reported bug: exactly
+    # ONE thread ever ran _process_voice_command for this whole session.
+    assert spawn_count["n"] == 1
+
     vm.shutdown()
 
 

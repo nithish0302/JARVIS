@@ -181,45 +181,57 @@
   color: var(--color-amber);
 }
 
-/* OrbCaption, rendered prominently above the graph canvas (GraphCanvas) and
-   at the top of Chat Mode (ChatFullView) - a primary status readout for the
-   whole app now, not small secondary sidebar text, so it's sized off the
-   same --font-size-page token the Settings page uses for its section
-   headers (the largest "prominent text" scale already established
-   elsewhere) rather than an arbitrary value. The backdrop/glow keeps it
-   legible over the graph's node clutter while matching the existing
-   HUD panel look (blurred dark panel + cyan glow, same family as
-   .panel/.core in this app). */
+/* OrbCaption - a small, subtle status badge floating in the top-left
+   corner of the center viewport (GraphCanvas.tsx's .canvas-wrap and
+   ChatFullView.tsx's chat area both position it there via
+   .orb-readout-corner below). Left-aligned, compact, and translucent
+   rather than a big centered headline: it's a corner element now, not a
+   full-width panel or a page-dominating readout. Font sizing kept from
+   the left-sidebar-panel attempt (--font-size-section /
+   --font-size-caption) since it already read well at this scale and this
+   placement is similarly compact. */
 .orb-caption-readout {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 10px 28px;
-  border-radius: 12px;
-  background: rgba(6, 16, 32, 0.55);
-  backdrop-filter: blur(10px);
+  align-items: flex-start;
+  gap: 2px;
+  padding: 6px 12px;
+  border-radius: 10px;
+  background: rgba(6, 16, 32, 0.5);
+  backdrop-filter: blur(8px);
   border: 1px solid var(--color-line);
-  box-shadow: 0 0 30px rgba(82, 236, 227, 0.1);
+  box-shadow: 0 0 18px rgba(82, 236, 227, 0.08);
+  text-align: left;
   pointer-events: none;
 }
 
 .orb-caption-readout .orb-caption {
   font-family: var(--font-display);
-  font-size: var(--font-size-page);
+  font-size: var(--font-size-section);
   font-weight: 600;
   color: var(--text-primary);
-  text-shadow: 0 0 16px rgba(82, 236, 227, 0.4);
+  text-shadow: 0 0 10px rgba(82, 236, 227, 0.3);
   letter-spacing: 0.3px;
-  text-align: center;
+  text-align: left;
 }
 
 .orb-caption-readout .orb-sub {
   font-family: var(--font-mono);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-caption);
   color: var(--color-cyan);
   opacity: 0.8;
   letter-spacing: 1.5px;
   text-transform: uppercase;
+}
+
+/* Positioning-only class shared by both places OrbCaption is anchored to
+   a corner (GraphCanvas.tsx / ChatFullView.tsx) - each of those containers
+   must itself be position:relative so this stays confined to that view
+   and never spills into a side column. */
+.orb-readout-corner {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 4;
 }
 

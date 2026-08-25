@@ -990,7 +990,7 @@ export function GraphCanvas() {
   return (
     <div className={cn("canvas-wrap", !graphFocused && "chat-focused")} ref={wrapRef}>
       <canvas id="graphCanvas" ref={canvasRef} onClick={handleCanvasClick} onMouseMove={handleMouseMove}></canvas>
-      <div className="graph-orb-readout">
+      <div className="orb-readout-corner">
         <OrbCaption />
       </div>
       <div className={cn("graph-caption transition-opacity duration-1000", (!showCaption || (graphOpen && stateRef.current.selectedHub)) && "opacity-0")}>
