@@ -38,8 +38,8 @@ def register_placeholders():
     registry.register(PluginDefinition(
         id="weather",
         name="Weather",
-        description="Check current weather conditions and forecasts.",
+        description="Check current weather conditions and forecasts via Open-Meteo.",
         required_credentials=[],
-        capabilities=["Check weather"],
-        ui_actions=["[UI_ACTION:weather_show]"]
+        capabilities=["Check current weather", "Check forecast"],
+        ui_actions=["[UI_ACTION:check_weather]", "[UI_ACTION:check_weather:<location>]", "[UI_ACTION:check_forecast:<location>:<days>]"]
     ))

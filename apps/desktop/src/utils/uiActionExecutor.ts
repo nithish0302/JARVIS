@@ -607,6 +607,46 @@ export function executeUIActions(
           }
           break
 
+        case "check_weather":
+          import("../services/jarvisApi").then(api => {
+            api.checkWeather(action.payload || undefined).then(result => {
+              const message = `Current weather in ${result.location_name}:\nTemperature: ${result.temperature}°C (Feels like ${result.feels_like}°C)\nHumidity: ${result.humidity}%\nWind: ${result.wind_speed} km/h\nCondition: ${result.weather_description}`
+              import("../stores/useConversationStore").then(m => {
+                m.useConversationStore.getState().addMessage({
+                  id: window.crypto?.randomUUID() || Math.random().toString(),
+                  role: "assistant",
+                  content: message,
+                  timestamp: new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})
+                })
+              })
+              store.showActionFeedback(`Checked weather for ${result.location_name}`)
+            }).catch(err => store.showActionFeedback(err.message))
+          })
+          break
+
+        case "check_forecast":
+          if (action.payload) {
+            const parts = action.payload.split(":")
+            const location = parts[0] || undefined
+            const days = parts[1] || undefined
+            import("../services/jarvisApi").then(api => {
+              api.checkForecast(location, days).then(results => {
+                const message = `Weather forecast:\n${results.map(r => `${r.date}: High ${r.high}°C, Low ${r.low}°C, ${r.description} (${r.precipitation_chance}% rain)`).join('\n')}`
+                import("../stores/useConversationStore").then(m => {
+                  m.useConversationStore.getState().addMessage({
+                    id: window.crypto?.randomUUID() || Math.random().toString(),
+                    role: "assistant",
+                    content: message,
+                    timestamp: new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})
+                  })
+                })
+                store.showActionFeedback(`Checked forecast`)
+              }).catch(err => store.showActionFeedback(err.message))
+            })
+          }
+          break
+
+
         default:
           console.log(
             "Unknown UI action:", action.type

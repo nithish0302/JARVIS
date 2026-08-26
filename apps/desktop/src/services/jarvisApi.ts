@@ -137,8 +137,38 @@ export async function createEvent(title: string, start: string, end: string): Pr
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ title, start, end, description: "" })
   })
-  if (!response.ok) throw new Error("Failed to create event")
+  if (!response.ok) {
+    const errorText = await response.text()
+    let errorMsg = "Failed to create event"
+    try {
+      const errorData = JSON.parse(errorText)
+      if (errorData.detail) errorMsg = typeof errorData.detail === 'string' ? errorData.detail : JSON.stringify(errorData.detail)
+    } catch {
+      if (errorText) errorMsg = errorText
+    }
+    throw new Error(errorMsg)
+  }
 }
+
+export async function checkWeather(location?: string): Promise<any> {
+  const url = new URL(`${JARVIS_ENGINE_URL}/plugins/weather/current`)
+  if (location) url.searchParams.append("location", location)
+  
+  const response = await window.fetch(url.toString())
+  if (!response.ok) throw new Error("Failed to check weather")
+  return response.json()
+}
+
+export async function checkForecast(location?: string, days?: string): Promise<any[]> {
+  const url = new URL(`${JARVIS_ENGINE_URL}/plugins/weather/forecast`)
+  if (location) url.searchParams.append("location", location)
+  if (days) url.searchParams.append("days", days)
+    
+  const response = await window.fetch(url.toString())
+  if (!response.ok) throw new Error("Failed to check forecast")
+  return response.json()
+}
+
 
 export async function deleteConversation(conversationId: string, pin: string): Promise<void> {
   const response = await window.fetch(

@@ -973,7 +973,7 @@ Classify this request and return JSON only.
 Request: "{request}"
 
 Return ONE JSON object:
-{{"action_type":"OPEN_APP|OPEN_URL|SYSTEM_CONTROL|SYSTEM_QUERY|FILE_OP|GMAIL_OP|CALENDAR_OP|UNSAFE",
+{{"action_type":"OPEN_APP|OPEN_URL|SYSTEM_CONTROL|SYSTEM_QUERY|FILE_OP|GMAIL_OP|CALENDAR_OP|WEATHER_OP|UNSAFE",
 "command":"app name, url, or fixed query/control enum",
 "browser":"firefox",
 "description":"brief description",
@@ -1004,6 +1004,9 @@ Rules for CALENDAR_OP:
 - For create_event, requires_confirmation MUST be true.
 - <start> and <end> should be ISO format strings if possible.
 
+Rules for WEATHER_OP:
+- command must be one of: "check_weather", "check_weather:<location>", "check_forecast:<location>:<days>"
+
 Examples:
 open chrome → {{"action_type":"OPEN_APP","command":"chrome","browser":"firefox","description":"Open Chrome","requires_confirmation":false,"display_output":false}}
 close chrome → {{"action_type":"SYSTEM_CONTROL","command":"close_app:chrome","browser":"firefox","description":"Close Chrome","requires_confirmation":false,"display_output":false}}
@@ -1016,6 +1019,8 @@ delete test.txt on my desktop → {{"action_type":"FILE_OP","command":"delete_fi
 check my emails → {{"action_type":"GMAIL_OP","command":"check_gmail","browser":"firefox","description":"Check emails","requires_confirmation":false,"display_output":true}}
 what is on my calendar today → {{"action_type":"CALENDAR_OP","command":"check_calendar","browser":"firefox","description":"Check calendar","requires_confirmation":false,"display_output":true}}
 send an email to test@example.com saying hello → {{"action_type":"GMAIL_OP","command":"send_email:test@example.com:Hello:Hello there","browser":"firefox","description":"Send email","requires_confirmation":true,"display_output":false}}
+weather in Paris → {{"action_type":"WEATHER_OP","command":"check_weather:Paris","browser":"firefox","description":"Check weather in Paris","requires_confirmation":false,"display_output":true}}
+forecast for London for 3 days → {{"action_type":"WEATHER_OP","command":"check_forecast:London:3","browser":"firefox","description":"Check 3-day forecast for London","requires_confirmation":false,"display_output":true}}
 """
 
 FOREGROUND_TRIGGERS = [
@@ -3083,5 +3088,34 @@ async def get_calendar_upcoming():
 async def create_calendar_event(req: CalendarCreateRequest):
     _check_plugin("google_calendar")
     from ..plugins.calendar_plugin import create_event
-    create_event(req.title, req.start, req.end, req.description)
+    from fastapi import HTTPException
+    import httpx
+    
+    try:
+        create_event(req.title, req.start, req.end, req.description)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except httpx.HTTPStatusError as e:
+        # e.response.text gives the actual Google API error body if available
+        raise HTTPException(status_code=503, detail=f"Calendar API error: {e.response.text}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+        
     return {"status": "ok"}
+
+# --- Weather Plugin Endpoints ---
+@router.get("/plugins/weather/current")
+async def get_weather_current(location: str | None = None):
+    _check_plugin("weather")
+    from ..core.config import settings
+    from ..plugins.weather_plugin import get_current_weather
+    loc = location if location else settings.WEATHER_DEFAULT_LOCATION
+    return get_current_weather(loc)
+
+@router.get("/plugins/weather/forecast")
+async def get_weather_forecast(location: str | None = None, days: int = 3):
+    _check_plugin("weather")
+    from ..core.config import settings
+    from ..plugins.weather_plugin import get_forecast
+    loc = location if location else settings.WEATHER_DEFAULT_LOCATION
+    return get_forecast(loc, days)

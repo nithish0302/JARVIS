@@ -75,19 +75,43 @@ def get_upcoming_events(days: int = 7) -> list[dict]:
         
     return results
 
+def _normalize_date(date_str: str) -> dict:
+    from dateutil import parser
+    import datetime
+    
+    try:
+        # fuzzy=True helps ignore random words like 'on' or 'at'
+        dt = parser.parse(date_str, fuzzy=True)
+    except Exception as e:
+        raise ValueError(f"Could not parse date: {date_str}") from e
+        
+    # Heuristic to determine if a time was provided
+    has_time = any(c in date_str.lower() for c in [':', 'am', 'pm', 't'])
+    
+    if not has_time and dt.hour == 0 and dt.minute == 0 and dt.second == 0:
+        return {"date": dt.strftime("%Y-%m-%d")}
+        
+    # Convert to IST (+05:30) as requested
+    ist = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=ist)
+    else:
+        dt = dt.astimezone(ist)
+        
+    return {"dateTime": dt.isoformat()}
+
 def create_event(title: str, start: str, end: str, description: str = "") -> bool:
     # NEVER called directly without confirm_action in the backend
     headers = get_calendar_headers()
     
+    start_payload = _normalize_date(start)
+    end_payload = _normalize_date(end)
+    
     payload = {
         "summary": title,
         "description": description,
-        "start": {
-            "dateTime": start
-        },
-        "end": {
-            "dateTime": end
-        }
+        "start": start_payload,
+        "end": end_payload
     }
     
     resp = httpx.post(f"{CALENDAR_API_BASE}/calendars/primary/events", headers=headers, json=payload, timeout=30.0)
