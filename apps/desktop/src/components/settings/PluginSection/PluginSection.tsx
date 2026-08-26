@@ -30,8 +30,22 @@ export function PluginSection() {
     fetchPlugins();
   }, []);
 
-  const handleConnect = (pluginId: string) => {
-    alert(`Connecting to ${pluginId} coming soon`);
+  const handleConnect = async (pluginId: string) => {
+    if (pluginId === "gmail" || pluginId === "google_calendar") {
+      try {
+        const res = await fetch("http://localhost:8765/plugins/google/auth-url");
+        if (res.ok) {
+          const data = await res.json();
+          const { open } = await import("@tauri-apps/plugin-shell");
+          await open(data.url);
+          // Poll for status update or rely on user to refresh
+        }
+      } catch (err) {
+        console.error("Failed to fetch auth url", err);
+      }
+    } else {
+      alert(`Connecting to ${pluginId} coming soon`);
+    }
   };
 
   const handleDisconnect = async (pluginId: string) => {

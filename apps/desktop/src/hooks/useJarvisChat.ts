@@ -217,6 +217,62 @@ export function useJarvisChat() {
               setPendingCommand(null)
             })
         })
+      } else if (cmdType === "send_email") {
+        const parts = cmdPayload.split(":")
+        if (parts.length >= 3) {
+          const to = parts[0]
+          const subject = parts[1]
+          const body = parts.slice(2).join(":")
+          import("../services/jarvisApi").then(api => {
+            api.sendEmail(to, subject, body).then(() => {
+              addMessage({
+                id: window.crypto.randomUUID(),
+                role: "assistant",
+                content: `✅ Email sent successfully to ${to}.`,
+                timestamp: new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})
+              })
+            }).catch(err => {
+              addMessage({
+                id: window.crypto.randomUUID(),
+                role: "assistant",
+                content: `❌ Failed to send email: ${err.message}`,
+                timestamp: new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})
+              })
+            }).finally(() => {
+              setPendingCommand(null)
+            })
+          })
+        } else {
+          setPendingCommand(null)
+        }
+      } else if (cmdType === "create_event") {
+        const parts = cmdPayload.split(":")
+        if (parts.length >= 3) {
+          const title = parts[0]
+          const start = parts[1]
+          const end = parts.slice(2).join(":")
+          import("../services/jarvisApi").then(api => {
+            api.createEvent(title, start, end).then(() => {
+              addMessage({
+                id: window.crypto.randomUUID(),
+                role: "assistant",
+                content: `✅ Calendar event "${title}" created successfully.`,
+                timestamp: new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})
+              })
+            }).catch(err => {
+              addMessage({
+                id: window.crypto.randomUUID(),
+                role: "assistant",
+                content: `❌ Failed to create event: ${err.message}`,
+                timestamp: new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})
+              })
+            }).finally(() => {
+              setPendingCommand(null)
+            })
+          })
+        } else {
+          setPendingCommand(null)
+        }
       } else {
         addMessage({
           id: window.crypto.randomUUID(),

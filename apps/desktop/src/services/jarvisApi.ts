@@ -80,6 +80,66 @@ export async function getConversations(): Promise<any[]> {
   return response.json()
 }
 
+export async function deletePluginCredentials(pluginId: string): Promise<void> {
+  const response = await window.fetch(`${JARVIS_ENGINE_URL}/plugins/${pluginId}/credentials`, {
+    method: "DELETE"
+  })
+  if (!response.ok) throw new Error("Failed to delete credentials")
+}
+
+export async function getGoogleAuthUrl(): Promise<string> {
+  const response = await window.fetch(`${JARVIS_ENGINE_URL}/plugins/google/auth-url`)
+  if (!response.ok) throw new Error("Failed to get auth URL")
+  const data = await response.json()
+  return data.url
+}
+
+export async function checkGmail(): Promise<any[]> {
+  const response = await window.fetch(`${JARVIS_ENGINE_URL}/plugins/gmail/unread`)
+  if (!response.ok) throw new Error("Failed to check Gmail")
+  return response.json()
+}
+
+export async function searchGmail(query: string): Promise<any[]> {
+  const response = await window.fetch(`${JARVIS_ENGINE_URL}/plugins/gmail/search`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query })
+  })
+  if (!response.ok) throw new Error("Failed to search Gmail")
+  return response.json()
+}
+
+export async function sendEmail(to: string, subject: string, body: string): Promise<void> {
+  const response = await window.fetch(`${JARVIS_ENGINE_URL}/plugins/gmail/send`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ to, subject, body })
+  })
+  if (!response.ok) throw new Error("Failed to send email")
+}
+
+export async function checkCalendar(): Promise<any[]> {
+  const response = await window.fetch(`${JARVIS_ENGINE_URL}/plugins/calendar/today`)
+  if (!response.ok) throw new Error("Failed to check calendar")
+  return response.json()
+}
+
+export async function checkUpcomingEvents(): Promise<any[]> {
+  const response = await window.fetch(`${JARVIS_ENGINE_URL}/plugins/calendar/upcoming`)
+  if (!response.ok) throw new Error("Failed to check upcoming events")
+  return response.json()
+}
+
+export async function createEvent(title: string, start: string, end: string): Promise<void> {
+  const response = await window.fetch(`${JARVIS_ENGINE_URL}/plugins/calendar/create`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title, start, end, description: "" })
+  })
+  if (!response.ok) throw new Error("Failed to create event")
+}
+
 export async function deleteConversation(conversationId: string, pin: string): Promise<void> {
   const response = await window.fetch(
     `${JARVIS_ENGINE_URL}/conversation/${conversationId}?pin=${encodeURIComponent(pin)}`,

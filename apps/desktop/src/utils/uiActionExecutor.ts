@@ -493,6 +493,120 @@ export function executeUIActions(
           }
           break
           
+        case "check_gmail":
+          import("../services/jarvisApi").then(api => {
+            api.checkGmail().then(results => {
+              const count = results.length
+              const message = count > 0 
+                ? `You have ${count} unread emails:\n${results.map((e, i) => `${i+1}. ${e.subject} (from ${e.sender})`).join('\n')}`
+                : "You have no unread emails."
+              import("../stores/useConversationStore").then(m => {
+                m.useConversationStore.getState().addMessage({
+                  id: window.crypto?.randomUUID() || Math.random().toString(),
+                  role: "assistant",
+                  content: message,
+                  timestamp: new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})
+                })
+              })
+              store.showActionFeedback(`Checked Gmail (${count} unread)`)
+            }).catch(err => store.showActionFeedback(err.message))
+          })
+          break
+
+        case "search_gmail":
+          if (action.payload) {
+            import("../services/jarvisApi").then(api => {
+              api.searchGmail(action.payload!).then(results => {
+                const count = results.length
+                const message = count > 0 
+                  ? `Found ${count} emails for "${action.payload}":\n${results.map((e, i) => `${i+1}. ${e.subject} (from ${e.sender})`).join('\n')}`
+                  : `No emails found for "${action.payload}".`
+                import("../stores/useConversationStore").then(m => {
+                  m.useConversationStore.getState().addMessage({
+                    id: window.crypto?.randomUUID() || Math.random().toString(),
+                    role: "assistant",
+                    content: message,
+                    timestamp: new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})
+                  })
+                })
+                store.showActionFeedback(`Searched Gmail (${count} results)`)
+              }).catch(err => store.showActionFeedback(err.message))
+            })
+          }
+          break
+
+        case "send_email":
+          if (action.payload) {
+            const parts = action.payload.split(":")
+            if (parts.length >= 3) {
+              const to = parts[0]
+              const subject = parts[1]
+              const body = parts.slice(2).join(":")
+              import("../services/jarvisApi").then(api => {
+                api.sendEmail(to, subject, body).then(() => {
+                  store.showActionFeedback("Email sent successfully.")
+                }).catch(err => store.showActionFeedback(err.message))
+              })
+            }
+          }
+          break
+
+        case "check_calendar":
+          import("../services/jarvisApi").then(api => {
+            api.checkCalendar().then(results => {
+              const count = results.length
+              const message = count > 0 
+                ? `You have ${count} events today:\n${results.map((e, i) => `${i+1}. ${e.summary} at ${e.start}`).join('\n')}`
+                : "You have no events today."
+              import("../stores/useConversationStore").then(m => {
+                m.useConversationStore.getState().addMessage({
+                  id: window.crypto?.randomUUID() || Math.random().toString(),
+                  role: "assistant",
+                  content: message,
+                  timestamp: new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})
+                })
+              })
+              store.showActionFeedback(`Checked Calendar (${count} events today)`)
+            }).catch(err => store.showActionFeedback(err.message))
+          })
+          break
+
+        case "check_upcoming_events":
+          import("../services/jarvisApi").then(api => {
+            api.checkUpcomingEvents().then(results => {
+              const count = results.length
+              const message = count > 0 
+                ? `You have ${count} upcoming events:\n${results.map((e, i) => `${i+1}. ${e.summary} on ${e.start}`).join('\n')}`
+                : "You have no upcoming events."
+              import("../stores/useConversationStore").then(m => {
+                m.useConversationStore.getState().addMessage({
+                  id: window.crypto?.randomUUID() || Math.random().toString(),
+                  role: "assistant",
+                  content: message,
+                  timestamp: new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})
+                })
+              })
+              store.showActionFeedback(`Checked Calendar (${count} upcoming events)`)
+            }).catch(err => store.showActionFeedback(err.message))
+          })
+          break
+
+        case "create_event":
+          if (action.payload) {
+            const parts = action.payload.split(":")
+            if (parts.length >= 3) {
+              const title = parts[0]
+              const start = parts[1]
+              const end = parts.slice(2).join(":")
+              import("../services/jarvisApi").then(api => {
+                api.createEvent(title, start, end).then(() => {
+                  store.showActionFeedback("Calendar event created successfully.")
+                }).catch(err => store.showActionFeedback(err.message))
+              })
+            }
+          }
+          break
+
         default:
           console.log(
             "Unknown UI action:", action.type
