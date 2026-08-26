@@ -5,17 +5,19 @@ def register_placeholders():
         id="gmail",
         name="Gmail",
         description="Read, search, and send emails via Google Workspace.",
-        required_credentials=["oauth_token"],
-        capabilities=["Read emails", "Send emails"],
-        ui_actions=["[UI_ACTION:gmail_compose]"]
+        required_credentials=["access_token", "refresh_token"],
+        credential_namespace="google",
+        capabilities=["Read emails", "Send emails", "Search emails"],
+        ui_actions=["[UI_ACTION:check_gmail]", "[UI_ACTION:search_gmail:<query>]", "[UI_ACTION:send_email:<to>:<subject>:<body>]"]
     ))
     registry.register(PluginDefinition(
         id="google_calendar",
         name="Google Calendar",
         description="Manage events and check schedule.",
-        required_credentials=["oauth_token"],
+        required_credentials=["access_token", "refresh_token"],
+        credential_namespace="google",
         capabilities=["Read events", "Create events"],
-        ui_actions=["[UI_ACTION:calendar_view]"]
+        ui_actions=["[UI_ACTION:check_calendar]", "[UI_ACTION:check_upcoming_events]", "[UI_ACTION:create_event:<title>:<start>:<end>]"]
     ))
     registry.register(PluginDefinition(
         id="whatsapp",

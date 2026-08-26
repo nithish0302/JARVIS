@@ -59,9 +59,12 @@ async def lifespan(app: FastAPI):
     await init_db()
     print(f"[TIMING] init_db: {time.time() - _t0:.2f}s")
     
+    _t1 = time.time()
     from .plugins.placeholders import register_placeholders
+    from .plugins.google_auth import init_google_oauth
     register_placeholders()
-    print("[STARTUP] Registered placeholder plugins")
+    init_google_oauth()
+    print(f"[TIMING] init_plugins: {time.time() - _t1:.2f}s")
 
     _t1 = time.time()
     from .providers.manager import provider_manager, restore_preferred_provider

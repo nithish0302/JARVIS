@@ -7,6 +7,7 @@ class PluginDefinition:
     name: str
     description: str
     required_credentials: list[str] = field(default_factory=list)
+    credential_namespace: str | None = None
     capabilities: list[str] = field(default_factory=list)
     ui_actions: list[str] = field(default_factory=list)
     is_enabled: bool = True
@@ -30,7 +31,8 @@ class PluginRegistry:
             return False
         if not plugin.required_credentials:
             return True
-        keys = list_credential_keys(plugin_id)
+        ns = plugin.credential_namespace if plugin.credential_namespace else plugin_id
+        keys = list_credential_keys(ns)
         return all(req in keys for req in plugin.required_credentials)
 
     def get_capabilities_text(self) -> str:

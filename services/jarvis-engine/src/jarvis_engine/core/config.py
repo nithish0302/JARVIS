@@ -41,6 +41,8 @@ class Settings(BaseSettings):
     CEREBRAS_API_KEY: str = ""
     GEMINI_API_KEY: str = ""
     GEMINI_MODEL: str = "gemini-3.6-flash"
+    GOOGLE_CLIENT_ID: str | None = None
+    GOOGLE_CLIENT_SECRET: str | None = None
     WAKE_WORD_MODEL_PATH: str = "models/wake_up_jarvis.onnx"
     DB_PATH: str = "data/jarvis.db"
     # Persistent ChromaDB store for memory embeddings (Phase 7 M3) - lives

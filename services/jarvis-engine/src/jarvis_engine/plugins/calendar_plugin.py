@@ -1,0 +1,112 @@
+import httpx
+from datetime import datetime, timezone, timedelta
+from .google_auth import get_valid_token
+
+CALENDAR_API_BASE = "https://www.googleapis.com/calendar/v3"
+
+def get_calendar_headers() -> dict:
+    token = get_valid_token()
+    return {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
+
+def get_todays_events() -> list[dict]:
+    headers = get_calendar_headers()
+    
+    now = datetime.now(timezone.utc)
+    start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    end_of_day = start_of_day + timedelta(days=1)
+    
+    params = {
+        "timeMin": start_of_day.isoformat(),
+        "timeMax": end_of_day.isoformat(),
+        "singleEvents": "true",
+        "orderBy": "startTime"
+    }
+    
+    resp = httpx.get(f"{CALENDAR_API_BASE}/calendars/primary/events", headers=headers, params=params, timeout=30.0)
+    resp.raise_for_status()
+    data = resp.json()
+    
+    events = data.get("items", [])
+    results = []
+    
+    for event in events:
+        results.append({
+            "id": event.get("id"),
+            "summary": event.get("summary", "No Title"),
+            "start": event.get("start", {}).get("dateTime", event.get("start", {}).get("date")),
+            "end": event.get("end", {}).get("dateTime", event.get("end", {}).get("date")),
+            "location": event.get("location", "")
+        })
+        
+    return results
+
+def get_upcoming_events(days: int = 7) -> list[dict]:
+    headers = get_calendar_headers()
+    
+    now = datetime.now(timezone.utc)
+    end_time = now + timedelta(days=days)
+    
+    params = {
+        "timeMin": now.isoformat(),
+        "timeMax": end_time.isoformat(),
+        "singleEvents": "true",
+        "orderBy": "startTime",
+        "maxResults": 10
+    }
+    
+    resp = httpx.get(f"{CALENDAR_API_BASE}/calendars/primary/events", headers=headers, params=params, timeout=30.0)
+    resp.raise_for_status()
+    data = resp.json()
+    
+    events = data.get("items", [])
+    results = []
+    
+    for event in events:
+        results.append({
+            "id": event.get("id"),
+            "summary": event.get("summary", "No Title"),
+            "start": event.get("start", {}).get("dateTime", event.get("start", {}).get("date")),
+            "end": event.get("end", {}).get("dateTime", event.get("end", {}).get("date")),
+            "location": event.get("location", "")
+        })
+        
+    return results
+
+def create_event(title: str, start: str, end: str, description: str = "") -> bool:
+    # NEVER called directly without confirm_action in the backend
+    headers = get_calendar_headers()
+    
+    payload = {
+        "summary": title,
+        "description": description,
+        "start": {
+            "dateTime": start
+        },
+        "end": {
+            "dateTime": end
+        }
+    }
+    
+    resp = httpx.post(f"{CALENDAR_API_BASE}/calendars/primary/events", headers=headers, json=payload, timeout=30.0)
+    resp.raise_for_status()
+    
+    return True
+
+def get_event_detail(event_id: str) -> dict:
+    headers = get_calendar_headers()
+    
+    resp = httpx.get(f"{CALENDAR_API_BASE}/calendars/primary/events/{event_id}", headers=headers, timeout=30.0)
+    resp.raise_for_status()
+    event = resp.json()
+    
+    return {
+        "id": event.get("id"),
+        "summary": event.get("summary", "No Title"),
+        "start": event.get("start", {}).get("dateTime", event.get("start", {}).get("date")),
+        "end": event.get("end", {}).get("dateTime", event.get("end", {}).get("date")),
+        "location": event.get("location", ""),
+        "description": event.get("description", "")
+    }

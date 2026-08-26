@@ -973,7 +973,7 @@ Classify this request and return JSON only.
 Request: "{request}"
 
 Return ONE JSON object:
-{{"action_type":"OPEN_APP|OPEN_URL|SYSTEM_CONTROL|SYSTEM_QUERY|FILE_OP|UNSAFE",
+{{"action_type":"OPEN_APP|OPEN_URL|SYSTEM_CONTROL|SYSTEM_QUERY|FILE_OP|GMAIL_OP|CALENDAR_OP|UNSAFE",
 "command":"app name, url, or fixed query/control enum",
 "browser":"firefox",
 "description":"brief description",
@@ -995,6 +995,15 @@ Rules for FILE_OP (paths are Windows, NEVER Linux/macOS style):
 - NEVER output a path starting with "/", "/home/", "~/", or any other non-Windows form.
 - requires_confirmation is ADVISORY ONLY for delete_file - the backend always requires confirmation for deletes regardless of this field, so set it to true anyway for accuracy.
 
+Rules for GMAIL_OP:
+- command must be one of: "check_gmail", "search_gmail:<query>", "send_email:<to>:<subject>:<body>"
+- For send_email, requires_confirmation MUST be true.
+
+Rules for CALENDAR_OP:
+- command must be one of: "check_calendar", "check_upcoming_events", "create_event:<title>:<start>:<end>"
+- For create_event, requires_confirmation MUST be true.
+- <start> and <end> should be ISO format strings if possible.
+
 Examples:
 open chrome → {{"action_type":"OPEN_APP","command":"chrome","browser":"firefox","description":"Open Chrome","requires_confirmation":false,"display_output":false}}
 close chrome → {{"action_type":"SYSTEM_CONTROL","command":"close_app:chrome","browser":"firefox","description":"Close Chrome","requires_confirmation":false,"display_output":false}}
@@ -1004,6 +1013,9 @@ top cpu processes → {{"action_type":"SYSTEM_QUERY","command":"top_processes","
 check battery → {{"action_type":"SYSTEM_QUERY","command":"battery_level","browser":"firefox","description":"Get Battery Level","requires_confirmation":false,"display_output":true}}
 check disk space → {{"action_type":"SYSTEM_QUERY","command":"disk_space","browser":"firefox","description":"Get Disk Space","requires_confirmation":false,"display_output":true}}
 delete test.txt on my desktop → {{"action_type":"FILE_OP","command":"delete_file:C:\\\\Users\\\\%USERNAME%\\\\Desktop\\\\test.txt","browser":"firefox","description":"Delete test.txt from Desktop","requires_confirmation":true,"display_output":false}}
+check my emails → {{"action_type":"GMAIL_OP","command":"check_gmail","browser":"firefox","description":"Check emails","requires_confirmation":false,"display_output":true}}
+what is on my calendar today → {{"action_type":"CALENDAR_OP","command":"check_calendar","browser":"firefox","description":"Check calendar","requires_confirmation":false,"display_output":true}}
+send an email to test@example.com saying hello → {{"action_type":"GMAIL_OP","command":"send_email:test@example.com:Hello:Hello there","browser":"firefox","description":"Send email","requires_confirmation":true,"display_output":false}}
 """
 
 FOREGROUND_TRIGGERS = [
@@ -1225,17 +1237,28 @@ def enforce_destructive_confirmation(text: str) -> str:
   """
   import re
 
-  def _rewrite(match):
+  def _rewrite_delete(match):
     path = match.group(1)
-    print(
-      f"[SAFETY] Blocked unconfirmed delete_file UI_ACTION for "
-      f"'{path}' - rewriting to require confirmation"
-    )
+    print(f"[SAFETY] Blocked unconfirmed delete_file UI_ACTION for '{path}' - rewriting to require confirmation")
     return f"[UI_ACTION:confirm_action:delete_file:{path}]"
 
-  return re.sub(
-    r'\[UI_ACTION:delete_file:([^\]]+)\]', _rewrite, text
-  )
+  text = re.sub(r'\[UI_ACTION:delete_file:([^\]]+)\]', _rewrite_delete, text)
+
+  def _rewrite_send_email(match):
+    payload = match.group(1)
+    print(f"[SAFETY] Blocked unconfirmed send_email UI_ACTION for '{payload}' - rewriting to require confirmation")
+    return f"[UI_ACTION:confirm_action:send_email:{payload}]"
+
+  text = re.sub(r'\[UI_ACTION:send_email:([^\]]+)\]', _rewrite_send_email, text)
+
+  def _rewrite_create_event(match):
+    payload = match.group(1)
+    print(f"[SAFETY] Blocked unconfirmed create_event UI_ACTION for '{payload}' - rewriting to require confirmation")
+    return f"[UI_ACTION:confirm_action:create_event:{payload}]"
+
+  text = re.sub(r'\[UI_ACTION:create_event:([^\]]+)\]', _rewrite_create_event, text)
+
+  return text
 
 def is_destructive_action(message: str) -> bool:
   """
@@ -1457,6 +1480,11 @@ def needs_automation(message: str) -> bool:
     "volume ", "mute ", "unmute ",
     "screenshot", "restart ", "shutdown ",
     "install ", "uninstall ",
+    "check email", "check my email",
+    "read email", "read my email",
+    "search email", "send email", "send an email",
+    "check calendar", "what's on my calendar",
+    "upcoming event", "create event",
   ]
   
   # Don't trigger for graph/UI commands
@@ -1542,6 +1570,20 @@ async def get_automation_context_str(automation_results: list[dict]) -> str:
                 lines.append(f"[UI_ACTION:show_explorer:{path}]")
             elif requires_confirm:
                 lines.append(f"[UI_ACTION:confirm_action:{cmd[:40]}]")
+        elif action_type == "GMAIL_OP":
+            cmd = result.get("command", "")
+            if cmd.startswith("send_email:"):
+                payload = cmd.replace("send_email:", "")
+                lines.append(f"[UI_ACTION:confirm_action:send_email:{payload}]")
+            else:
+                lines.append(f"[UI_ACTION:{cmd}]")
+        elif action_type == "CALENDAR_OP":
+            cmd = result.get("command", "")
+            if cmd.startswith("create_event:"):
+                payload = cmd.replace("create_event:", "")
+                lines.append(f"[UI_ACTION:confirm_action:create_event:{payload}]")
+            else:
+                lines.append(f"[UI_ACTION:{cmd}]")
         elif requires_confirm:
             lines.append(f"[UI_ACTION:confirm_action:{command[:40]}]")
 
@@ -2969,4 +3011,77 @@ async def delete_plugin_credentials(plugin_id: str):
     keys = list_credential_keys(plugin_id)
     for k in keys:
         delete_credential(plugin_id, k)
+    return {"status": "ok"}
+
+# --- Google OAuth Endpoints ---
+@router.get("/plugins/google/auth-url")
+async def get_google_auth_url():
+    from ..plugins.google_auth import get_authorization_url
+    return {"url": get_authorization_url()}
+
+@router.get("/plugins/google/callback")
+async def google_auth_callback(code: str):
+    from ..plugins.google_auth import handle_callback
+    from fastapi.responses import HTMLResponse
+    handle_callback(code)
+    return HTMLResponse("<script>window.close();</script><h1>Authentication successful! You can close this tab.</h1>")
+
+# --- Gmail Plugin Endpoints ---
+def _check_plugin(plugin_id: str):
+    from ..plugins.registry import registry
+    from fastapi import HTTPException
+    if not registry.is_configured(plugin_id):
+        raise HTTPException(status_code=503, detail=f"Plugin {plugin_id} is not configured.")
+
+@router.get("/plugins/gmail/unread")
+async def get_unread_emails():
+    _check_plugin("gmail")
+    from ..plugins.gmail_plugin import get_unread_emails
+    return get_unread_emails()
+
+from pydantic import BaseModel
+class GmailSearchRequest(BaseModel):
+    query: str
+class GmailSendRequest(BaseModel):
+    to: str
+    subject: str
+    body: str
+
+@router.post("/plugins/gmail/search")
+async def search_emails(req: GmailSearchRequest):
+    _check_plugin("gmail")
+    from ..plugins.gmail_plugin import search_emails
+    return search_emails(req.query)
+
+@router.post("/plugins/gmail/send")
+async def send_email(req: GmailSendRequest):
+    _check_plugin("gmail")
+    from ..plugins.gmail_plugin import send_email
+    send_email(req.to, req.subject, req.body)
+    return {"status": "ok"}
+
+# --- Google Calendar Plugin Endpoints ---
+class CalendarCreateRequest(BaseModel):
+    title: str
+    start: str
+    end: str
+    description: str = ""
+
+@router.get("/plugins/calendar/today")
+async def get_calendar_today():
+    _check_plugin("google_calendar")
+    from ..plugins.calendar_plugin import get_todays_events
+    return get_todays_events()
+
+@router.get("/plugins/calendar/upcoming")
+async def get_calendar_upcoming():
+    _check_plugin("google_calendar")
+    from ..plugins.calendar_plugin import get_upcoming_events
+    return get_upcoming_events()
+
+@router.post("/plugins/calendar/create")
+async def create_calendar_event(req: CalendarCreateRequest):
+    _check_plugin("google_calendar")
+    from ..plugins.calendar_plugin import create_event
+    create_event(req.title, req.start, req.end, req.description)
     return {"status": "ok"}
