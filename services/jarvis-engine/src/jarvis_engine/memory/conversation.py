@@ -74,7 +74,7 @@ async def update_conversation_title(conversation_id: str, new_title: str) -> Non
         )
         await db.commit()
 
-async def get_conversations(limit: int = 10) -> List[dict]:
+async def get_conversations(limit: int = 200) -> List[dict]:
     async with aiosqlite.connect(settings.DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute("""

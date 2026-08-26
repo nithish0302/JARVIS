@@ -2993,7 +2993,7 @@ async def search_memories_endpoint(q: str):
 
 @router.get("/conversations")
 async def get_conversations_endpoint():
-    return await get_conversations(limit=15)
+    return await get_conversations(limit=200)
 
 @router.post("/memories/deduplicate")
 async def deduplicate_memories():
