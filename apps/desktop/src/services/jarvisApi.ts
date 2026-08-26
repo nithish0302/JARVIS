@@ -591,3 +591,14 @@ export async function verifyDeletePin(pin: string): Promise<boolean> {
   return !!data.valid
 }
 
+
+export async function getGaps(): Promise<any[]> {
+  const response = await window.fetch(`${JARVIS_ENGINE_URL}/gaps`)
+  if (!response.ok) return []
+  return response.json()
+}
+
+export async function resolveGap(gapId: string): Promise<void> {
+  const response = await window.fetch(`${JARVIS_ENGINE_URL}/gaps/${gapId}/resolve`, { method: "POST" })
+  if (!response.ok) throw new Error("Failed to resolve gap")
+}

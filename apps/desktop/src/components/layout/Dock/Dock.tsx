@@ -9,6 +9,7 @@ export function Dock() {
   const setConversationPanelOpen = useAppStore(state => state.setConversationPanelOpen);
   const view = useAppStore(state => state.view);
   const setView = useAppStore(state => state.setView);
+  const unresolvedGapCount = useAppStore(state => state.unresolvedGapCount);
 
   return (
     <div className="dock">
@@ -39,6 +40,23 @@ export function Dock() {
         </svg>
       </button>
       
+      <button
+        className={cn("dock-btn", view === "gaps" && "active", "relative")}
+        title="Capability Gaps"
+        onClick={() => setView(view === "gaps" ? "chat" : "gaps")}
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+          <path d="M12 2L2 7l10 5 10-5-10-5z" />
+          <path d="M2 17l10 5 10-5" />
+          <path d="M2 12l10 5 10-5" />
+        </svg>
+        {unresolvedGapCount > 0 && (
+          <span className="absolute -top-1 -right-1 bg-[var(--color-cyan)] text-black text-[9px] font-bold px-1 rounded-full border border-black min-w-[14px] text-center">
+            {unresolvedGapCount}
+          </span>
+        )}
+      </button>
+
       <button
         className={cn("dock-btn", view === "settings" && "active")}
         title="Settings"

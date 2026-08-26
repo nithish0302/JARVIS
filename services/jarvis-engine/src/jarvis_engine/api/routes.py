@@ -1227,6 +1227,56 @@ DESTRUCTIVE_PATTERNS = [
   r'\bend\s+(?:process|task)\b',
 ]
 
+async def detect_and_log_gap(response_text: str, user_request: str) -> str:
+    """Backend gap detection (Phase 9)."""
+    if "[UI_ACTION:" in response_text:
+        return response_text
+
+    import re
+    from datetime import datetime, timezone
+    uncertainty_patterns = [
+        r"i can\'t",
+        r"i cannot",
+        r"i don\'t have the ability",
+        r"i am not able to",
+        r"i\'m not able to",
+        r"that\'s beyond my current",
+        r"that is beyond my current",
+        r"i do not have the ability",
+        r"not supported",
+        r"i do not have access",
+        r"i am unable"
+    ]
+    
+    msg_lower = response_text.lower()
+    for pattern in uncertainty_patterns:
+        if re.search(pattern, msg_lower):
+            import uuid
+            gap_id = str(uuid.uuid4())
+            timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+            from ..core.config import settings
+            import aiosqlite
+            try:
+                async with aiosqlite.connect(settings.DB_PATH) as db:
+                    await db.execute(
+                        "INSERT INTO gap_log (gap_id, user_request, detected_intent, gap_reason, timestamp, resolved) VALUES (?, ?, ?, ?, ?, ?)",
+                        (gap_id, user_request, None, response_text, timestamp, False)
+                    )
+                    await db.commit()
+            except Exception as e:
+                print(f"[GAP LOG ERROR] {e}")
+
+            # Broadcast event for UI
+            await broadcast_voice_event({
+                "type": "gap_detected",
+                "request": user_request,
+                "timestamp": timestamp
+            })
+
+            return response_text + "\n\n(This isn't something I can do yet — I've noted it for future development.)"
+
+    return response_text
+
 def enforce_destructive_confirmation(text: str) -> str:
   """Backend-level guard: a raw, unconfirmed [UI_ACTION:delete_file:...]
   tag must never leave this service, regardless of which code path
@@ -2108,6 +2158,7 @@ async def chat_endpoint(request: ChatRequest):
         failed_provider = None
 
     response_text = enforce_destructive_confirmation(response_text)
+    response_text = await detect_and_log_gap(response_text, request.message)
     response_text = briefing_prefix + response_text
 
     # Save assistant message to DB
@@ -2661,6 +2712,15 @@ async def chat_stream_endpoint(
         # STEP 3: Save and send done
         complete_response = "".join(full_response_parts)
         complete_response = enforce_destructive_confirmation(complete_response)
+        
+        new_response = await detect_and_log_gap(complete_response, request.message)
+        if len(new_response) > len(complete_response):
+            gap_note = new_response[len(complete_response):]
+            yield json_module.dumps({
+                "type": "token",
+                "content": gap_note
+            }) + "\n"
+            complete_response = new_response
         # Prepended here rather than seeded into full_response_parts up
         # front - the provider-fallback path above resets
         # full_response_parts to [] on retry, which would silently wipe a
@@ -2876,7 +2936,7 @@ async def switch_provider_endpoint(request: SwitchProviderRequest):
 
 @router.get("/memories", response_model=List[Memory])
 async def get_memories_endpoint():
-    memories = await memory_manager.get_all_memories(limit=50)
+    memories = await memory_manager.get_all_memories(limit=100)
     return memories
 
 @router.post("/memories", response_model=Memory)
@@ -2933,7 +2993,7 @@ async def search_memories_endpoint(q: str):
 
 @router.get("/conversations")
 async def get_conversations_endpoint():
-    return await get_conversations(limit=10)
+    return await get_conversations(limit=15)
 
 @router.post("/memories/deduplicate")
 async def deduplicate_memories():
@@ -3119,3 +3179,40 @@ async def get_weather_forecast(location: str | None = None, days: int = 3):
     from ..plugins.weather_plugin import get_forecast
     loc = location if location else settings.WEATHER_DEFAULT_LOCATION
     return get_forecast(loc, days)
+
+@router.get("/capabilities")
+async def get_capabilities():
+    from ..core.capability_registry import get_all_capabilities
+    caps = get_all_capabilities()
+    return [c.dict() for c in caps]
+
+@router.get("/gaps")
+async def get_gaps():
+    from ..core.config import settings
+    import aiosqlite
+    try:
+        async with aiosqlite.connect(settings.DB_PATH) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute(
+                "SELECT gap_id, user_request, detected_intent, gap_reason, timestamp, resolved FROM gap_log ORDER BY timestamp DESC LIMIT 50"
+            )
+            rows = await cursor.fetchall()
+            return [dict(r) for r in rows]
+    except Exception as e:
+        print(f"Error fetching gaps: {e}")
+        return []
+
+@router.post("/gaps/{gap_id}/resolve")
+async def resolve_gap(gap_id: str):
+    from ..core.config import settings
+    import aiosqlite
+    try:
+        async with aiosqlite.connect(settings.DB_PATH) as db:
+            await db.execute(
+                "UPDATE gap_log SET resolved = 1 WHERE gap_id = ?",
+                (gap_id,)
+            )
+            await db.commit()
+            return {"status": "success"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

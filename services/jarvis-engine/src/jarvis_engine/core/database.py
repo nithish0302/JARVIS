@@ -59,6 +59,17 @@ async def init_db() -> None:
             )
         """)
 
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS gap_log (
+                gap_id TEXT PRIMARY KEY,
+                user_request TEXT,
+                detected_intent TEXT,
+                gap_reason TEXT,
+                timestamp TEXT,
+                resolved BOOLEAN DEFAULT 0
+            )
+        """)
+
         # Performance indexes - added for faster queries
         await db.execute("""
             CREATE INDEX IF NOT EXISTS idx_messages_conversation

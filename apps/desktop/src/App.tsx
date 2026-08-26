@@ -20,6 +20,7 @@ import { ChatFullView } from "./components/chat/ChatFullView/ChatFullView";
 import { CommandPalette } from "./components/palette/CommandPalette/CommandPalette";
 import { ShortcutToast } from "./components/layout/ShortcutToast/ShortcutToast";
 import { FallbackToast } from "./components/layout/FallbackToast/FallbackToast";
+import { GapDashboard } from "./components/gaps/GapDashboard";
 
 function App() {
   const view = useAppStore((state) => state.view);
@@ -69,6 +70,13 @@ function App() {
               <Dock />
               <ConversationPanel />
             </>
+          ) : view === "gaps" ? (
+            <div className="w-full h-full flex flex-col relative">
+              <GapDashboard />
+              <div className="absolute top-4 right-4 z-50">
+                <Dock />
+              </div>
+            </div>
           ) : (
             <div className="w-full h-full flex flex-col relative">
               <SettingsView />

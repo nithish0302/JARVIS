@@ -2,8 +2,10 @@
 import { create } from "zustand";
 
 export interface AppState {
-  view: "chat" | "settings";
-  setView: (view: "chat" | "settings") => void;
+  view: "chat" | "settings" | "gaps";
+  setView: (view: "chat" | "settings" | "gaps") => void;
+  unresolvedGapCount: number;
+  setUnresolvedGapCount: (count: number) => void;
   graphOpen: boolean;
   graphFocused: boolean;
   activeHub: string | null;
@@ -74,6 +76,8 @@ export interface AppState {
 export const useAppStore = create<AppState>((set) => ({
   view: "chat",
   setView: (view) => set({ view }),
+  unresolvedGapCount: 0,
+  setUnresolvedGapCount: (count) => set({ unresolvedGapCount: count }),
   graphOpen: true,
   graphFocused: true,
   activeHub: null,
