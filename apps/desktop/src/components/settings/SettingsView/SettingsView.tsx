@@ -4,6 +4,7 @@ import { SettingsSidebar } from "../SettingsSidebar/SettingsSidebar";
 import { AIProviderSection } from "../AIProviderSection/AIProviderSection";
 import { PersonalitySection } from "../PersonalitySection/PersonalitySection";
 import { AppearanceSection } from "../AppearanceSection/AppearanceSection";
+import { PluginSection } from "../PluginSection/PluginSection";
 import { AboutSection } from "../AboutSection/AboutSection";
 
 export function SettingsView() {
@@ -33,6 +34,7 @@ export function SettingsView() {
           {activeSection === "ai-provider" && <AIProviderSection />}
           {activeSection === "personality" && <PersonalitySection />}
           {activeSection === "appearance" && <AppearanceSection />}
+          {activeSection === "plugins" && <PluginSection />}
           {activeSection === "about" && <AboutSection />}
         </div>
       </SettingsLayout>

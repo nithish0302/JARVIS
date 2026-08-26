@@ -48,6 +48,17 @@ async def init_db() -> None:
             )
         """)
 
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS plugin_credentials (
+                plugin_id TEXT,
+                key TEXT,
+                encrypted_blob BLOB,
+                created_at TEXT,
+                updated_at TEXT,
+                PRIMARY KEY (plugin_id, key)
+            )
+        """)
+
         # Performance indexes - added for faster queries
         await db.execute("""
             CREATE INDEX IF NOT EXISTS idx_messages_conversation

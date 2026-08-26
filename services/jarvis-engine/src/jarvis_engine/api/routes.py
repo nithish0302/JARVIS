@@ -396,6 +396,18 @@ async def voice_input_endpoint(request: dict):
     )
   else:
     system_content += f"\n\n{UI_ACTION_INSTRUCTION}"
+  # Voice-mode conciseness constraint. Appended after UI_ACTION_INSTRUCTION
+  # so it takes effect on every non-automation voice query. The LLM
+  # instruction is the primary guard; the hard truncation below is the
+  # safety net for when the model ignores it (e.g. "tell me about AI"
+  # returning 7000+ chars).
+  system_content += (
+    "\n\n[VOICE MODE] This response will be spoken aloud by a TTS engine. "
+    "Keep it under 3 sentences maximum. "
+    "Never give lists, headers, bullet points, or long explanations via voice "
+    "\u2014 summarize concisely instead. "
+    "Speak directly and conversationally, as if answering out loud."
+  )
 
   minimal_messages = [
     Message(
@@ -505,6 +517,29 @@ async def voice_input_endpoint(request: dict):
     model_used = "error"
 
   response_text = briefing_prefix + response_text
+
+  # Hard voice response length cap: even if the LLM ignores the system-prompt
+  # conciseness instruction, TTS must never receive an unbounded response.
+  # 500 chars ≈ 3–4 short spoken sentences — enough for a complete answer,
+  # not a lecture. Snap to the last sentence boundary ('.', '!', '?') within
+  # the window to avoid a mid-word cut; fall back to hard slice if none found.
+  _VOICE_MAX_CHARS = 500
+  if len(response_text) > _VOICE_MAX_CHARS:
+    truncated = response_text[:_VOICE_MAX_CHARS]
+    # Find the last sentence-ending punctuation to get a clean cut-point.
+    last_boundary = max(
+      truncated.rfind("."),
+      truncated.rfind("!"),
+      truncated.rfind("?"),
+    )
+    if last_boundary > _VOICE_MAX_CHARS // 2:  # only snap if not too short
+      truncated = truncated[:last_boundary + 1]
+    original_len = len(response_text)
+    response_text = truncated
+    print(
+      f"[VOICE] Response truncated for TTS: "
+      f"{original_len} chars → {len(response_text)} chars"
+    )
 
   safe_print(f"[JARVIS VOICE RESPONSE] {response_text}")
 
@@ -662,10 +697,18 @@ def get_system_prompt(
 
     mod = (modifier or "none").lower().strip()
     if mod == "planner":
-        return base + "\n" + MODIFIER_PLANNER_PROMPT
+        prompt = base + "\n" + MODIFIER_PLANNER_PROMPT
     elif mod == "quiet":
-        return base + "\n" + MODIFIER_QUIET_PROMPT
-    return base
+        prompt = base + "\n" + MODIFIER_QUIET_PROMPT
+    else:
+        prompt = base
+
+    from ..plugins.registry import registry
+    plugin_caps = registry.get_capabilities_text()
+    if plugin_caps:
+        prompt = prompt + "\n\n" + plugin_caps
+
+    return prompt
 
 def _notable_system_status() -> str | None:
     """A short note on RAM/disk, but ONLY when genuinely notable (>=90%
@@ -2906,3 +2949,24 @@ async def set_gemini_key(request: dict):
   from ..core.config import settings
   settings.GEMINI_API_KEY = key
   return {"status": "updated"}
+
+@router.get("/plugins")
+async def get_plugins():
+    from ..plugins.registry import registry
+    result = []
+    for p in registry.list_plugins():
+        result.append({
+            "id": p.id,
+            "name": p.name,
+            "description": p.description,
+            "is_configured": registry.is_configured(p.id)
+        })
+    return result
+
+@router.delete("/plugins/{plugin_id}/credentials")
+async def delete_plugin_credentials(plugin_id: str):
+    from ..plugins.credential_store import delete_credential, list_credential_keys
+    keys = list_credential_keys(plugin_id)
+    for k in keys:
+        delete_credential(plugin_id, k)
+    return {"status": "ok"}

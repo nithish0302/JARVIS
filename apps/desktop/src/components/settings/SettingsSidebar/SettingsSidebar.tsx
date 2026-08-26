@@ -10,12 +10,13 @@ export function SettingsSidebar({
   activeSection,
   onSectionSelect,
 }: SettingsSidebarProps) {
-  const navItems = [
-    { id: "ai-provider", label: "AI Provider" },
-    { id: "personality", label: "Personality" },
-    { id: "appearance", label: "Appearance" },
-    { id: "about", label: "About" },
-  ];
+    const navItems = [
+      { id: "ai-provider", label: "AI Provider" },
+      { id: "personality", label: "Personality" },
+      { id: "appearance", label: "Appearance" },
+      { id: "plugins", label: "Plugins" },
+      { id: "about", label: "About" },
+    ];
 
   return (
     <nav aria-label="Settings sections" className="flex w-48 flex-col gap-[var(--space-2)]">

@@ -201,6 +201,7 @@ class WakeWordDetector:
 
     threading.Thread(target=_flush, daemon=True, name="wakeword-flush").start()
 
+
   def _audio_callback(
     self, indata, frames, time_info, status
   ):
@@ -211,6 +212,16 @@ class WakeWordDetector:
         return
 
     # BARGE-IN (INTERRUPT) CHECK
+    #
+    # *** ARCHITECTURE NOTE ***
+    # This block MUST remain OUTSIDE (i.e. before) the _is_tts_muted() gate
+    # below. The mute gate suppresses model.predict() to stop JARVIS
+    # triggering on its own voice — but the interrupt level-check needs to
+    # keep running during that same window so genuine user speech can barge
+    # in. Moving this block inside the mute gate would silently disable
+    # interruption entirely during TTS, which is the opposite of what we
+    # want. If you ever refactor the early-return logic here, verify that
+    # the interrupt path still executes while is_tts_muted() is True.
     #
     # Lets the user talk over a long response. Only meaningful while TTS is
     # actually speaking; when it isn't, there is nothing to interrupt.
@@ -242,15 +253,16 @@ class WakeWordDetector:
           # Too early to be a genuine interrupt; almost certainly our own
           # audio. Skip the check entirely for this frame.
           pass
-        elif audio_level > self.tts_interrupt_level_threshold:
-          from .tts_engine import tts_engine
-          print(
-            f"[INTERRUPT] Level: {audio_level:.3f} "
-            f"(threshold {self.tts_interrupt_level_threshold:.3f}, "
-            f"{elapsed:.2f}s into playback) - Stopping TTS"
-          )
-          tts_engine.stop()
-          return  # Don't process as wake word yet
+        else:
+          if audio_level > self.tts_interrupt_level_threshold:
+            from .tts_engine import tts_engine
+            print(
+              f"[INTERRUPT] Level: {audio_level:.3f} "
+              f"(threshold {self.tts_interrupt_level_threshold:.3f}, "
+              f"{elapsed:.2f}s into playback) - Stopping TTS"
+            )
+            tts_engine.stop()
+            return  # Don't process as wake word yet
     except Exception:
       pass
 
