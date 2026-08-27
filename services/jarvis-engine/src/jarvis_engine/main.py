@@ -81,6 +81,13 @@ async def lifespan(app: FastAPI):
     if restored:
         print(f"[STARTUP] Restored preferred provider: {restored}")
 
+    from .core.database import get_setting
+    for key in ["GEMINI_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY", "OLLAMA_HOST"]:
+        val = await get_setting(key)
+        if val:
+            setattr(settings, key, val)
+            print(f"[STARTUP] Loaded live override for {key}")
+
     for provider in provider_manager.providers:
         _tp = time.time()
         available = await provider.is_available()

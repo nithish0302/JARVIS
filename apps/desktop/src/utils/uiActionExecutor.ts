@@ -647,6 +647,157 @@ export function executeUIActions(
           break
 
 
+        case "check_github_repos":
+          import("../services/jarvisApi").then(api => {
+            api.getGithubRepos().then(results => {
+              const count = results.length
+              const message = count > 0 
+                ? `You have ${count} repositories:\n${results.map((r, i) => `${i+1}. ${r.full_name} (${r.language})`).join('\n')}`
+                : "You have no repositories."
+              import("../stores/useConversationStore").then(m => {
+                m.useConversationStore.getState().addMessage({
+                  id: window.crypto?.randomUUID() || Math.random().toString(),
+                  role: "assistant",
+                  content: message,
+                  timestamp: new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})
+                })
+              })
+              store.showActionFeedback(`Checked GitHub repos (${count})`)
+            }).catch(err => store.showActionFeedback(err.message))
+          })
+          break
+
+        case "check_github_issues":
+          if (action.payload) {
+            import("../services/jarvisApi").then(api => {
+              api.getGithubIssues(action.payload!).then(results => {
+                const count = results.length
+                const message = count > 0 
+                  ? `You have ${count} open issues in ${action.payload}:\n${results.map((r, i) => `${i+1}. #${r.number} ${r.title}`).join('\n')}`
+                  : `You have no open issues in ${action.payload}.`
+                import("../stores/useConversationStore").then(m => {
+                  m.useConversationStore.getState().addMessage({
+                    id: window.crypto?.randomUUID() || Math.random().toString(),
+                    role: "assistant",
+                    content: message,
+                    timestamp: new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})
+                  })
+                })
+                store.showActionFeedback(`Checked GitHub issues for ${action.payload}`)
+              }).catch(err => store.showActionFeedback(err.message))
+            })
+          }
+          break
+
+        case "search_github_issues":
+          if (action.payload) {
+            import("../services/jarvisApi").then(api => {
+              api.searchGithubIssues(action.payload!).then(results => {
+                const count = results.length
+                const message = count > 0 
+                  ? `Found ${count} issues matching "${action.payload}":\n${results.map((r, i) => `${i+1}. #${r.number} ${r.title} (${r.state})`).join('\n')}`
+                  : `No issues found for "${action.payload}".`
+                import("../stores/useConversationStore").then(m => {
+                  m.useConversationStore.getState().addMessage({
+                    id: window.crypto?.randomUUID() || Math.random().toString(),
+                    role: "assistant",
+                    content: message,
+                    timestamp: new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})
+                  })
+                })
+                store.showActionFeedback(`Searched GitHub issues`)
+              }).catch(err => store.showActionFeedback(err.message))
+            })
+          }
+          break
+
+        case "create_github_issue":
+          if (action.payload) {
+            const parts = action.payload.split(":")
+            if (parts.length >= 2) {
+              const repo = parts[0]
+              const title = parts[1]
+              const body = parts.slice(2).join(":")
+              import("../services/jarvisApi").then(api => {
+                api.createGithubIssue(repo, title, body).then(() => {
+                  store.showActionFeedback("GitHub issue created successfully.")
+                }).catch(err => store.showActionFeedback(err.message))
+              })
+            }
+          }
+          break
+
+        case "check_github_prs":
+          if (action.payload) {
+            import("../services/jarvisApi").then(api => {
+              api.getGithubPulls(action.payload!).then(results => {
+                const count = results.length
+                const message = count > 0 
+                  ? `You have ${count} open PRs in ${action.payload}:\n${results.map((r, i) => `${i+1}. #${r.number} ${r.title}`).join('\n')}`
+                  : `You have no open PRs in ${action.payload}.`
+                import("../stores/useConversationStore").then(m => {
+                  m.useConversationStore.getState().addMessage({
+                    id: window.crypto?.randomUUID() || Math.random().toString(),
+                    role: "assistant",
+                    content: message,
+                    timestamp: new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})
+                  })
+                })
+                store.showActionFeedback(`Checked GitHub PRs for ${action.payload}`)
+              }).catch(err => store.showActionFeedback(err.message))
+            })
+          }
+          break
+
+        case "check_pr_status":
+          if (action.payload) {
+            const parts = action.payload.split(":")
+            if (parts.length >= 2) {
+              const repo = parts[0]
+              const number = parseInt(parts[1], 10)
+              import("../services/jarvisApi").then(api => {
+                api.getGithubPrStatus(repo, number).then(result => {
+                  const message = `PR #${number} in ${repo} status: ${result.state} (${result.total_count} checks)\n${result.statuses.map((s: any) => `- ${s.context}: ${s.state} - ${s.description}`).join('\n')}`
+                  import("../stores/useConversationStore").then(m => {
+                    m.useConversationStore.getState().addMessage({
+                      id: window.crypto?.randomUUID() || Math.random().toString(),
+                      role: "assistant",
+                      content: message,
+                      timestamp: new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})
+                    })
+                  })
+                  store.showActionFeedback(`Checked PR status`)
+                }).catch(err => store.showActionFeedback(err.message))
+              })
+            }
+          }
+          break
+
+        case "search_github_code":
+          if (action.payload) {
+            const parts = action.payload.split(":")
+            const query = parts[0]
+            const repo = parts[1] || undefined
+            import("../services/jarvisApi").then(api => {
+              api.searchGithubCode(query, repo).then(results => {
+                const count = results.length
+                const message = count > 0 
+                  ? `Found ${count} code results matching "${query}":\n${results.map((r, i) => `${i+1}. ${r.name} in ${r.repo}`).join('\n')}`
+                  : `No code results found for "${query}".`
+                import("../stores/useConversationStore").then(m => {
+                  m.useConversationStore.getState().addMessage({
+                    id: window.crypto?.randomUUID() || Math.random().toString(),
+                    role: "assistant",
+                    content: message,
+                    timestamp: new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})
+                  })
+                })
+                store.showActionFeedback(`Searched GitHub code`)
+              }).catch(err => store.showActionFeedback(err.message))
+            })
+          }
+          break
+
         default:
           console.log(
             "Unknown UI action:", action.type
@@ -727,6 +878,10 @@ export function executeUIActions(
 
       if (action.type === "confirm_action" && action.payload) {
         feedbackMessages[`confirm_action:${action.payload}`] = `Awaiting confirmation for command, sir.`
+      }
+
+      if (action.type.startsWith("check_github") || action.type.startsWith("search_github") || action.type === "create_github_issue") {
+        feedbackMessages[action.payload ? `${action.type}:${action.payload}` : action.type] = `Processing GitHub request...`
       }
 
       const key = action.payload 

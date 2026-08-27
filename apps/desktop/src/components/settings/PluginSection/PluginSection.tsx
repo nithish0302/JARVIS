@@ -11,6 +11,9 @@ interface PluginInfo {
 export function PluginSection() {
   const [plugins, setPlugins] = useState<PluginInfo[]>([]);
   const [loading, setLoading] = useState(true);
+  const [editingGithub, setEditingGithub] = useState(false);
+  const [githubToken, setGithubToken] = useState("");
+  const [githubError, setGithubError] = useState("");
 
   const fetchPlugins = async () => {
     try {
@@ -43,8 +46,32 @@ export function PluginSection() {
       } catch (err) {
         console.error("Failed to fetch auth url", err);
       }
+    } else if (pluginId === "github") {
+      setEditingGithub(true);
     } else {
       alert(`Connecting to ${pluginId} coming soon`);
+    }
+  };
+
+  const handleSaveGithubToken = async () => {
+    setGithubError("");
+    try {
+      const res = await fetch("http://localhost:8765/plugins/github/connect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: githubToken }),
+      });
+      if (res.ok) {
+        setEditingGithub(false);
+        setGithubToken("");
+        fetchPlugins();
+      } else {
+        const data = await res.json();
+        setGithubError(data.detail || "Invalid GitHub token");
+      }
+    } catch (err) {
+      setGithubError("Failed to connect to backend");
+      console.error(err);
     }
   };
 
@@ -99,6 +126,20 @@ export function PluginSection() {
                 <p className="text-sm text-[var(--color-text-secondary)]">
                   {plugin.description}
                 </p>
+                {plugin.id === "github" && !plugin.is_configured && editingGithub && (
+                  <p className="mt-1 text-xs text-[var(--color-text-secondary)]">
+                    Create a fine-grained token at{" "}
+                    <a
+                      href="https://github.com/settings/personal-access-tokens/new"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-blue-400 hover:underline"
+                    >
+                      github.com/settings/personal-access-tokens/new
+                    </a>{" "}
+                    with Issues, Pull requests, and Contents read access.
+                  </p>
+                )}
               </div>
               <div>
                 {plugin.is_configured ? (
@@ -108,6 +149,27 @@ export function PluginSection() {
                   >
                     Disconnect
                   </Button>
+                ) : plugin.id === "github" && editingGithub ? (
+                  <div className="flex flex-col items-end gap-2">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="password"
+                        placeholder="Paste your PAT here..."
+                        value={githubToken}
+                        onChange={(e) => setGithubToken(e.target.value)}
+                        className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-hover)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-secondary)] focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                      <Button variant="primary" onClick={handleSaveGithubToken}>
+                        Save
+                      </Button>
+                      <Button variant="secondary" onClick={() => setEditingGithub(false)}>
+                        Cancel
+                      </Button>
+                    </div>
+                    {githubError && (
+                      <p className="text-xs text-red-500">{githubError}</p>
+                    )}
+                  </div>
                 ) : (
                   <Button
                     variant="primary"

@@ -111,6 +111,11 @@ async def get_settings_endpoint():
     preferred_model = await get_setting(
         "preferred_model", settings.PREFERRED_MODEL
     )
+    gemini_configured = await get_setting("GEMINI_API_KEY") != ""
+    groq_configured = await get_setting("GROQ_API_KEY") != ""
+    openrouter_configured = await get_setting("OPENROUTER_API_KEY") != ""
+    ollama_configured = await get_setting("OLLAMA_HOST") != ""
+    
     return {
         "personality_mode": personality_mode,
         "modifier": modifier,
@@ -125,6 +130,10 @@ async def get_settings_endpoint():
         # core/config.py).
         "preferred_provider": preferred_provider or None,
         "preferred_model": preferred_model or None,
+        "gemini_configured": gemini_configured,
+        "groq_configured": groq_configured,
+        "openrouter_configured": openrouter_configured,
+        "ollama_configured": ollama_configured,
     }
 
 @router.post("/settings/verify-pin")
@@ -207,6 +216,11 @@ async def update_settings_endpoint(request: dict):
     preferred_model = await get_setting(
         "preferred_model", settings.PREFERRED_MODEL
     )
+    gemini_configured = await get_setting("GEMINI_API_KEY") != ""
+    groq_configured = await get_setting("GROQ_API_KEY") != ""
+    openrouter_configured = await get_setting("OPENROUTER_API_KEY") != ""
+    ollama_configured = await get_setting("OLLAMA_HOST") != ""
+
     return {
         "personality_mode": personality_mode,
         "modifier": modifier,
@@ -217,7 +231,31 @@ async def update_settings_endpoint(request: dict):
         "fallback_mode": fallback_mode,
         "preferred_provider": preferred_provider or None,
         "preferred_model": preferred_model or None,
+        "gemini_configured": gemini_configured,
+        "groq_configured": groq_configured,
+        "openrouter_configured": openrouter_configured,
+        "ollama_configured": ollama_configured,
     }
+
+@router.put("/settings/provider-config")
+async def update_provider_config(request: dict):
+    if "gemini_api_key" in request:
+        val = str(request["gemini_api_key"]).strip()
+        await set_setting("GEMINI_API_KEY", val)
+        settings.GEMINI_API_KEY = val
+    if "groq_api_key" in request:
+        val = str(request["groq_api_key"]).strip()
+        await set_setting("GROQ_API_KEY", val)
+        settings.GROQ_API_KEY = val
+    if "openrouter_api_key" in request:
+        val = str(request["openrouter_api_key"]).strip()
+        await set_setting("OPENROUTER_API_KEY", val)
+        settings.OPENROUTER_API_KEY = val
+    if "ollama_host" in request:
+        val = str(request["ollama_host"]).strip()
+        await set_setting("OLLAMA_HOST", val)
+        settings.OLLAMA_HOST = val
+    return {"status": "ok"}
 
 @router.post("/voice/status/update")
 async def update_voice_status(request: dict):
@@ -884,6 +922,13 @@ Control the JARVIS interface with a [UI_ACTION:tag] placed at the END of your re
 [UI_ACTION:open_chat:Title] - open an existing past chat by (partial) title
 [UI_ACTION:rename_chat:Title] - rename the current conversation
 [UI_ACTION:delete_conversation:Title] - delete a past conversation by (partial) title
+[UI_ACTION:check_github_repos] - List GitHub repositories
+[UI_ACTION:check_github_issues:<repo>] - List open GitHub issues for a repository
+[UI_ACTION:search_github_issues:<query>] - Search GitHub issues
+[UI_ACTION:create_github_issue:<repo>:<title>:<body>] - Create a GitHub issue
+[UI_ACTION:check_github_prs:<repo>] - List open GitHub pull requests
+[UI_ACTION:check_pr_status:<repo>:<number>] - Check GitHub PR status
+[UI_ACTION:search_github_code:<query>:<repo>] - Search GitHub code
 
 Examples:
 - "open notepad" -> "Opening Notepad, sir. [UI_ACTION:open_app:notepad]"
@@ -915,7 +960,7 @@ Classify this request and return JSON only.
 Request: "{request}"
 
 Return ONE JSON object:
-{{"action_type":"OPEN_APP|OPEN_URL|SYSTEM_CONTROL|SYSTEM_QUERY|FILE_OP|GMAIL_OP|CALENDAR_OP|WEATHER_OP|UNSAFE",
+{{"action_type":"OPEN_APP|OPEN_URL|SYSTEM_CONTROL|SYSTEM_QUERY|FILE_OP|GMAIL_OP|CALENDAR_OP|WEATHER_OP|GITHUB_OP|UNSAFE",
 "command":"app name, url, or fixed query/control enum",
 "browser":"firefox",
 "description":"brief description",
@@ -948,6 +993,10 @@ Rules for CALENDAR_OP:
 
 Rules for WEATHER_OP:
 - command must be one of: "check_weather", "check_weather:<location>", "check_forecast:<location>:<days>"
+
+Rules for GITHUB_OP:
+- command must be one of: "check_github_repos", "check_github_issues:<repo>", "search_github_issues:<query>", "create_github_issue:<repo>:<title>:<body>", "check_github_prs:<repo>", "check_pr_status:<repo>:<number>", "search_github_code:<query>:<repo>"
+- For create_github_issue, requires_confirmation MUST be true.
 
 Examples:
 open chrome → {{"action_type":"OPEN_APP","command":"chrome","browser":"firefox","description":"Open Chrome","requires_confirmation":false,"display_output":false}}
@@ -1254,6 +1303,13 @@ def enforce_destructive_confirmation(text: str) -> str:
     return f"[UI_ACTION:confirm_action:create_event:{payload}]"
 
   text = re.sub(r'\[UI_ACTION:create_event:([^\]]+)\]', _rewrite_create_event, text)
+
+  def _rewrite_create_github_issue(match):
+    payload = match.group(1)
+    print(f"[SAFETY] Blocked unconfirmed create_github_issue UI_ACTION for '{payload}' - rewriting to require confirmation")
+    return f"[UI_ACTION:confirm_action:create_github_issue:{payload}]"
+
+  text = re.sub(r'\[UI_ACTION:create_github_issue:([^\]]+)\]', _rewrite_create_github_issue, text)
 
   return text
 
@@ -3104,6 +3160,67 @@ async def create_calendar_event(req: CalendarCreateRequest):
         raise HTTPException(status_code=500, detail=str(e))
         
     return {"status": "ok"}
+
+# --- GitHub Plugin Endpoints ---
+class GithubConnectRequest(BaseModel):
+    token: str
+
+@router.post("/plugins/github/connect")
+async def connect_github(req: GithubConnectRequest):
+    from ..plugins.github_plugin import validate_and_store_token
+    from fastapi import HTTPException
+    success = validate_and_store_token(req.token)
+    if not success:
+        raise HTTPException(status_code=400, detail="Invalid GitHub token")
+    return {"status": "connected"}
+
+@router.get("/plugins/github/repos")
+async def github_repos():
+    _check_plugin("github")
+    from ..plugins.github_plugin import list_repos
+    return list_repos()
+
+@router.get("/plugins/github/issues")
+async def github_issues(repo: str, state: str = "open"):
+    _check_plugin("github")
+    from ..plugins.github_plugin import list_issues
+    return list_issues(repo, state)
+
+@router.get("/plugins/github/search/issues")
+async def github_search_issues(query: str):
+    _check_plugin("github")
+    from ..plugins.github_plugin import search_issues
+    return search_issues(query)
+
+class GithubIssueRequest(BaseModel):
+    repo: str
+    title: str
+    body: str = ""
+
+@router.post("/plugins/github/issues")
+async def github_create_issue(req: GithubIssueRequest):
+    _check_plugin("github")
+    from ..plugins.github_plugin import create_issue
+    create_issue(req.repo, req.title, req.body)
+    return {"status": "ok"}
+
+@router.get("/plugins/github/pulls")
+async def github_pulls(repo: str, state: str = "open"):
+    _check_plugin("github")
+    from ..plugins.github_plugin import list_pull_requests
+    return list_pull_requests(repo, state)
+
+@router.get("/plugins/github/pulls/status")
+async def github_pr_status(repo: str, number: int):
+    _check_plugin("github")
+    from ..plugins.github_plugin import get_pr_status
+    return get_pr_status(repo, number)
+
+@router.get("/plugins/github/search/code")
+async def github_search_code(query: str, repo: str = None):
+    _check_plugin("github")
+    from ..plugins.github_plugin import search_code
+    return search_code(query, repo)
 
 # --- Weather Plugin Endpoints ---
 @router.get("/plugins/weather/current")

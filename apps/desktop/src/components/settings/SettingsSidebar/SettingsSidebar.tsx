@@ -15,6 +15,7 @@ export function SettingsSidebar({
       { id: "personality", label: "Personality" },
       { id: "appearance", label: "Appearance" },
       { id: "plugins", label: "Plugins" },
+      { id: "providers", label: "Providers" },
       { id: "about", label: "About" },
     ];
 

@@ -554,6 +554,10 @@ export interface JarvisSettings {
   last_briefing_date: string
   provider_override: string | null
   fallback_mode: "auto" | "ask"
+  gemini_configured?: boolean
+  groq_configured?: boolean
+  openrouter_configured?: boolean
+  ollama_configured?: boolean
 }
 
 export async function getSettings(): Promise<JarvisSettings> {
@@ -576,6 +580,24 @@ export async function updateSettings(
     throw new Error("Failed to update settings")
   }
   return response.json()
+}
+
+export interface ProviderConfig {
+  gemini_api_key?: string
+  groq_api_key?: string
+  openrouter_api_key?: string
+  ollama_host?: string
+}
+
+export async function updateProviderConfig(config: ProviderConfig): Promise<void> {
+  const response = await window.fetch(`${JARVIS_ENGINE_URL}/settings/provider-config`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(config)
+  })
+  if (!response.ok) {
+    throw new Error("Failed to update provider config")
+  }
 }
 
 export async function verifyDeletePin(pin: string): Promise<boolean> {
@@ -606,5 +628,53 @@ export async function resolveGap(gapId: string): Promise<void> {
 export async function getCapabilities(): Promise<any[]> {
   const response = await window.fetch(`${JARVIS_ENGINE_URL}/capabilities`)
   if (!response.ok) return []
+  return response.json()
+}
+
+// --- GitHub Plugin ---
+export async function getGithubRepos(): Promise<any[]> {
+  const response = await window.fetch(`${JARVIS_ENGINE_URL}/plugins/github/repos`)
+  if (!response.ok) throw new Error("Failed to fetch GitHub repos")
+  return response.json()
+}
+
+export async function getGithubIssues(repo: string): Promise<any[]> {
+  const response = await window.fetch(`${JARVIS_ENGINE_URL}/plugins/github/issues?repo=${encodeURIComponent(repo)}`)
+  if (!response.ok) throw new Error("Failed to fetch GitHub issues")
+  return response.json()
+}
+
+export async function searchGithubIssues(query: string): Promise<any[]> {
+  const response = await window.fetch(`${JARVIS_ENGINE_URL}/plugins/github/search/issues?query=${encodeURIComponent(query)}`)
+  if (!response.ok) throw new Error("Failed to search GitHub issues")
+  return response.json()
+}
+
+export async function createGithubIssue(repo: string, title: string, body: string): Promise<void> {
+  const response = await window.fetch(`${JARVIS_ENGINE_URL}/plugins/github/issues`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ repo, title, body })
+  })
+  if (!response.ok) throw new Error("Failed to create GitHub issue")
+}
+
+export async function getGithubPulls(repo: string): Promise<any[]> {
+  const response = await window.fetch(`${JARVIS_ENGINE_URL}/plugins/github/pulls?repo=${encodeURIComponent(repo)}`)
+  if (!response.ok) throw new Error("Failed to fetch GitHub PRs")
+  return response.json()
+}
+
+export async function getGithubPrStatus(repo: string, number: number): Promise<any> {
+  const response = await window.fetch(`${JARVIS_ENGINE_URL}/plugins/github/pulls/status?repo=${encodeURIComponent(repo)}&number=${number}`)
+  if (!response.ok) throw new Error("Failed to check GitHub PR status")
+  return response.json()
+}
+
+export async function searchGithubCode(query: string, repo?: string): Promise<any[]> {
+  let url = `${JARVIS_ENGINE_URL}/plugins/github/search/code?query=${encodeURIComponent(query)}`
+  if (repo) url += `&repo=${encodeURIComponent(repo)}`
+  const response = await window.fetch(url)
+  if (!response.ok) throw new Error("Failed to search GitHub code")
   return response.json()
 }

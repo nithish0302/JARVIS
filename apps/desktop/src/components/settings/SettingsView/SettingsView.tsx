@@ -5,6 +5,7 @@ import { AIProviderSection } from "../AIProviderSection/AIProviderSection";
 import { PersonalitySection } from "../PersonalitySection/PersonalitySection";
 import { AppearanceSection } from "../AppearanceSection/AppearanceSection";
 import { PluginSection } from "../PluginSection/PluginSection";
+import { ProvidersSection } from "../ProvidersSection/ProvidersSection";
 import { AboutSection } from "../AboutSection/AboutSection";
 
 export function SettingsView() {
@@ -35,6 +36,7 @@ export function SettingsView() {
           {activeSection === "personality" && <PersonalitySection />}
           {activeSection === "appearance" && <AppearanceSection />}
           {activeSection === "plugins" && <PluginSection />}
+          {activeSection === "providers" && <ProvidersSection />}
           {activeSection === "about" && <AboutSection />}
         </div>
       </SettingsLayout>

@@ -43,3 +43,12 @@ def register_placeholders():
         capabilities=["Check current weather", "Check forecast"],
         ui_actions=["[UI_ACTION:check_weather]", "[UI_ACTION:check_weather:<location>]", "[UI_ACTION:check_forecast:<location>:<days>]"]
     ))
+    registry.register(PluginDefinition(
+        id="github",
+        name="GitHub",
+        description="Manage issues, pull requests, and search code.",
+        required_credentials=["token"],
+        credential_namespace="github",
+        capabilities=["List repositories", "List issues", "Search issues", "Create issues", "List pull requests", "Check PR status", "Search code"],
+        ui_actions=["[UI_ACTION:check_github_repos]", "[UI_ACTION:check_github_issues:<repo>]", "[UI_ACTION:search_github_issues:<query>]", "[UI_ACTION:create_github_issue:<repo>:<title><body>]", "[UI_ACTION:check_github_prs:<repo>]", "[UI_ACTION:check_pr_status:<repo>:<number>]", "[UI_ACTION:search_github_code:<query>:<repo>]"]
+    ))
