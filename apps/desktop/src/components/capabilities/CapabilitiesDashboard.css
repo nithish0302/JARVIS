@@ -1,0 +1,154 @@
+/*
+ * Capabilities Dashboard
+ * Sub-headers and Capability Cards
+ */
+
+/* Sub-header treatments */
+.category-header {
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  margin-bottom: 16px;
+  padding-bottom: 8px;
+}
+
+.category-header.automation {
+  color: #4FA8FF;
+  border-bottom: 1px solid rgba(79, 168, 255, 0.4);
+  box-shadow: 0 4px 10px -4px rgba(79, 168, 255, 0.2);
+}
+
+.category-header.system {
+  color: #10B981;
+  border-bottom: 1px solid rgba(16, 185, 129, 0.4);
+  box-shadow: 0 4px 10px -4px rgba(16, 185, 129, 0.2);
+}
+
+.category-header.plugin {
+  color: #F59E0B;
+  border-bottom: 1px solid rgba(245, 158, 11, 0.4);
+  box-shadow: 0 4px 10px -4px rgba(245, 158, 11, 0.2);
+}
+
+/* Layout switcher (temporary, for comparison only) */
+.layout-switcher {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 24px;
+}
+
+.layout-switcher-btn {
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(6, 16, 32, 0.4);
+  color: rgba(255, 255, 255, 0.6);
+  cursor: pointer;
+  transition: all 0.15s ease-in-out;
+}
+
+.layout-switcher-btn:hover {
+  border-color: rgba(79, 168, 255, 0.4);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.layout-switcher-btn.active {
+  background: rgba(79, 168, 255, 0.15);
+  border-color: var(--color-cyan, #4FA8FF);
+  color: var(--color-cyan, #4FA8FF);
+}
+
+/* Card container grid variants */
+/* Layout A: responsive auto-fit grid */
+.cap-grid-a {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+/* Layout B: compact 2-column grid */
+.cap-grid-b {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.cap-grid-b .capability-card {
+  padding: 10px 14px !important;
+  min-height: 0;
+}
+
+/* Layout C: masonry via CSS columns */
+.cap-grid-c {
+  columns: 2;
+  column-gap: 16px;
+}
+
+.cap-grid-c .capability-card {
+  break-inside: avoid;
+  margin-bottom: 16px;
+}
+
+/* Card treatments */
+.capability-card {
+  transition: all 0.2s ease-in-out;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(6, 16, 32, 0.4);
+}
+
+.capability-card:hover {
+  background: rgba(79, 168, 255, 0.05);
+  border-color: var(--blue-border, rgba(79, 168, 255, 0.4));
+  box-shadow: 0 0 18px rgba(79, 168, 255, 0.15);
+}
+
+.capability-card.unavailable {
+  opacity: 0.55;
+  border-style: dashed;
+  background: rgba(6, 16, 32, 0.2);
+}
+
+.capability-card.unavailable:hover {
+  opacity: 0.8;
+  border-color: rgba(255, 255, 255, 0.2);
+  box-shadow: none;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.status-dot.available {
+  background-color: #10B981;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.6);
+  animation: cap-pulse-glow 3s infinite alternate ease-in-out;
+}
+
+.status-dot.unavailable {
+  background-color: #6B7280;
+}
+
+@keyframes cap-pulse-glow {
+  0% { box-shadow: 0 0 4px rgba(16, 185, 129, 0.4); }
+  100% { box-shadow: 0 0 12px rgba(16, 185, 129, 0.8); }
+}
+
+.cap-icon {
+  width: 14px;
+  height: 14px;
+  opacity: 0.8;
+}
+
+.category-header.automation .cap-icon { color: #4FA8FF; }
+.category-header.system .cap-icon { color: #10B981; }
+.category-header.plugin .cap-icon { color: #F59E0B; }

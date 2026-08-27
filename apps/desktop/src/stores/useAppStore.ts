@@ -2,8 +2,8 @@
 import { create } from "zustand";
 
 export interface AppState {
-  view: "chat" | "settings" | "gaps";
-  setView: (view: "chat" | "settings" | "gaps") => void;
+  view: "chat" | "settings" | "gaps" | "capabilities";
+  setView: (view: "chat" | "settings" | "gaps" | "capabilities") => void;
   unresolvedGapCount: number;
   setUnresolvedGapCount: (count: number) => void;
   graphOpen: boolean;

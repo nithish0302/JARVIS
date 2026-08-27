@@ -1,3 +1,4 @@
+import difflib
 import json
 import re
 import uuid
@@ -5,6 +6,19 @@ from datetime import datetime
 import aiosqlite
 from ..core.config import settings
 from . import vector_store
+
+NEAR_DUPLICATE_THRESHOLD = 0.85
+
+def normalize_memory_content(content: str) -> str:
+    """Lowercase, strip punctuation and collapse whitespace so near-identical
+    phrasings ("I'm a developer." vs "im a developer") normalize the same."""
+    text = content.lower().strip()
+    text = re.sub(r"[^a-z0-9\s]", "", text)
+    text = re.sub(r"\s+", " ", text)
+    return text
+
+def content_similarity(a: str, b: str) -> float:
+    return difflib.SequenceMatcher(None, normalize_memory_content(a), normalize_memory_content(b)).ratio()
 
 class MemoryManager:
 
@@ -16,23 +30,44 @@ class MemoryManager:
     source_conversation_id: str = None
   ) -> str:
     async with aiosqlite.connect(settings.DB_PATH) as db:
-        
+
         # Check for duplicate - same content exists?
         # Use first 100 chars for comparison
         content_prefix = content[:100].lower()
         cursor = await db.execute(
-            """SELECT id FROM memories 
+            """SELECT id FROM memories
                WHERE LOWER(SUBSTR(content, 1, 100)) = ?
                LIMIT 1""",
             (content_prefix,)
         )
         existing = await cursor.fetchone()
-        
+
+        if not existing:
+            # Fuzzy pass: same fact, different phrasing. Scoped to the same
+            # category so this stays cheap and doesn't cross-match e.g. a
+            # "preference" memory against an unrelated "project" one.
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute(
+                "SELECT id, content, importance FROM memories WHERE category = ?",
+                (category,)
+            )
+            candidates = await cursor.fetchall()
+            db.row_factory = None
+            for candidate in candidates:
+                if content_similarity(content, candidate["content"]) >= NEAR_DUPLICATE_THRESHOLD:
+                    existing = (candidate["id"],)
+                    if importance > candidate["importance"]:
+                        await db.execute(
+                            "UPDATE memories SET importance = ? WHERE id = ?",
+                            (importance, candidate["id"])
+                        )
+                    break
+
         if existing:
-            # Memory already exists, just update 
+            # Memory already exists (exact or near-duplicate), just update
             # access time and return existing ID
             await db.execute(
-                """UPDATE memories 
+                """UPDATE memories
                    SET last_accessed = datetime('now'),
                    access_count = access_count + 1
                    WHERE id = ?""",
@@ -40,7 +75,7 @@ class MemoryManager:
             )
             await db.commit()
             return existing[0]
-        
+
         # New memory - save it
         memory_id = str(uuid.uuid4())
         now = datetime.utcnow().isoformat() + "Z"
@@ -84,7 +119,7 @@ class MemoryManager:
                 (limit,)
             )
             rows = await cursor.fetchall()
-            return [dict(row) for row in rows]
+            return self._dedupe_near_identical([dict(row) for row in rows])
         
         # Build OR query for all words
         conditions = " OR ".join(
@@ -154,7 +189,48 @@ class MemoryManager:
                     await db.commit()
                     results = results + extra
 
-        return results
+        return self._dedupe_near_identical(results)
+
+  @staticmethod
+  def _dedupe_near_identical(results: list[dict]) -> list[dict]:
+    """Drop near-identical memories from the same injection batch before
+    they reach the prompt. Similarity is transitive - two paraphrases can
+    each be >=85% similar to a third memory without being similar enough to
+    each other directly (e.g. "with Tauri" vs "using Tauri" wording drift
+    across a chain of near-dupes) - so this unions every pair above the
+    threshold into clusters (not just "compare against what's already kept")
+    and keeps one representative per cluster. `results` already arrives
+    ordered importance-first / most-recent-first (keyword matches) followed
+    by semantic-fallback extras, so keeping the first (lowest-index) member
+    of each cluster keeps the most important/recent copy."""
+    n = len(results)
+    parent = list(range(n))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    def union(i: int, j: int) -> None:
+        ri, rj = find(i), find(j)
+        if ri != rj:
+            parent[max(ri, rj)] = min(ri, rj)
+
+    for i in range(n):
+        for j in range(i + 1, n):
+            if content_similarity(results[i]["content"], results[j]["content"]) >= NEAR_DUPLICATE_THRESHOLD:
+                union(i, j)
+
+    seen_clusters: set[int] = set()
+    deduped: list[dict] = []
+    for i in range(n):
+        root = find(i)
+        if root in seen_clusters:
+            continue
+        seen_clusters.add(root)
+        deduped.append(results[i])
+    return deduped
 
   async def migrate_embeddings(self) -> int:
     """Retrofit: embed any existing memory that predates the embedding

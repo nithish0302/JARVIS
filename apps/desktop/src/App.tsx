@@ -21,6 +21,7 @@ import { CommandPalette } from "./components/palette/CommandPalette/CommandPalet
 import { ShortcutToast } from "./components/layout/ShortcutToast/ShortcutToast";
 import { FallbackToast } from "./components/layout/FallbackToast/FallbackToast";
 import { GapDashboard } from "./components/gaps/GapDashboard";
+import { CapabilitiesDashboard } from "./components/capabilities/CapabilitiesDashboard";
 
 function App() {
   const view = useAppStore((state) => state.view);
@@ -73,6 +74,13 @@ function App() {
           ) : view === "gaps" ? (
             <div className="w-full h-full flex flex-col relative">
               <GapDashboard />
+              <div className="absolute top-4 right-4 z-50">
+                <Dock />
+              </div>
+            </div>
+          ) : view === "capabilities" ? (
+            <div className="w-full h-full flex flex-col relative">
+              <CapabilitiesDashboard />
               <div className="absolute top-4 right-4 z-50">
                 <Dock />
               </div>

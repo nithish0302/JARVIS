@@ -861,96 +861,38 @@ Never start with "Certainly!" or "Of course!".
 Include [UI_ACTION:tag] only when explicitly asked."""
 
 UI_ACTION_REMINDER = (
-    "Remember: You can use [UI_ACTION:command] "
-    "tags to control the interface. Available: "
-    "graph_open_hub:Skills/Tools/Files/Notes/Models, "
-    "chat_mode_on, chat_mode_off, graph_collapse, "
-    "conversations_open, switch_provider:name, "
-    "personality_mode:assistant/developer/research, modifier:none/planner/quiet, "
-    "provider_override:gemini/openrouter/groq/ollama/none, fallback_mode:auto/ask, "
-    "new_chat[:title], rename_chat:title, delete_conversation:title, open_chat:title"
+    "Remember: [UI_ACTION:tag] controls the interface, only when explicitly requested. "
+    "open_app:appname is for REAL desktop apps (notepad, chrome, whatsapp...) - "
+    "graph_open_hub:Notes/Skills/Tools/Files/Models is for JARVIS's OWN panels only, never for an app."
 )
 
 UI_ACTION_INSTRUCTION = """
 <SYSTEM_CAPABILITIES>
-You can control the JARVIS interface by including special action tags in your response.
+Control the JARVIS interface with a [UI_ACTION:tag] placed at the END of your response - only when the user explicitly asks for that action, never while just answering or searching. Never show the raw tag as visible prose; multiple tags may be combined if needed.
 
-Available UI actions:
-[UI_ACTION:chat_mode_on] - Switch to full chat mode
-[UI_ACTION:chat_mode_off] - Switch back to graph mode
-[UI_ACTION:graph_expand] - Expand graph to Level 1
-[UI_ACTION:graph_collapse] - Collapse graph to Level 0
-[UI_ACTION:graph_open_hub:Skills] - Open Skills hub
-[UI_ACTION:graph_open_hub:Tools] - Open Tools hub
-[UI_ACTION:graph_open_hub:Files] - Open Files hub
-[UI_ACTION:graph_open_hub:Notes] - Open Notes hub
-[UI_ACTION:graph_open_hub:Models] - Open Models hub
-[UI_ACTION:graph_open_hub:Conversations] - Open Conversations
-[UI_ACTION:conversations_open] - Open conversation panel
-[UI_ACTION:conversations_close] - Close conversation panel
-[UI_ACTION:personality_mode:assistant] - Switch personality mode to Assistant
-[UI_ACTION:personality_mode:developer] - Switch personality mode to Developer
-[UI_ACTION:personality_mode:research] - Switch personality mode to Research
-[UI_ACTION:modifier:none] - Set modifier to None (no modifier)
-[UI_ACTION:modifier:planner] - Enable Planner modifier (structured plans & validation)
-[UI_ACTION:modifier:quiet] - Enable Quiet modifier (concise minimal output)
-[UI_ACTION:address_preference:sir] - Set how you address the user (e.g. "sir", a name, "boss")
-[UI_ACTION:address_preference:] - Clear the address term entirely (address the user directly, no title/name)
-[UI_ACTION:provider_override:gemini] - Lock the AI brain to ONLY Gemini - no other provider is tried, ever, even if Gemini fails
-[UI_ACTION:provider_override:openrouter] - Lock the AI brain to ONLY OpenRouter
-[UI_ACTION:provider_override:groq] - Lock the AI brain to ONLY Groq
-[UI_ACTION:provider_override:ollama] - Lock the AI brain to ONLY Ollama (local, offline)
-[UI_ACTION:provider_override:none] - Clear the provider lock - restore the normal Gemini -> OpenRouter -> Groq -> Ollama fallback cascade
-[UI_ACTION:fallback_mode:auto] - Automatically fall back to the next provider on failure (default)
-[UI_ACTION:fallback_mode:ask] - On a provider failure, ask which provider to use next instead of auto-switching
-[UI_ACTION:new_chat] - Start a new chat session / clear conversation
-[UI_ACTION:new_chat:Title] - Start a new chat session and pre-set its title
-[UI_ACTION:open_chat:Title] - Open an existing past chat by its title
-[UI_ACTION:rename_chat:Title] - Rename the current conversation to the given title
-[UI_ACTION:delete_conversation:Title] - Delete a past conversation by searching its title
-
-CRITICAL RULES FOR UI ACTIONS:
-- NEVER use a UI action unless the user EXPLICITLY asks you to perform that specific action.
-- If you are answering a question or providing search results, DO NOT include any UI actions!
-- YOU MUST include the EXACT bracketed tag (e.g. [UI_ACTION:chat_mode_on]) when requested.
-- Put action tags at the END of your response
-- Never show the raw tag text to the user
-- Multiple actions can be included if needed
-- If the user asks to "switch to developer mode", use [UI_ACTION:personality_mode:developer]
-- If the user asks to "switch to research mode", use [UI_ACTION:personality_mode:research]
-- If the user asks to "switch to assistant mode", use [UI_ACTION:personality_mode:assistant]
-- If the user asks to "turn on planner", "enable planner", or "planner mode", use [UI_ACTION:modifier:planner]
-- If the user asks to "turn on quiet mode", "be quiet", or "quiet mode", use [UI_ACTION:modifier:quiet]
-- If the user asks to "disable modifier" or "turn off planner/quiet", use [UI_ACTION:modifier:none]
-- If the user asks you to address them differently (e.g. "call me Alex", "address me as boss"), use [UI_ACTION:address_preference:Alex]
-- If the user asks you to stop using a title/name (e.g. "stop calling me sir", "don't address me at all"), use [UI_ACTION:address_preference:] with an empty value
-- If the user asks to "lock" or "stick to" a specific AI provider/brain (e.g. "only use Groq", "lock to Gemini", "stay on Ollama"), use [UI_ACTION:provider_override:name]
-- If the user asks to "unlock" the provider, "stop locking the provider", or "use the normal fallback" again, use [UI_ACTION:provider_override:none]
-- If the user asks you to "ask before switching providers" or "don't auto-fallback", use [UI_ACTION:fallback_mode:ask]
-- If the user asks you to "auto fallback" or "just switch automatically" again, use [UI_ACTION:fallback_mode:auto]
-- If the user asks to open "memory index", "chat history", "list the chats", or "past chats", use [UI_ACTION:conversations_open]
-- If the user asks to "start a new chat", "open a new chat", or "clear the chat", use [UI_ACTION:new_chat]
-- If the user asks to start a new chat AND specifies a title, use [UI_ACTION:new_chat:Title]
-- If the user asks to open an existing old/past chat by name, use [UI_ACTION:open_chat:Title]
-- If the user asks to name/rename the CURRENT chat, use [UI_ACTION:rename_chat:Title]
-- If the user asks to delete a conversation, use [UI_ACTION:delete_conversation:Title]
+[UI_ACTION:chat_mode_on] / [UI_ACTION:chat_mode_off] - toggle full chat mode vs graph mode
+[UI_ACTION:graph_expand] / [UI_ACTION:graph_collapse] - expand/collapse the graph
+[UI_ACTION:graph_open_hub:Skills|Tools|Files|Notes|Models|Conversations] - open one of JARVIS's OWN internal panels. These are NOT real applications - "notepad" is an app, not the Notes hub.
+[UI_ACTION:open_app:appname] - launch a REAL desktop app/program (notepad, calculator, chrome, whatsapp, spotify, discord, vs code, etc.). Use this for any "open/launch/start <app>" request - never graph_open_hub for this.
+[UI_ACTION:conversations_open] / [UI_ACTION:conversations_close] - open/close the conversation panel ("chat history", "past chats")
+[UI_ACTION:personality_mode:assistant|developer|research] - switch personality mode
+[UI_ACTION:modifier:none|planner|quiet] - planner = structured plans; quiet = minimal concise output; none = clear it
+[UI_ACTION:address_preference:Name] - set how you address the user; [UI_ACTION:address_preference:] with an empty value clears it entirely ("stop calling me sir")
+[UI_ACTION:provider_override:gemini|openrouter|groq|ollama|none] - lock the AI brain to one provider only, or "none" to restore the normal fallback cascade
+[UI_ACTION:fallback_mode:auto|ask] - auto-switch providers on failure, or ask before switching
+[UI_ACTION:new_chat] / [UI_ACTION:new_chat:Title] - start a fresh conversation, optionally pre-titled
+[UI_ACTION:open_chat:Title] - open an existing past chat by (partial) title
+[UI_ACTION:rename_chat:Title] - rename the current conversation
+[UI_ACTION:delete_conversation:Title] - delete a past conversation by (partial) title
 
 Examples:
-- User: "switch to developer mode" -> Assistant: "Switching to Developer mode. [UI_ACTION:personality_mode:developer]"
-- User: "switch to research mode" -> Assistant: "Switching to Research mode. [UI_ACTION:personality_mode:research]"
-- User: "turn on planner mode" -> Assistant: "Enabling Planner modifier. [UI_ACTION:modifier:planner]"
-- User: "be quiet" or "quiet mode" -> Assistant: "Enabling Quiet modifier. [UI_ACTION:modifier:quiet]"
-- User: "call me Alex from now on" -> Assistant: "Got it, I'll call you Alex. [UI_ACTION:address_preference:Alex]"
-- User: "stop calling me sir" -> Assistant: "Understood, I'll address you directly. [UI_ACTION:address_preference:]"
-- User: "open skills" -> Assistant: "Opening skills now. [UI_ACTION:graph_open_hub:Skills]"
-- User: "start a new chat" -> Assistant: "Starting a fresh conversation. [UI_ACTION:new_chat]"
-- User: "open a new chat and name it ai news" -> Assistant: "Starting a new chat titled 'ai news'. [UI_ACTION:new_chat:ai news]"
-- User: "open ai news" or "open the ai news chat" -> Assistant: "Opening conversation 'ai news'. [UI_ACTION:open_chat:ai news]"
-- User: "name this chat as the 3050" -> Assistant: "Renaming chat to '3050'. [UI_ACTION:rename_chat:3050]"
-- User: "delete the 3050 conversation" -> Assistant: "Initiating deletion for the 3050 conversation. [UI_ACTION:delete_conversation:3050]"
-- User: "switch to chat mode" -> Assistant: "Switching to chat mode. [UI_ACTION:chat_mode_on]"
-- User: "close the chat mode" -> Assistant: "Switching back to graph mode. [UI_ACTION:chat_mode_off]"
-- User: "collapse the graph" -> Assistant: "Collapsing the graph. [UI_ACTION:graph_collapse]"
+- "open notepad" -> "Opening Notepad, sir. [UI_ACTION:open_app:notepad]"
+- "open whatsapp" -> "Opening WhatsApp, sir. [UI_ACTION:open_app:whatsapp]"
+- "open skills" -> "Opening Skills now. [UI_ACTION:graph_open_hub:Skills]"
+- "stop calling me sir" -> "Understood, I'll address you directly. [UI_ACTION:address_preference:]"
+- "switch to developer mode" -> "Switching to Developer mode. [UI_ACTION:personality_mode:developer]"
+- "lock to groq" -> "Locking the AI brain to Groq. [UI_ACTION:provider_override:groq]"
+- "delete the 3050 conversation" -> "Initiating deletion for the 3050 conversation. [UI_ACTION:delete_conversation:3050]"
 </SYSTEM_CAPABILITIES>
 """
 SEARCH_STRICT_INSTRUCTION = """
@@ -1842,8 +1784,8 @@ async def chat_endpoint(request: ChatRequest):
             
     active_provider = provider_manager.providers[0]
     available_providers = ", ".join(p.name.title() for p in provider_manager.providers)
-    system_state = f"\n<SYSTEM_STATE>\nActive AI Brain (Provider): {active_provider.name.title()}\nActive Model: {active_provider.model}\nAvailable Brains: {available_providers}\n</SYSTEM_STATE>\nIf the user asks to switch models or brains to an available brain, you MUST use [UI_ACTION:switch_provider:provider_name] (e.g. [UI_ACTION:switch_provider:gemini] or [UI_ACTION:switch_provider:groq]).\n"
-            
+    system_state = f"\n<SYSTEM_STATE>\nActive AI Brain (Provider): {active_provider.name.title()}\nActive Model: {active_provider.model}\nAvailable Brains: {available_providers}\n</SYSTEM_STATE>\n"
+
     personality_mode = await get_setting("personality_mode", settings.PERSONALITY_MODE)
     modifier = await get_setting("modifier", settings.MODIFIER)
     address_preference = await get_setting("address_preference", settings.ADDRESS_PREFERENCE)
@@ -2236,7 +2178,7 @@ async def chat_stream_endpoint(
           
     active_provider = provider_manager.providers[0]
     available_providers = ", ".join(p.name.title() for p in provider_manager.providers)
-    system_state = f"\n<SYSTEM_STATE>\nActive AI Brain (Provider): {active_provider.name.title()}\nActive Model: {active_provider.model}\nAvailable Brains: {available_providers}\n</SYSTEM_STATE>\nIf the user asks to switch models or brains to an available brain, you MUST use [UI_ACTION:switch_provider:provider_name] (e.g. [UI_ACTION:switch_provider:gemini] or [UI_ACTION:switch_provider:groq]).\n"
+    system_state = f"\n<SYSTEM_STATE>\nActive AI Brain (Provider): {active_provider.name.title()}\nActive Model: {active_provider.model}\nAvailable Brains: {available_providers}\n</SYSTEM_STATE>\n"
 
     personality_mode = await get_setting("personality_mode", settings.PERSONALITY_MODE)
     modifier = await get_setting("modifier", settings.MODIFIER)

@@ -602,3 +602,9 @@ export async function resolveGap(gapId: string): Promise<void> {
   const response = await window.fetch(`${JARVIS_ENGINE_URL}/gaps/${gapId}/resolve`, { method: "POST" })
   if (!response.ok) throw new Error("Failed to resolve gap")
 }
+
+export async function getCapabilities(): Promise<any[]> {
+  const response = await window.fetch(`${JARVIS_ENGINE_URL}/capabilities`)
+  if (!response.ok) return []
+  return response.json()
+}

@@ -58,6 +58,21 @@ export function Dock() {
       </button>
 
       <button
+        className={cn("dock-btn", view === "capabilities" && "active")}
+        title="System Capabilities"
+        onClick={() => setView(view === "capabilities" ? "chat" : "capabilities")}
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+          <line x1="8" y1="6" x2="21" y2="6" strokeLinecap="round" strokeLinejoin="round"></line>
+          <line x1="8" y1="12" x2="21" y2="12" strokeLinecap="round" strokeLinejoin="round"></line>
+          <line x1="8" y1="18" x2="21" y2="18" strokeLinecap="round" strokeLinejoin="round"></line>
+          <line x1="3" y1="6" x2="3.01" y2="6" strokeLinecap="round" strokeLinejoin="round"></line>
+          <line x1="3" y1="12" x2="3.01" y2="12" strokeLinecap="round" strokeLinejoin="round"></line>
+          <line x1="3" y1="18" x2="3.01" y2="18" strokeLinecap="round" strokeLinejoin="round"></line>
+        </svg>
+      </button>
+
+      <button
         className={cn("dock-btn", view === "settings" && "active")}
         title="Settings"
         onClick={() => setView(view === "settings" ? "chat" : "settings")}
