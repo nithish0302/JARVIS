@@ -64,6 +64,20 @@ class Settings(BaseSettings):
     # own if a future card has VRAM to spare.
     USE_GPU_WAKEWORD: bool = False
 
+    # How long voice_manager.shutdown() waits for the Whisper / wake-word
+    # loader threads to finish before tearing down. Shutdown used to race
+    # them, which left an unowned mic stream and crashed the interpreter.
+    # Generous enough to cover a cold faster-whisper model download, and
+    # bounded so shutdown can never hang outright.
+    VOICE_SHUTDOWN_LOADER_TIMEOUT: float = 30.0
+
+    # Skip the voice subsystem entirely at startup: no Whisper load, no
+    # wake-word model, no microphone stream. Set by the test suite (see
+    # tests/conftest.py) so running the app's real lifespan doesn't
+    # download models from HuggingFace or contend for the OS audio
+    # device. Never set this in normal operation - voice simply won't work.
+    VOICE_DISABLED: bool = False
+
     # TTS Configuration
     EDGE_TTS_VOICE: str = "en-US-AndrewMultilingualNeural"
     EDGE_TTS_RATE: str = "+5%"

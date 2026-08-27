@@ -86,7 +86,7 @@ def _speak_response(response_text: str):
         voice_manager.continue_conversation()
 
 
-def handle_transcription(text: str, direct_result: str = None):
+def handle_transcription(text: str, direct_result: str = None, conversation_id: str = None):
     """Entry point invoked by VoiceManager once speech is transcribed."""
     print(f"[VOICE COMMAND] {text}")
 
@@ -99,9 +99,12 @@ def handle_transcription(text: str, direct_result: str = None):
 
             # Broadcast to UI first
             try:
+                payload = {"text": text, "direct_response": direct_result}
+                if conversation_id:
+                    payload["conversation_id"] = conversation_id
                 requests.post(
                     VOICE_INPUT_URL,
-                    json={"text": text, "direct_response": direct_result},
+                    json=payload,
                     timeout=10
                 )
             except Exception as e:
@@ -117,9 +120,12 @@ def handle_transcription(text: str, direct_result: str = None):
         import requests
 
         try:
+            payload = {"text": text}
+            if conversation_id:
+                payload["conversation_id"] = conversation_id
             response = requests.post(
                 VOICE_INPUT_URL,
-                json={"text": text},
+                json=payload,
                 timeout=60
             )
             if response.status_code == 200:

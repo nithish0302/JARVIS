@@ -463,10 +463,16 @@ export interface VoiceResponseMeta {
   modelUsed: string | null
   fallbackOccurred: boolean
   failedProvider: string | null
+  // conversation_id the backend actually persisted this turn under -
+  // routes.py has included this in the voice_input/voice_response
+  // broadcast payloads all along; nothing here read it, which is why the
+  // desktop UI couldn't tell whether a voice turn belonged to the
+  // currently-open conversation or a new one.
+  conversationId: string | null
 }
 
 export function connectVoiceWebSocket(
-  onVoiceInput: (text: string, seq?: number) => void,
+  onVoiceInput: (text: string, seq?: number, conversationId?: string | null) => void,
   onVoiceResponse: (text: string, seq?: number, meta?: VoiceResponseMeta) => void,
   onVoiceStatus: (status: string, seq?: number) => void,
   onAudioLevel?: (level: number) => void
@@ -504,13 +510,14 @@ export function connectVoiceWebSocket(
       const data = JSON.parse(event.data)
       const seq = typeof data.seq === "number" ? data.seq : undefined
       if (data.type === "voice_input") {
-        onVoiceInput(data.text, seq)
+        onVoiceInput(data.text, seq, data.conversation_id ?? null)
       } else if (data.type === "voice_response") {
         onVoiceResponse(data.text, seq, {
           providerUsed: data.provider_used ?? null,
           modelUsed: data.model_used ?? null,
           fallbackOccurred: !!data.fallback_occurred,
-          failedProvider: data.failed_provider ?? null
+          failedProvider: data.failed_provider ?? null,
+          conversationId: data.conversation_id ?? null
         })
       } else if (data.type === "voice_status") {
         onVoiceStatus(data.status, seq)

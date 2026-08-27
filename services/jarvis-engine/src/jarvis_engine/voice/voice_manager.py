@@ -313,6 +313,17 @@ class VoiceManager:
     self.wake_word_ready = threading.Event()
     self._initialized = False
 
+    # Handles on the background loader threads started by initialize().
+    # shutdown() joins these BEFORE tearing anything down. Without that,
+    # shutdown races a loader mid-construction: it reads
+    # self.wake_word_detector while the loader has not assigned it yet,
+    # sees None, skips stop(), and the loader then opens a mic
+    # InputStream that nothing ever closes. The native sounddevice
+    # callback is still live when the interpreter tears down, which is an
+    # access violation - reproducible as a hard segfault when the app
+    # lifespan is started and stopped in quick succession.
+    self._loader_threads: list[threading.Thread] = []
+
     # Continuous conversation mode - session-only (never persisted, always
     # starts False on a fresh VoiceManager). _continuous_generation
     # disambiguates one continuous-mode session from the next (guards a
@@ -353,6 +364,9 @@ class VoiceManager:
     # confirmation can never bleed into a different session.
     self._pending_exit_confirmation = False
 
+    # Session-level conversation_id for thread continuity across continuous mode turns
+    self.conversation_id: str | None = None
+
   def _set_is_listening(self, val: bool):
     self.is_listening = val
 
@@ -374,6 +388,16 @@ class VoiceManager:
     if self._initialized:
       print("Voice manager already initialized - refreshed handler only")
       return
+
+    # Test / headless escape hatch. The handler is still installed above,
+    # so anything that drives transcription directly keeps working; what
+    # is skipped is the two loader threads, i.e. the faster-whisper model
+    # download and the openWakeWord mic stream. Checked here rather than
+    # in main.py's lifespan so POST /voice/start honours it too.
+    if settings.VOICE_DISABLED:
+      print("[VOICE] VOICE_DISABLED set - skipping Whisper + wake word loading")
+      return
+
     self._initialized = True
 
     def _load_whisper():
@@ -439,8 +463,14 @@ class VoiceManager:
       print(f"[TIMING] WakeWordDetector.start() (mic stream open): {time.time() - _t_wake_start:.2f}s")
       self.wake_word_ready.set()
 
-    threading.Thread(target=_load_whisper, daemon=True, name="whisper-loader").start()
-    threading.Thread(target=_load_wake_word, daemon=True, name="wakeword-loader").start()
+    # Keep handles so shutdown() can wait these out instead of tearing
+    # down underneath them - see _await_loaders().
+    self._loader_threads = [
+      threading.Thread(target=_load_whisper, daemon=True, name="whisper-loader"),
+      threading.Thread(target=_load_wake_word, daemon=True, name="wakeword-loader"),
+    ]
+    for t in self._loader_threads:
+      t.start()
     print("Voice manager initialize() returned - Whisper + wake word loading in background")
   
   def _on_wake_word_detected(self):
@@ -469,6 +499,9 @@ class VoiceManager:
     the wake phrase mid-response reaches the exact same fresh cycle the
     wake-word MODEL would give if it weren't muted during TTS."""
     self.is_listening = True
+    import uuid
+    if not self.conversation_id:
+      self.conversation_id = str(uuid.uuid4())
 
     # Respond immediately
     print("[VOICE] Wake word detected - responding")
@@ -535,6 +568,7 @@ class VoiceManager:
       if not self.continuous_mode or token != self._continuous_timer_token:
         return
       self.continuous_mode = False
+      self.conversation_id = None
       self._continuous_generation += 1
       self._continuous_timer = None
     print(
@@ -551,6 +585,7 @@ class VoiceManager:
     side effects, so there is exactly one place per exit path that performs
     the actual state transition."""
     self._pending_exit_confirmation = False
+    self.conversation_id = None
     from .tts_engine import tts_engine
     tts_engine.speak_sync(
       "Going to sleep, sir.",
@@ -584,6 +619,9 @@ class VoiceManager:
         # still be "pending" here.
         self._continuous_generation += 1
         self._pending_exit_confirmation = False
+        import uuid
+        if not self.conversation_id:
+          self.conversation_id = str(uuid.uuid4())
       self._arm_continuous_timer()
 
     self.is_listening = True
@@ -785,11 +823,11 @@ class VoiceManager:
         if direct_result:
           print(f"[VOICE DIRECT] {direct_result}")
           if self.on_transcription:
-            self.on_transcription(clean_text, direct_result)
+            self.on_transcription(clean_text, direct_result, conversation_id=self.conversation_id)
         else:
           # No direct command match - use LLM
           if self.on_transcription:
-            self.on_transcription(clean_text, None)
+            self.on_transcription(clean_text, None, conversation_id=self.conversation_id)
 
         if self.continuous_mode and generation == self._continuous_generation:
           # Stay alive as the session's ONE thread rather than returning:
@@ -858,8 +896,62 @@ class VoiceManager:
       print(f"Transcription error: {e}")
       return ""
   
+  def _await_loaders(self, timeout: float | None = None) -> bool:
+    """Block until the initialize() loader threads have finished, up to
+    `timeout` seconds total. Returns True if all of them finished.
+
+    join() rather than waiting on whisper_ready / wake_word_ready: those
+    Events are only set on the loaders' success paths, so a loader that
+    raises (a missing wake-word model file, a CUDA import blowing up)
+    would never set its Event and a wait() on it would hang forever.
+    join() returns however the thread ended.
+
+    Bounded because a loader can legitimately be slow the first time -
+    faster-whisper downloads the model on a cold cache - and a shutdown
+    that can hang indefinitely is worse than one that leaves a thread
+    behind. On timeout we log loudly and carry on; that is the old
+    behaviour, so the worst case is no worse than before the fix.
+    """
+    if timeout is None:
+      timeout = settings.VOICE_SHUTDOWN_LOADER_TIMEOUT
+
+    pending = [t for t in self._loader_threads if t.is_alive()]
+    if not pending:
+      self._loader_threads = []
+      return True
+
+    print(
+      f"[VOICE] Shutdown waiting up to {timeout:.1f}s for loader threads "
+      f"still running: {[t.name for t in pending]}"
+    )
+    deadline = time.time() + timeout
+    for t in pending:
+      remaining = deadline - time.time()
+      if remaining <= 0:
+        break
+      t.join(remaining)
+
+    stragglers = [t.name for t in self._loader_threads if t.is_alive()]
+    self._loader_threads = [t for t in self._loader_threads if t.is_alive()]
+    if stragglers:
+      print(
+        f"[VOICE] WARNING: loader threads still running after {timeout:.1f}s "
+        f"({stragglers}); shutting down anyway. A mic stream opened after "
+        f"this point will not be closed."
+      )
+      return False
+    return True
+
   def shutdown(self):
     """Clean up resources on shutdown."""
+    # FIRST, before touching any state the loaders also write. A loader
+    # mid-flight assigns self.wake_word_detector / self.whisper_model
+    # AFTER the checks below have already run, so tearing down first
+    # leaves an unowned mic stream and a live audio callback pointing at
+    # objects being freed. Waiting here is what makes shutdown safe to
+    # call at any point in the startup sequence.
+    self._await_loaders()
+
     # Allow a later initialize() to bring the models back up.
     self._initialized = False
     self.whisper_ready.clear()

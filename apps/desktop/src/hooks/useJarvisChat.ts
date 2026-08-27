@@ -10,6 +10,50 @@ import { runConfirmedAction } from "../utils/confirmedActions"
 import { useAppStore } from "../stores/useAppStore"
 import { useMicLevelStore } from "../stores/useMicLevelStore"
 
+/**
+ * Decides whether an incoming voice turn's conversation_id (routes.py has
+ * always included this in the voice_input/voice_response broadcasts - see
+ * the live diagnostic that confirmed the backend groups every turn of a
+ * continuous session under one id) belongs to the conversation already
+ * open in the UI, starts a fresh one, or supersedes a stale one.
+ *
+ * Three cases, matching what the backend actually does:
+ *   - No conversation open yet -> this voice turn IS the start of one;
+ *     adopt its id as the active thread.
+ *   - Already showing this exact id -> same session, same thread, nothing
+ *     to do (covers the common case: voice_input and voice_response of the
+ *     same turn each call this, so the second call is always a no-op).
+ *   - Showing a DIFFERENT id -> the backend generated a new id, which only
+ *     happens after continuous mode actually exited (timeout, exit phrase,
+ *     or "go to sleep") and a fresh wake word started a new session, or the
+ *     previously-open thread was an unrelated text chat. Either way this is
+ *     a genuinely new conversation, not a continuation - clear the old
+ *     thread out of view and switch to the new one rather than appending.
+ *
+ * Idempotent and cheap to call from both the voice_input and voice_response
+ * handlers - exactly one of the three branches ever actually changes state.
+ */
+export function reconcileVoiceConversation(conversationId: string | null | undefined) {
+  if (!conversationId) return
+
+  const convoStore = useConversationStore.getState()
+  const current = convoStore.currentConversationId
+
+  if (current === conversationId) {
+    return
+  }
+
+  if (!current) {
+    convoStore.setConversationId(conversationId)
+  } else {
+    convoStore.clearConversation()
+    convoStore.setConversationId(conversationId)
+  }
+  // Sidebar refresh is handled uniformly after every addMessage() call in
+  // the voice_input/voice_response handlers below (covers create, switch,
+  // AND plain append in one place) - no separate bump needed here.
+}
+
 export function useJarvisChat() {
   const { 
     messages, 
@@ -45,8 +89,10 @@ export function useJarvisChat() {
   // Connect to voice WebSocket with cleanup and sequence validation
   useEffect(() => {
     const disconnect = connectVoiceWebSocket(
-      // Voice input received - add as user message
-      (text: string, seq?: number) => {
+      // Voice input received - reconcile which conversation this turn
+      // belongs to BEFORE adding the message, so it lands in the right
+      // (possibly just-switched) message list rather than the stale one.
+      (text: string, seq?: number, conversationId?: string | null) => {
         if (seq !== undefined) {
           if (seq <= lastVoiceSeqRef.current) {
             console.warn(`[WS] Discarding stale voice_input event (seq ${seq} <= ${lastVoiceSeqRef.current})`)
@@ -54,6 +100,7 @@ export function useJarvisChat() {
           }
           lastVoiceSeqRef.current = seq
         }
+        reconcileVoiceConversation(conversationId)
         const userMessage: Message = {
           id: crypto.randomUUID(),
           role: "user",
@@ -63,9 +110,14 @@ export function useJarvisChat() {
           )
         }
         addMessage(userMessage)
+        // The sidebar's preview text / relative timestamp for this
+        // conversation just went stale server-side (save_message() already
+        // ran before this broadcast fired) - bump so it refetches while
+        // the panel is open, without the user having to reopen it.
+        useAppStore.getState().bumpConversationsVersion()
       },
       // Voice response received - add as assistant message
-      (text: string, seq?: number, meta?: { providerUsed: string | null, modelUsed: string | null, fallbackOccurred: boolean, failedProvider: string | null }) => {
+      (text: string, seq?: number, meta?: { providerUsed: string | null, modelUsed: string | null, fallbackOccurred: boolean, failedProvider: string | null, conversationId?: string | null }) => {
         if (seq !== undefined) {
           if (seq <= lastVoiceSeqRef.current) {
             console.warn(`[WS] Discarding stale voice_response event (seq ${seq} <= ${lastVoiceSeqRef.current})`)
@@ -73,6 +125,11 @@ export function useJarvisChat() {
           }
           lastVoiceSeqRef.current = seq
         }
+        // Normally a no-op here - voice_input for the same turn already
+        // reconciled this exact id. Kept as a defensive second check for
+        // the case a voice_response arrives without its voice_input having
+        // been seen (e.g. the WS reconnected between the two events).
+        reconcileVoiceConversation(meta?.conversationId)
 
         // Reflect the ACTUAL provider/model that answered - not a static
         // config value - and surface a fallback notice if one occurred.
@@ -100,6 +157,7 @@ export function useJarvisChat() {
           )
         }
         addMessage(assistantMessage)
+        useAppStore.getState().bumpConversationsVersion()
         setStatus("idle")
 
         if (actions.length > 0) {

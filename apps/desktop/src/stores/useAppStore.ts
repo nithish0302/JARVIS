@@ -56,6 +56,12 @@ export interface AppState {
   // re-runs and the hub's leaves reflect the change immediately.
   memoriesVersion: number;
   bumpMemoriesVersion: () => void;
+  // Bumped whenever a voice turn creates or appends to a conversation,
+  // so ConversationPanel's sidebar list can refetch without the panel
+  // having to poll or the caller remembering to call refreshConversations()
+  // itself - same pattern as memoriesVersion/bumpMemoriesVersion above.
+  conversationsVersion: number;
+  bumpConversationsVersion: () => void;
   // "Jump to node" (command palette -> graph). GraphCanvas watches this to
   // locate the leaf in the hub's full (real, backend-sourced) leaf list,
   // page its pagination to whichever page actually contains it, and pulse
@@ -155,6 +161,8 @@ export const useAppStore = create<AppState>((set) => ({
   setDeletingMemoryId: (id) => set({ deletingMemoryId: id }),
   memoriesVersion: 0,
   bumpMemoriesVersion: () => set((state) => ({ memoriesVersion: state.memoriesVersion + 1 })),
+  conversationsVersion: 0,
+  bumpConversationsVersion: () => set((state) => ({ conversationsVersion: state.conversationsVersion + 1 })),
   focusLeaf: null,
   setFocusLeaf: (focus) => set({ focusLeaf: focus }),
   fallbackToast: "",

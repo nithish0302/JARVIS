@@ -42,6 +42,12 @@ export function ConversationPanel() {
   const deletingConversationId = useAppStore(state => state.deletingConversationId);
   const setDeletingConversationId = useAppStore(state => state.setDeletingConversationId);
   const conversationSearchFocusToken = useAppStore(state => state.conversationSearchFocusToken);
+  // Bumped by useJarvisChat.ts whenever a voice turn creates, switches, or
+  // appends to a conversation - lets this panel reflect that without the
+  // user closing and reopening it. Bumps while the panel is closed are
+  // harmless: they don't refetch (see the effect below), and the next
+  // open always fetches fresh regardless of this token's value.
+  const conversationsVersion = useAppStore(state => state.conversationsVersion);
 
   const refreshConversations = () => {
     getConversations()
@@ -53,7 +59,7 @@ export function ConversationPanel() {
     if (conversationPanelOpen) {
       refreshConversations();
     }
-  }, [conversationPanelOpen]);
+  }, [conversationPanelOpen, conversationsVersion]);
 
   // Ctrl+F bumps the token in the store; focus the input on every bump so
   // repeated presses re-focus rather than firing only once.

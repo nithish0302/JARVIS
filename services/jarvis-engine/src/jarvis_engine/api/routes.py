@@ -282,6 +282,8 @@ async def update_voice_status(request: dict):
 async def voice_input_endpoint(request: dict):
   text = request.get("text", "").strip()
   direct_response = request.get("direct_response")
+  conversation_id_exists = bool(request.get("conversation_id"))
+  conversation_id = request.get("conversation_id") or str(uuid.uuid4())
 
   print(f"[VOICE INPUT ENDPOINT] Received: {text}")
   if not text:
@@ -308,18 +310,32 @@ async def voice_input_endpoint(request: dict):
   if direct_response:
     direct_response = briefing_prefix + direct_response
     print(f"[VOICE] Direct command executed: {direct_response}")
+    await save_message(
+      conversation_id=conversation_id,
+      role="user",
+      content=text
+    )
+    await save_message(
+      conversation_id=conversation_id,
+      role="assistant",
+      content=direct_response,
+      provider_used="direct",
+      model_used="direct"
+    )
     await broadcast_voice_event({
       "type": "voice_input",
-      "text": text
+      "text": text,
+      "conversation_id": conversation_id
     })
     await broadcast_voice_event({
       "type": "voice_response",
-      "text": direct_response
+      "text": direct_response,
+      "conversation_id": conversation_id
     })
     # Note: TTS status (speaking->idle) is handled in main.py callback
     return {
       "response": direct_response,
-      "conversation_id": "",
+      "conversation_id": conversation_id,
       "provider_used": "direct",
       "model_used": "direct"
     }
@@ -426,31 +442,29 @@ async def voice_input_endpoint(request: dict):
         )
     automation_context = automation_context[:300]
 
-  # Build minimal messages WITH automation context
+  # Get relevant memories (Gap 1)
+  relevant_memories = await memory_manager.get_relevant_memories(text, limit=5)
+  memory_context = ""
+  if relevant_memories:
+    memory_lines = [f"- {m['content']}" for m in relevant_memories]
+    memory_context = "\n\nRelevant memories about Nithish:\n" + "\n".join(memory_lines)
+
+  # Build minimal messages WITH automation context & UI_ACTION_INSTRUCTION
   personality_mode = await get_setting("personality_mode", settings.PERSONALITY_MODE)
   modifier = await get_setting("modifier", settings.MODIFIER)
   address_preference = await get_setting("address_preference", settings.ADDRESS_PREFERENCE)
-  # NOTE: previously truncated to [:500] / UI_ACTION_INSTRUCTION[:300] as a
-  # voice-latency measure. That silently cut SYSTEM_CAPABILITIES entirely
-  # (personality_mode/modifier UI_ACTION docs don't appear until char ~789
-  # of UI_ACTION_INSTRUCTION), so voice commands like "switch to developer
-  # mode" got a response denying the capability existed at all. If voice
-  # responses need to stay terse, that's a "quiet" modifier / response-
-  # length concern, not a reason to hide capabilities from the model.
-  system_content = get_system_prompt(personality_mode, modifier, address_preference)
+  base_prompt = get_system_prompt(personality_mode, modifier, address_preference)
+  
+  # Gap 5 Fix: KEEP UI_ACTION_INSTRUCTION alongside automation_context instead of dropping it
+  system_content = base_prompt + memory_context + "\n\n" + UI_ACTION_INSTRUCTION
   if automation_context:
     system_content += (
       f"\n\n{automation_context}\n"
       f"Include ALL action tags in response.\n"
       f"Do NOT ask permission - just execute."
     )
-  else:
-    system_content += f"\n\n{UI_ACTION_INSTRUCTION}"
-  # Voice-mode conciseness constraint. Appended after UI_ACTION_INSTRUCTION
-  # so it takes effect on every non-automation voice query. The LLM
-  # instruction is the primary guard; the hard truncation below is the
-  # safety net for when the model ignores it (e.g. "tell me about AI"
-  # returning 7000+ chars).
+
+  # Voice-mode conciseness constraint.
   system_content += (
     "\n\n[VOICE MODE] This response will be spoken aloud by a TTS engine. "
     "Keep it under 3 sentences maximum. "
@@ -459,12 +473,19 @@ async def voice_input_endpoint(request: dict):
     "Speak directly and conversationally, as if answering out loud."
   )
 
+  history = []
+  if conversation_id_exists:
+    history = await get_conversation_messages(conversation_id)
+    history = [m for m in history if m.role != "system"]
+    history = history[-12:]
+
   minimal_messages = [
     Message(
       role="system",
       content=system_content,
       timestamp=""
-    ),
+    )
+  ] + history + [
     Message(
       role="user",
       content=text,
@@ -472,17 +493,14 @@ async def voice_input_endpoint(request: dict):
     )
   ]
 
-  # Web search - same detection/fetch as chat_endpoint (needs_web_search,
-  # extract_search_query, search_web with the same 10s timeout and
-  # max_results=5), inserted into minimal_messages the same way chat
-  # inserts into full_messages (right before the user's own message).
-  #
-  # Deliberately NOT wired: needs_foreground_search/build_foreground_url.
-  # That opens a visible browser tab, which makes sense for chat (there's
-  # a UI to show it in) but not for voice - a spoken question shouldn't
-  # silently pop a browser window as its answer. Background search
-  # (results synthesized into the spoken response) is what a voice query
-  # actually needs.
+  # Save user message to DB (Gap 2)
+  await save_message(
+    conversation_id=conversation_id,
+    role="user",
+    content=text
+  )
+
+  # Web search - same detection/fetch as chat_endpoint
   search_needed = needs_web_search(text)
   if search_needed:
     search_query_used = extract_search_query(text)
@@ -500,10 +518,6 @@ async def voice_input_endpoint(request: dict):
             f"{i}. Source: {r.get('source', 'Unknown')}\n"
             f"   {r['snippet'][:200]}\n\n"
           )
-        # Stricter than chat's "3-4 key points" - this gets read aloud by
-        # TTS, not displayed as text a user can skim, so the model needs
-        # to synthesize down to something actually speakable rather than
-        # a multi-point rundown.
         search_context += (
           "\nInstructions: This will be spoken aloud, not displayed as "
           "text. Answer in 1-2 short spoken sentences using these "
@@ -520,18 +534,6 @@ async def voice_input_endpoint(request: dict):
     except (asyncio.TimeoutError, Exception) as e:
       print(f"[VOICE] Search error: {e}")
 
-  # Same fallback cascade chat_endpoint/chat_stream_endpoint use - no
-  # voice-specific reordering. This used to filter out Gemini entirely
-  # and sort Ollama first ("Use ollama first for voice"), which meant
-  # voice silently never even tried Gemini/the documented Gemini ->
-  # OpenRouter -> Groq -> Ollama cascade, always landing on Ollama (a much
-  # smaller local model) whenever it merely wasn't the FIRST option tried,
-  # not because the other three had actually failed.
-  # Pass providers explicitly (routes.py's own provider_manager reference)
-  # rather than letting run_cascade fall back to its own import - fallback.py
-  # imports provider_manager independently, so relying on its default here
-  # would silently ignore a provider_manager swapped out at this module's
-  # name (e.g. in tests, or any future per-request override upstream).
   cascade = await run_cascade(
     minimal_messages, user_text=text, providers=provider_manager.providers
   )
@@ -546,9 +548,6 @@ async def voice_input_endpoint(request: dict):
     fallback_occurred = cascade.get("fallback_occurred", False)
     failed_provider = cascade.get("failed_provider")
     if fallback_occurred and failed_provider:
-      # Spoken note, naturally prepended to the actual answer rather than
-      # a separate interruption - see routes.py PART 2 in the fallback
-      # notification work.
       response_text = build_fallback_note(failed_provider, provider_used) + response_text
     print(f"[VOICE] Used provider: {provider_used}" + (
       f" (after {failed_provider} failed)" if fallback_occurred else ""
@@ -569,34 +568,20 @@ async def voice_input_endpoint(request: dict):
     provider_used = "error"
     model_used = "error"
 
-  # Same backend-enforced destructive-action guard /chat and /chat/stream
-  # apply. Voice skipped this entirely, which meant a spoken "email Sarah
-  # and tell her I quit" produced a raw [UI_ACTION:send_email:...] that the
-  # frontend executed on arrival - no confirmation step, no undo, and one
-  # misheard transcript away from happening by accident. The voice path is
-  # the LEAST trustworthy input in the system (speech recognition errors on
-  # top of model errors), so it needs this guard more than chat does, not
-  # less. Applied before the briefing prefix and the length cap so the
-  # rewritten tag is what gets truncated/broadcast, matching /chat's order.
   response_text = enforce_destructive_confirmation(response_text)
-
+  # Gap 4: Detect and log gap
+  response_text = await detect_and_log_gap(response_text, text)
   response_text = briefing_prefix + response_text
 
-  # Hard voice response length cap: even if the LLM ignores the system-prompt
-  # conciseness instruction, TTS must never receive an unbounded response.
-  # 500 chars ≈ 3–4 short spoken sentences — enough for a complete answer,
-  # not a lecture. Snap to the last sentence boundary ('.', '!', '?') within
-  # the window to avoid a mid-word cut; fall back to hard slice if none found.
   _VOICE_MAX_CHARS = 500
   if len(response_text) > _VOICE_MAX_CHARS:
     truncated = response_text[:_VOICE_MAX_CHARS]
-    # Find the last sentence-ending punctuation to get a clean cut-point.
     last_boundary = max(
       truncated.rfind("."),
       truncated.rfind("!"),
       truncated.rfind("?"),
     )
-    if last_boundary > _VOICE_MAX_CHARS // 2:  # only snap if not too short
+    if last_boundary > _VOICE_MAX_CHARS // 2:
       truncated = truncated[:last_boundary + 1]
     original_len = len(response_text)
     response_text = truncated
@@ -607,15 +592,25 @@ async def voice_input_endpoint(request: dict):
 
   safe_print(f"[JARVIS VOICE RESPONSE] {response_text}")
 
-  # Broadcast via WebSocket. Keep UI_ACTION tags intact here - the frontend
-  # (useJarvisChat.ts) parses and strips them for display itself, and also
-  # executes them (personality_mode/modifier switches etc). Pre-stripping
-  # them here (as this used to do) silently threw the tag away before the
-  # frontend ever saw it, so voice-triggered UI actions never fired even
-  # though the LLM correctly emitted them.
+  # Gap 2: Save assistant message to DB
+  await save_message(
+    conversation_id=conversation_id,
+    role="assistant",
+    content=response_text,
+    provider_used=provider_used,
+    model_used=model_used
+  )
+
+  # Gap 3: Extract and save memories from user message
+  await memory_manager.extract_and_save_memories(
+    text,
+    conversation_id
+  )
+
   await broadcast_voice_event({
     "type": "voice_input",
-    "text": text
+    "text": text,
+    "conversation_id": conversation_id
   })
   await broadcast_voice_event({
     "type": "voice_response",
@@ -623,13 +618,13 @@ async def voice_input_endpoint(request: dict):
     "provider_used": provider_used,
     "model_used": model_used,
     "fallback_occurred": fallback_occurred,
-    "failed_provider": failed_provider
+    "failed_provider": failed_provider,
+    "conversation_id": conversation_id
   })
-  # Note: TTS status (speaking->idle) is handled in main.py callback
 
   return {
     "response": response_text,
-    "conversation_id": "",
+    "conversation_id": conversation_id,
     "provider_used": provider_used,
     "model_used": model_used,
     "fallback_occurred": fallback_occurred,
@@ -948,13 +943,6 @@ Control the JARVIS interface with a [UI_ACTION:tag] placed at the END of your re
 [UI_ACTION:open_chat:Title] - open an existing past chat by (partial) title
 [UI_ACTION:rename_chat:Title] - rename the current conversation
 [UI_ACTION:delete_conversation:Title] - delete a past conversation by (partial) title
-[UI_ACTION:check_github_repos] - List GitHub repositories
-[UI_ACTION:check_github_issues:<repo>] - List open GitHub issues for a repository
-[UI_ACTION:search_github_issues:<query>] - Search GitHub issues
-[UI_ACTION:create_github_issue:<repo>:<title>:<body>] - Create a GitHub issue
-[UI_ACTION:check_github_prs:<repo>] - List open GitHub pull requests
-[UI_ACTION:check_pr_status:<repo>:<number>] - Check GitHub PR status
-[UI_ACTION:search_github_code:<query>:<repo>] - Search GitHub code
 
 Examples:
 - "open notepad" -> "Opening Notepad, sir. [UI_ACTION:open_app:notepad]"

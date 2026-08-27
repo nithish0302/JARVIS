@@ -84,7 +84,7 @@ def _settle(posts, expected, timeout=3.0):
 def test_signature_matches_call_site():
     """voice_manager calls on_transcription(text, direct_result)."""
     params = list(inspect.signature(th.handle_transcription).parameters)
-    assert params == ["text", "direct_result"]
+    assert params == ["text", "direct_result", "conversation_id"]
 
 
 def test_direct_command_branch_completes(captured):

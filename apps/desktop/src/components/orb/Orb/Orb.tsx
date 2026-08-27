@@ -75,7 +75,8 @@ export function Orb() {
     if (!canvasEl) return;
     const canvas: HTMLCanvasElement = canvasEl;
 
-    const ctx = canvas.getContext("2d")!;
+    const ctx = canvas.getContext("2d") as CanvasRenderingContext2D;
+    if (!ctx) return;
     const wrapper = canvas.parentElement!;
 
     const DPR = window.devicePixelRatio || 1;

@@ -2,9 +2,23 @@
 import pytest
 from starlette.testclient import TestClient
 
-from jarvis_engine.main import app
-from jarvis_engine.core.database import set_setting
-from jarvis_engine.providers.manager import provider_manager
+from jarvis_engine.core.config import settings
+
+# Set BEFORE importing main/app so the value is in place by the time the
+# lifespan runs. Entering TestClient(app) executes the app's REAL startup,
+# which otherwise means faster-whisper downloading `small.en` from
+# HuggingFace on a cold cache and openWakeWord opening the OS microphone -
+# in a test run. That made the suite network-dependent, slow, and a
+# contender for the audio device against every other test.
+#
+# The handler wiring in voice_manager.initialize() still happens; only the
+# two model-loading threads are skipped. Tests that exercise voice logic
+# drive voice_manager directly with their own mocks and are unaffected.
+settings.VOICE_DISABLED = True
+
+from jarvis_engine.main import app  # noqa: E402
+from jarvis_engine.core.database import set_setting  # noqa: E402
+from jarvis_engine.providers.manager import provider_manager  # noqa: E402
 
 
 @pytest.fixture(scope="session")
