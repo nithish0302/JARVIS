@@ -88,11 +88,28 @@ async def lifespan(app: FastAPI):
             setattr(settings, key, val)
             print(f"[STARTUP] Loaded live override for {key}")
 
+    any_available = False
     for provider in provider_manager.providers:
         _tp = time.time()
         available = await provider.is_available()
+        any_available = any_available or available
         print(f"Provider {provider.name}: {'available' if available else 'unavailable'} ({time.time() - _tp:.2f}s)")
     print(f"[TIMING] provider availability checks total: {time.time() - _t1:.2f}s")
+
+    if provider_manager.is_unconfigured():
+        print(
+            "[STARTUP] No AI provider is configured (no .env default or "
+            "settings-table override for any of Gemini/Groq/OpenRouter/"
+            "Ollama). This is a fresh-install first-run state - JARVIS "
+            "will tell the user to add a key in Settings > Providers "
+            "rather than reporting a generic connection failure."
+        )
+    elif not any_available:
+        print(
+            "[STARTUP] WARNING: providers are configured but none are "
+            "currently reachable - this is a real outage, not a first-run "
+            "state."
+        )
 
     # `transformers` exposes its API via a _LazyModule whose __getattr__
     # resolves and caches each symbol (e.g. AlbertModel) on first access -

@@ -50,4 +50,17 @@ services/jarvis-engine/.env
 *.onnx
 *.pt
 *.pth
-services/jarvis-engine/data/
+# JARVIS engine runtime data: the SQLite DB (conversations, memories, and
+# the DPAPI-encrypted plugin_credentials table) and the ChromaDB store.
+#
+# `**/` because DB_PATH is the RELATIVE "data/jarvis.db", so the directory
+# lands wherever the engine was started from:
+#   services/jarvis-engine/data/       - started from the service root
+#   services/jarvis-engine/src/data/   - started from src/
+# The old pattern pinned the first path only, so the second was tracked by
+# accident in a8908af9, Google OAuth tokens included.
+#
+# Deliberately scoped to the engine rather than a repo-wide **/data/ -
+# apps/desktop/src/data/ holds real source files (currentModels.ts,
+# graphHubs.ts) that must stay tracked.
+services/jarvis-engine/**/data/

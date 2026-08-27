@@ -25,13 +25,41 @@ class PluginRegistry:
     def list_plugins(self) -> list[PluginDefinition]:
         return list(self._plugins.values())
 
+    def resolve_namespace(self, plugin_id: str) -> str | None:
+        """The credential-store namespace a plugin's secrets actually live
+        under, or None if the plugin isn't registered.
+
+        Most plugins store under their own id, but plugins that share one
+        OAuth grant share a namespace: gmail and google_calendar both
+        resolve to "google", because one consent screen issues the tokens
+        for both.
+
+        Every caller that touches the credential store for a plugin must
+        go through here. This existed only inline inside is_configured(),
+        so delete_plugin_credentials() passed the raw plugin_id straight
+        to the store, looked for keys under "gmail" that were really under
+        "google", found none, deleted nothing, and reported success.
+        """
+        plugin = self.get_plugin(plugin_id)
+        if not plugin:
+            return None
+        return plugin.credential_namespace or plugin_id
+
+    def plugins_sharing_namespace(self, namespace: str) -> list[str]:
+        """Ids of every registered plugin whose credentials live under
+        `namespace` - i.e. everything affected by clearing it."""
+        return [
+            p.id for p in self.list_plugins()
+            if self.resolve_namespace(p.id) == namespace
+        ]
+
     def is_configured(self, plugin_id: str) -> bool:
         plugin = self.get_plugin(plugin_id)
         if not plugin:
             return False
         if not plugin.required_credentials:
             return True
-        ns = plugin.credential_namespace if plugin.credential_namespace else plugin_id
+        ns = self.resolve_namespace(plugin_id)
         keys = list_credential_keys(ns)
         return all(req in keys for req in plugin.required_credentials)
 

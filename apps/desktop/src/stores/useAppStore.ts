@@ -71,6 +71,18 @@ export interface AppState {
   fallbackToast: string;
   fallbackToastVisible: boolean;
   showFallbackToast: (message: string) => void;
+  // True once /settings confirms NO provider (Gemini/Groq/OpenRouter/
+  // Ollama) has any key/host configured - the "fresh install, nothing set
+  // up yet" state. Drives FirstRunBanner and the one-time auto-open of
+  // Settings > Providers in useEngineStatus.
+  providerUnconfigured: boolean;
+  setProviderUnconfigured: (unconfigured: boolean) => void;
+  // Which SettingsView section to land on when navigating to the settings
+  // view - read once by SettingsView on mount, then cleared. Lets
+  // useEngineStatus's first-run auto-open land directly on "providers"
+  // instead of the default "ai-provider" section.
+  settingsInitialSection: string | null;
+  setSettingsInitialSection: (section: string | null) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -157,4 +169,8 @@ export const useAppStore = create<AppState>((set) => ({
       (window as any)._fallbackToastTimer = null;
     }, 5000);
   },
+  providerUnconfigured: false,
+  setProviderUnconfigured: (unconfigured) => set({ providerUnconfigured: unconfigured }),
+  settingsInitialSection: null,
+  setSettingsInitialSection: (section) => set({ settingsInitialSection: section }),
 }));

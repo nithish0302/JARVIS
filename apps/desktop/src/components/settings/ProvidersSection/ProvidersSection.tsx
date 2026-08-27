@@ -116,7 +116,7 @@ export function ProvidersSection() {
         {renderField("Gemini API Key", geminiKey, setGeminiKey, configured.gemini, "Enter new Gemini key...")}
         {renderField("Groq API Key", groqKey, setGroqKey, configured.groq, "Enter new Groq key...")}
         {renderField("OpenRouter API Key", openrouterKey, setOpenrouterKey, configured.openrouter, "Enter new OpenRouter key...")}
-        {renderField("Ollama Host", ollamaHost, setOllamaHost, configured.ollama, "e.g., http://10.79.209.37:11435")}
+        {renderField("Ollama Host", ollamaHost, setOllamaHost, configured.ollama, "e.g. http://192.168.1.x:11434")}
       </div>
 
       <div className="flex items-center justify-between mt-2">

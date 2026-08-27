@@ -23,22 +23,76 @@ class ProviderManager:
     This is an intentional design tradeoff appropriate for a single-user desktop assistant.
     """
     def __init__(self):
-        self.providers: List[BaseProvider] = [
+        self._all_providers: List[BaseProvider] = [
             GeminiProvider(),
             OpenRouterProvider(),
             GroqProvider(),
             OllamaProvider(),
         ]
 
+    @property
+    def providers(self) -> List[BaseProvider]:
+        """The active provider cascade, computed fresh on every access.
+
+        Ollama is silently excluded whenever OLLAMA_HOST is unset (neither
+        .env nor a live settings-table override) - it's a genuinely
+        optional, self-hosted provider, not a fourth cloud fallback that
+        merely happens to be "unavailable" right now. Excluding it here
+        (rather than in is_available()/get_status() alone) keeps it out of
+        every consumer - the chat cascade, /providers, /health, the
+        <SYSTEM_STATE> "Available Brains" list - without each of them
+        needing to know why.
+        """
+        from ..core.config import settings
+        if not settings.OLLAMA_HOST:
+            return [p for p in self._all_providers if p.name != "ollama"]
+        return list(self._all_providers)
+
+    @providers.setter
+    def providers(self, value: List[BaseProvider]):
+        """Tests patch provider_manager.providers directly with fake
+        provider lists (see tests/test_provider_fallback.py's
+        _patch_providers / conftest.py's _reset_provider_state) - keep
+        that working by writing straight through to the underlying list.
+        The OLLAMA_HOST filter above still applies on read."""
+        self._all_providers = list(value)
+
+    @providers.deleter
+    def providers(self):
+        """No-op: unittest.mock.patch.object(provider_manager, "providers",
+        ...) calls delattr() to undo the patch when it can't tell the
+        attribute was already set (true for anything backed by a
+        property). conftest.py's _reset_provider_state fixture explicitly
+        restores the real provider list before AND after every test
+        regardless, so there's nothing further to do here."""
+        pass
+
     def set_active_provider(self, provider_name: str, model_name: str):
-        """Reorder the global providers list so the chosen provider is prioritized first."""
-        selected = next((p for p in self.providers if p.name == provider_name), None)
+        """Reorder the underlying providers list so the chosen provider is prioritized first."""
+        selected = next((p for p in self._all_providers if p.name == provider_name), None)
         if selected:
             # We don't dynamically change the model inside the provider for now,
             # as they read from config. If we need to support dynamic model switching,
             # we'd update the provider class or config here.
-            self.providers.remove(selected)
-            self.providers.insert(0, selected)
+            self._all_providers.remove(selected)
+            self._all_providers.insert(0, selected)
+
+    def is_unconfigured(self) -> bool:
+        """True when NO provider has any credential/host set at all - .env
+        default or live settings-table override, either counts. This is
+        the "first run, nothing set up yet" state: distinct from a
+        configured provider being transiently down, which gets the normal
+        fallback/error handling instead. Callers use this to choose a
+        "go configure a provider in Settings" message over a generic
+        connection-failure one.
+        """
+        from ..core.config import settings
+        return not any([
+            settings.GEMINI_API_KEY,
+            settings.GROQ_API_KEY,
+            settings.OPENROUTER_API_KEY,
+            settings.OLLAMA_HOST,
+        ])
 
     async def chat(self, messages: List[Message]) -> tuple[str, str, str]:
         for provider in self.providers:
@@ -49,16 +103,20 @@ class ProviderManager:
             except Exception as e:
                 print(f"Provider {provider.name} failed: {e}")
                 continue
-        
-        fallback = self.providers[0]
-        return (
-            "I apologize, sir. All AI systems are "
-            "currently unreachable. Please ensure "
-            "Ollama is running locally or configure "
-            "an OpenRouter API key in the settings.",
-            "none",
-            "none"
-        )
+
+        if self.is_unconfigured():
+            message = (
+                "I don't have any AI provider configured yet, sir. "
+                "Please add an API key in Settings > Providers to get "
+                "started."
+            )
+        else:
+            message = (
+                "I apologize, sir. All AI systems are "
+                "currently unreachable. Please check your "
+                "provider configuration in Settings."
+            )
+        return (message, "none", "none")
 
     async def get_status(self) -> List[ProviderStatus]:
         statuses = []

@@ -558,6 +558,11 @@ export interface JarvisSettings {
   groq_configured?: boolean
   openrouter_configured?: boolean
   ollama_configured?: boolean
+  // True if ANY provider has a working credential/host from either .env
+  // or a settings-table override - unlike the four *_configured flags
+  // above (which only reflect a live settings-table override), this is
+  // the accurate "is any AI provider actually usable" signal.
+  any_provider_configured?: boolean
 }
 
 export async function getSettings(): Promise<JarvisSettings> {

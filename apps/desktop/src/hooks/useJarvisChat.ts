@@ -5,6 +5,8 @@ import { sendMessageStream, connectVoiceWebSocket } from "../services/jarvisApi"
 import type { Message } from "../types/chat.types"
 import { parseUIActions } from "../utils/uiActionParser"
 import { executeUIActions } from "../utils/uiActionExecutor"
+import { isVoiceSafe } from "../utils/actionSafety"
+import { runConfirmedAction } from "../utils/confirmedActions"
 import { useAppStore } from "../stores/useAppStore"
 import { useMicLevelStore } from "../stores/useMicLevelStore"
 
@@ -101,25 +103,46 @@ export function useJarvisChat() {
         setStatus("idle")
 
         if (actions.length > 0) {
-          // Destructive actions require a visual confirmation step that the
-          // voice flow doesn't provide, and misrecognized speech can trigger
-          // them accidentally — never execute these from the voice path.
-          const VOICE_EXCLUDED_ACTIONS = new Set([
-            "delete_conversation",
-            "delete_file"
-          ])
-          const safeActions = actions.filter(a => {
-            if (VOICE_EXCLUDED_ACTIONS.has(a.type)) {
-              console.warn(
-                `[Voice] Skipped destructive action "${a.type}" from voice path for safety`,
-                a.payload
-              )
-              return false
-            }
-            return true
-          })
+          // ALLOWLIST, not blocklist. This was a Set of two blocked
+          // actions, which meant every action added afterwards —
+          // send_email, create_event, create_github_issue — was
+          // executable straight off a transcript by default. An action
+          // now has to be explicitly known-safe (see isVoiceSafe) to run
+          // without confirmation; anything else is deferred to the same
+          // confirm step the backend uses, so a new plugin's destructive
+          // action is unsafe-by-default rather than the reverse.
+          const safeActions = actions.filter(a => isVoiceSafe(a.type))
+          const deferredActions = actions.filter(a => !isVoiceSafe(a.type))
+
           if (safeActions.length > 0) {
             executeUIActions(safeActions)
+          }
+
+          // Only one action can await confirmation at a time, so take the
+          // first and tell the user what's waiting. The ConfirmationButtons
+          // component renders off pendingCommand, which is what makes this
+          // reachable from voice at all — a spoken "yes" goes back through
+          // /voice/input as a fresh utterance, not as a confirmation.
+          if (deferredActions.length > 0) {
+            const [pending, ...ignored] = deferredActions
+            console.warn(
+              `[Voice] Action "${pending.type}" requires confirmation — deferring`,
+              pending.payload
+            )
+            if (ignored.length > 0) {
+              console.warn(
+                "[Voice] Additional actions dropped while awaiting confirmation:",
+                ignored.map(a => a.type)
+              )
+            }
+            useAppStore.getState().setPendingCommand(
+              pending.payload
+                ? `${pending.type}:${pending.payload}`
+                : pending.type
+            )
+            useAppStore.getState().showActionFeedback(
+              "Confirm to continue."
+            )
           }
         }
       },
@@ -175,117 +198,16 @@ export function useJarvisChat() {
       addMessage(userMessage)
 
       const colonIdx = pendingCommand.indexOf(":")
-      const cmdType = pendingCommand.substring(0, colonIdx)
-      const cmdPayload = pendingCommand.substring(colonIdx + 1)
+      const cmdType = colonIdx === -1
+        ? pendingCommand
+        : pendingCommand.substring(0, colonIdx)
+      const cmdPayload = colonIdx === -1
+        ? ""
+        : pendingCommand.substring(colonIdx + 1)
 
-      if (cmdType === "delete_file") {
-        import("../services/systemApi").then(s => {
-          s.deleteFile(cmdPayload, true)
-            .then((result: string) => {
-              addMessage({
-                id: window.crypto.randomUUID(),
-                role: "assistant",
-                content: `✅ ${result}`,
-                timestamp: new Date()
-                  .toLocaleTimeString([],{
-                    hour:"2-digit",
-                    minute:"2-digit"
-                  })
-              })
-            })
-            .catch((err: unknown) => {
-              // Handle both Error objects and string errors
-              const errorMsg = err instanceof Error
-                ? err.message
-                : typeof err === 'string'
-                ? err
-                : 'Unknown error occurred'
+      runConfirmedAction(cmdType, cmdPayload, addMessage)
+        .finally(() => setPendingCommand(null))
 
-              addMessage({
-                id: window.crypto.randomUUID(),
-                role: "assistant",
-                content: `❌ ${errorMsg}`,
-                timestamp: new Date()
-                  .toLocaleTimeString([],{
-                    hour:"2-digit",
-                    minute:"2-digit"
-                  })
-              })
-            })
-            .finally(() => {
-              // Always clear pending command after execution
-              setPendingCommand(null)
-            })
-        })
-      } else if (cmdType === "send_email") {
-        const parts = cmdPayload.split(":")
-        if (parts.length >= 3) {
-          const to = parts[0]
-          const subject = parts[1]
-          const body = parts.slice(2).join(":")
-          import("../services/jarvisApi").then(api => {
-            api.sendEmail(to, subject, body).then(() => {
-              addMessage({
-                id: window.crypto.randomUUID(),
-                role: "assistant",
-                content: `✅ Email sent successfully to ${to}.`,
-                timestamp: new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})
-              })
-            }).catch(err => {
-              addMessage({
-                id: window.crypto.randomUUID(),
-                role: "assistant",
-                content: `❌ Failed to send email: ${err.message}`,
-                timestamp: new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})
-              })
-            }).finally(() => {
-              setPendingCommand(null)
-            })
-          })
-        } else {
-          setPendingCommand(null)
-        }
-      } else if (cmdType === "create_event") {
-        const parts = cmdPayload.split(":")
-        if (parts.length >= 3) {
-          const title = parts[0]
-          const start = parts[1]
-          const end = parts.slice(2).join(":")
-          import("../services/jarvisApi").then(api => {
-            api.createEvent(title, start, end).then(() => {
-              addMessage({
-                id: window.crypto.randomUUID(),
-                role: "assistant",
-                content: `✅ Calendar event "${title}" created successfully.`,
-                timestamp: new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})
-              })
-            }).catch(err => {
-              addMessage({
-                id: window.crypto.randomUUID(),
-                role: "assistant",
-                content: `❌ Failed to create event: ${err.message}`,
-                timestamp: new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})
-              })
-            }).finally(() => {
-              setPendingCommand(null)
-            })
-          })
-        } else {
-          setPendingCommand(null)
-        }
-      } else {
-        addMessage({
-          id: window.crypto.randomUUID(),
-          role: "assistant",
-          content: `Command confirmation received.`,
-          timestamp: new Date().toLocaleTimeString(
-            [], {hour:"2-digit",minute:"2-digit"}
-          )
-        })
-        setPendingCommand(null)
-      }
-
-      // Don't clear here - let finally() blocks handle it
       return // Don't send to AI
     }
 

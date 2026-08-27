@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { SettingsLayout } from "../SettingsLayout/SettingsLayout";
 import { SettingsSidebar } from "../SettingsSidebar/SettingsSidebar";
 import { AIProviderSection } from "../AIProviderSection/AIProviderSection";
@@ -7,9 +7,21 @@ import { AppearanceSection } from "../AppearanceSection/AppearanceSection";
 import { PluginSection } from "../PluginSection/PluginSection";
 import { ProvidersSection } from "../ProvidersSection/ProvidersSection";
 import { AboutSection } from "../AboutSection/AboutSection";
+import { useAppStore } from "../../../stores/useAppStore";
 
 export function SettingsView() {
-  const [activeSection, setActiveSection] = useState("ai-provider");
+  // Read once on mount (e.g. the first-run auto-open wants "providers"
+  // instead of the default "ai-provider") then clear it - a later plain
+  // navigation to the settings view shouldn't keep forcing this section.
+  const [activeSection, setActiveSection] = useState(
+    () => useAppStore.getState().settingsInitialSection ?? "ai-provider"
+  );
+
+  useEffect(() => {
+    if (useAppStore.getState().settingsInitialSection) {
+      useAppStore.getState().setSettingsInitialSection(null);
+    }
+  }, []);
 
   return (
     <div className="flex h-full w-full flex-col">

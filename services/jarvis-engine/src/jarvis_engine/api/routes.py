@@ -23,7 +23,7 @@ from ..tools.search_detector import (
 from ..voice.voice_manager import voice_manager
 from ..core.utils import safe_print
 from ..providers import fallback as fallback_module
-from ..providers.fallback import run_cascade, build_fallback_note, build_ask_message, build_override_unavailable_message
+from ..providers.fallback import run_cascade, build_fallback_note, build_ask_message, build_override_unavailable_message, build_unconfigured_message
 
 router = APIRouter()
 
@@ -111,11 +111,17 @@ async def get_settings_endpoint():
     preferred_model = await get_setting(
         "preferred_model", settings.PREFERRED_MODEL
     )
+    # These four reflect a LIVE SETTINGS-TABLE OVERRIDE specifically (not
+    # whether the provider works at all) - ProvidersSection.tsx uses them
+    # to show "Active Override" next to a field whose value came from a
+    # manual Settings entry rather than .env. A provider configured only
+    # via .env (never overridden through Settings) correctly reads false
+    # here.
     gemini_configured = await get_setting("GEMINI_API_KEY") != ""
     groq_configured = await get_setting("GROQ_API_KEY") != ""
     openrouter_configured = await get_setting("OPENROUTER_API_KEY") != ""
     ollama_configured = await get_setting("OLLAMA_HOST") != ""
-    
+
     return {
         "personality_mode": personality_mode,
         "modifier": modifier,
@@ -134,6 +140,11 @@ async def get_settings_endpoint():
         "groq_configured": groq_configured,
         "openrouter_configured": openrouter_configured,
         "ollama_configured": ollama_configured,
+        # True if ANY provider has a working credential/host from EITHER
+        # source (.env default or a settings-table override) - unlike the
+        # four flags above, this is what "first run, nothing set up yet"
+        # actually means. See ProviderManager.is_unconfigured().
+        "any_provider_configured": not provider_manager.is_unconfigured(),
     }
 
 @router.post("/settings/verify-pin")
@@ -235,6 +246,7 @@ async def update_settings_endpoint(request: dict):
         "groq_configured": groq_configured,
         "openrouter_configured": openrouter_configured,
         "ollama_configured": ollama_configured,
+        "any_provider_configured": not provider_manager.is_unconfigured(),
     }
 
 @router.put("/settings/provider-config")
@@ -550,9 +562,23 @@ async def voice_input_endpoint(request: dict):
     provider_used = "override_unavailable"
     model_used = "unavailable"
   else:
-    response_text = "All voice providers unavailable."
+    response_text = (
+      build_unconfigured_message() if provider_manager.is_unconfigured()
+      else "All voice providers unavailable."
+    )
     provider_used = "error"
     model_used = "error"
+
+  # Same backend-enforced destructive-action guard /chat and /chat/stream
+  # apply. Voice skipped this entirely, which meant a spoken "email Sarah
+  # and tell her I quit" produced a raw [UI_ACTION:send_email:...] that the
+  # frontend executed on arrival - no confirmation step, no undo, and one
+  # misheard transcript away from happening by accident. The voice path is
+  # the LEAST trustworthy input in the system (speech recognition errors on
+  # top of model errors), so it needs this guard more than chat does, not
+  # less. Applied before the briefing prefix and the length cap so the
+  # rewritten tag is what gets truncated/broadcast, matching /chat's order.
+  response_text = enforce_destructive_confirmation(response_text)
 
   response_text = briefing_prefix + response_text
 
@@ -1209,6 +1235,25 @@ def build_foreground_url(
     "description": f"Searching for {message.strip()}"
   }
 
+# SINGLE SOURCE OF TRUTH for which UI actions may never reach the frontend
+# unconfirmed. enforce_destructive_confirmation() below is generated from
+# this tuple - there is no per-action code path - so adding a new plugin's
+# destructive action means adding one string HERE and registering a
+# confirm handler in the frontend's actionSafety.ts. Nothing else.
+#
+# Deliberately NOT listed: delete_conversation and delete_memory. Those are
+# already gated by a real server-side PIN check on their own endpoints
+# (see delete_conversation_endpoint / delete_memory_endpoint), so wrapping
+# them here would stack a second, weaker gate in front of a stronger one.
+# The frontend still routes delete_conversation through confirmation on the
+# voice path specifically - see VOICE_CONFIRM_ACTIONS in actionSafety.ts.
+DESTRUCTIVE_UI_ACTIONS = (
+  "delete_file",
+  "send_email",
+  "create_event",
+  "create_github_issue",
+)
+
 DESTRUCTIVE_PATTERNS = [
   r'\bdelete\b', r'\bremove\b', r'\bkill\b',
   r'\bterminate\b', r'\bshutdown\b',
@@ -1280,36 +1325,37 @@ def enforce_destructive_confirmation(text: str) -> str:
   Rewrites to confirm_action rather than stripping, so the existing
   two-step UX (frontend shows "reply yes to confirm") still fires - it
   just can no longer be bypassed by the model skipping that step itself.
+
+  Driven entirely by DESTRUCTIVE_UI_ACTIONS. This used to be four
+  copy-pasted regex blocks, one per action, which is exactly how
+  create_github_issue ended up rewritten here but with no matching
+  execution handler on the frontend - the per-action shape made it
+  possible to add half a feature. Adding an action is now a one-line
+  change to that tuple.
+
+  Every call site that produces user-facing text must run this. Missing
+  it is not a degraded response, it is an unconfirmed destructive action:
+  /voice/input skipped this for its entire existence and could send email
+  straight off a transcript.
   """
   import re
 
-  def _rewrite_delete(match):
-    path = match.group(1)
-    print(f"[SAFETY] Blocked unconfirmed delete_file UI_ACTION for '{path}' - rewriting to require confirmation")
-    return f"[UI_ACTION:confirm_action:delete_file:{path}]"
+  def _make_rewriter(action_name: str):
+    def _rewrite(match):
+      payload = match.group(1)
+      print(
+        f"[SAFETY] Blocked unconfirmed {action_name} UI_ACTION for "
+        f"'{payload}' - rewriting to require confirmation"
+      )
+      return f"[UI_ACTION:confirm_action:{action_name}:{payload}]"
+    return _rewrite
 
-  text = re.sub(r'\[UI_ACTION:delete_file:([^\]]+)\]', _rewrite_delete, text)
-
-  def _rewrite_send_email(match):
-    payload = match.group(1)
-    print(f"[SAFETY] Blocked unconfirmed send_email UI_ACTION for '{payload}' - rewriting to require confirmation")
-    return f"[UI_ACTION:confirm_action:send_email:{payload}]"
-
-  text = re.sub(r'\[UI_ACTION:send_email:([^\]]+)\]', _rewrite_send_email, text)
-
-  def _rewrite_create_event(match):
-    payload = match.group(1)
-    print(f"[SAFETY] Blocked unconfirmed create_event UI_ACTION for '{payload}' - rewriting to require confirmation")
-    return f"[UI_ACTION:confirm_action:create_event:{payload}]"
-
-  text = re.sub(r'\[UI_ACTION:create_event:([^\]]+)\]', _rewrite_create_event, text)
-
-  def _rewrite_create_github_issue(match):
-    payload = match.group(1)
-    print(f"[SAFETY] Blocked unconfirmed create_github_issue UI_ACTION for '{payload}' - rewriting to require confirmation")
-    return f"[UI_ACTION:confirm_action:create_github_issue:{payload}]"
-
-  text = re.sub(r'\[UI_ACTION:create_github_issue:([^\]]+)\]', _rewrite_create_github_issue, text)
+  for action_name in DESTRUCTIVE_UI_ACTIONS:
+    text = re.sub(
+      rf'\[UI_ACTION:{re.escape(action_name)}:([^\]]+)\]',
+      _make_rewriter(action_name),
+      text,
+    )
 
   return text
 
@@ -2145,11 +2191,16 @@ async def chat_endpoint(request: ChatRequest):
             model_used = "unavailable"
         else:
             print(f"[CHAT] All providers failed")
+            if provider_manager.is_unconfigured():
+                raise Exception("NO_PROVIDER_CONFIGURED")
             raise Exception("All AI providers are currently unavailable")
 
     except Exception as e:
         print(f"[CHAT] Error: {e}")
-        response_text = "I apologize, but all AI providers are currently unavailable."
+        if str(e) == "NO_PROVIDER_CONFIGURED" or provider_manager.is_unconfigured():
+            response_text = build_unconfigured_message()
+        else:
+            response_text = "I apologize, but all AI providers are currently unavailable."
         provider_used = "error"
         model_used = "error"
         fallback_occurred = False
@@ -2691,7 +2742,10 @@ async def chat_stream_endpoint(
           # If no provider succeeded at all
           elif not stream_started and not full_response_parts:
             print(f"[STREAM] All providers failed, sending error token")
-            error_msg = "I apologize, but all AI providers are currently unavailable."
+            if provider_manager.is_unconfigured():
+              error_msg = build_unconfigured_message()
+            else:
+              error_msg = "I apologize, but all AI providers are currently unavailable."
             full_response_parts = [error_msg]
             yield json_module.dumps({
               "type": "token",
@@ -3070,11 +3124,42 @@ async def get_plugins():
 
 @router.delete("/plugins/{plugin_id}/credentials")
 async def delete_plugin_credentials(plugin_id: str):
+    """Disconnect a plugin by clearing its stored credentials.
+
+    Resolves the credential namespace first - gmail and google_calendar
+    both store under "google". Passing the raw plugin_id to the store (as
+    this used to) looked for keys that were never there, deleted nothing,
+    and still returned {"status": "ok"}, so Disconnect appeared to work
+    while the OAuth tokens stayed on disk.
+
+    Clearing a shared namespace disconnects every plugin using it, which
+    mirrors how connecting already works: one Google consent screen
+    issues the tokens for both, so there is no way to revoke one without
+    the other. `also_disconnected` names the rest so the UI can say so.
+    """
     from ..plugins.credential_store import delete_credential, list_credential_keys
-    keys = list_credential_keys(plugin_id)
+    from ..plugins.registry import registry
+
+    namespace = registry.resolve_namespace(plugin_id)
+    if namespace is None:
+        raise HTTPException(
+            status_code=404, detail=f"Unknown plugin '{plugin_id}'"
+        )
+
+    keys = list_credential_keys(namespace)
     for k in keys:
-        delete_credential(plugin_id, k)
-    return {"status": "ok"}
+        delete_credential(namespace, k)
+
+    affected = registry.plugins_sharing_namespace(namespace)
+
+    # deleted_keys is reported so a silent no-op is visible to the caller
+    # rather than indistinguishable from a real disconnect.
+    return {
+        "status": "ok",
+        "namespace": namespace,
+        "deleted_keys": len(keys),
+        "also_disconnected": [p for p in affected if p != plugin_id],
+    }
 
 # --- Google OAuth Endpoints ---
 @router.get("/plugins/google/auth-url")

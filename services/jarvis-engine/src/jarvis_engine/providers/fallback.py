@@ -68,6 +68,17 @@ def build_ask_message(failed_provider: str, remaining: List[str]) -> str:
     )
 
 
+def build_unconfigured_message() -> str:
+    """Shown instead of a generic connection-failure message when NO
+    provider has any credential/host configured at all (see
+    ProviderManager.is_unconfigured()) - a fresh install with nothing set
+    up yet, not a configured provider that's transiently down."""
+    return (
+        "I don't have any AI provider configured yet, sir. Please add an "
+        "API key in Settings > Providers to get started."
+    )
+
+
 def build_override_unavailable_message(provider_name: str) -> str:
     return (
         f"{provider_name.title()} is locked in as the only provider I'm allowed to "

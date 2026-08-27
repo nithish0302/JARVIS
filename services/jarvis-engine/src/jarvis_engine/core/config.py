@@ -29,8 +29,9 @@ _API_KEY_FIELDS = [
 class Settings(BaseSettings):
     JARVIS_HOST: str = "localhost"
     JARVIS_PORT: int = 8765
-    OLLAMA_HOST: str = "http://localhost:11434"
+    OLLAMA_HOST: str = ""
     OLLAMA_MODEL: str = "phi4-mini"
+    OLLAMA_AVAILABILITY_TIMEOUT: float = 10.0
     OPENROUTER_API_KEY: str = ""
     OPENROUTER_MODEL: str = "google/gemma-4-27b-it:free"
     TAVILY_API_KEY: str = ""

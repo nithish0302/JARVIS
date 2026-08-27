@@ -1,11 +1,16 @@
 import { useEffect } from "react"
 import { useAIStore } from "../stores/useAIStore"
+import { useAppStore } from "../stores/useAppStore"
 import { checkHealth, getMemoryCount, getSettings } from "../services/jarvisApi"
 
 export function useEngineStatus() {
   const { setStatus, setError, setMemoryCount, setPersonalityMode, setModifier, setAddressPreference, setDailyBriefingEnabled } = useAIStore()
 
   useEffect(() => {
+    // Latches true the first time an unconfigured install is observed, so
+    // the auto-open below fires once per app session rather than yanking
+    // the user back to Settings every 30s poll if they navigate away.
+    let hasAutoOpenedSettings = false
     // Only used to seed the badge ONCE, before any real response has come
     // back. After that, the badge must reflect the LAST ACTUAL
     // provider/model that answered (set by useJarvisChat's onDone / voice
@@ -29,7 +34,11 @@ export function useEngineStatus() {
           }
         } else {
           setStatus("offline")
-          setError("No AI providers available")
+          setError(
+            useAppStore.getState().providerUnconfigured
+              ? "No AI provider configured yet — add one in Settings > Providers"
+              : "No AI providers available"
+          )
         }
       } catch {
         setStatus("offline")
@@ -64,14 +73,31 @@ export function useEngineStatus() {
         if (settings.fallback_mode) {
           useAIStore.getState().setFallbackMode(settings.fallback_mode)
         }
+
+        // any_provider_configured reflects EITHER source (.env default or
+        // a settings-table override) - the four gemini_configured/etc.
+        // flags only reflect a live settings-table override, so deriving
+        // "unconfigured" from those alone would false-positive for a
+        // perfectly working .env-only setup.
+        const unconfigured = settings.any_provider_configured === false
+        useAppStore.getState().setProviderUnconfigured(unconfigured)
+
+        if (unconfigured && !hasAutoOpenedSettings) {
+          hasAutoOpenedSettings = true
+          useAppStore.getState().setSettingsInitialSection("providers")
+          useAppStore.getState().setView("settings")
+        }
       } catch (err) {
         console.error("Failed to sync settings:", err)
       }
     }
 
-    check()
+    // Settings first (synchronously establishes providerUnconfigured and,
+    // on a fresh install, auto-opens Settings > Providers) so the first
+    // check() below can already read an accurate providerUnconfigured
+    // instead of racing it.
+    checkSettings().then(check)
     checkMemories()
-    checkSettings()
 
     const interval = window.setInterval(check, 30000)
     const memoryInterval = window.setInterval(checkMemories, 60000)

@@ -20,6 +20,7 @@ import { ChatFullView } from "./components/chat/ChatFullView/ChatFullView";
 import { CommandPalette } from "./components/palette/CommandPalette/CommandPalette";
 import { ShortcutToast } from "./components/layout/ShortcutToast/ShortcutToast";
 import { FallbackToast } from "./components/layout/FallbackToast/FallbackToast";
+import { FirstRunBanner } from "./components/layout/FirstRunBanner/FirstRunBanner";
 import { GapDashboard } from "./components/gaps/GapDashboard";
 import { CapabilitiesDashboard } from "./components/capabilities/CapabilitiesDashboard";
 
@@ -100,6 +101,7 @@ function App() {
       <CommandPalette />
       <ShortcutToast />
       <FallbackToast />
+      <FirstRunBanner />
     </LayoutProvider>
   );
 }
