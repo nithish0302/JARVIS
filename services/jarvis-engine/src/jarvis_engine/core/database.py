@@ -116,3 +116,11 @@ async def set_setting(key: str, value: str) -> None:
     except Exception as e:
         print(f"[DB] Error writing setting {key}: {e}")
 
+async def delete_setting(key: str) -> None:
+    try:
+        async with aiosqlite.connect(settings.DB_PATH) as db:
+            await db.execute("DELETE FROM settings WHERE key = ?", (key,))
+            await db.commit()
+    except Exception as e:
+        print(f"[DB] Error deleting setting {key}: {e}")
+

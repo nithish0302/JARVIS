@@ -519,3 +519,44 @@ Worth recording — these were checked and are correct:
 
 **Then:** M1 (close the remaining voice gaps), M3 (extract the shared pipeline,
 *then* split the file), and the Low-severity cleanup.
+
+---
+
+## Post-audit resolution log
+
+Findings verified fixed after this document was written. Original findings
+above are left as-written (point-in-time record); this section tracks status.
+
+- **C1, H1** — fixed in `e30c7921`. Verified live 2026-08-27: all 4 destructive
+  actions (`delete_file`, `send_email`, `create_event`, `create_github_issue`)
+  are rewritten to `confirm_action:*` by `enforce_destructive_confirmation()`
+  at all 3 call sites (`/chat`, `/chat/stream`, `/voice/input`); the frontend
+  confirm dispatcher has a handler for all 4 with a load-time coverage
+  assertion.
+- **H3** — fixed. Verified live 2026-08-27 with 8 direct unit tests against
+  `delete_file()`: rejects `C:\`, `C:\Windows`, `C:\Users`, the home directory
+  root, any depth-2 path, and nonexistent paths; enforces the confirmation
+  gate; still allows a legitimate deep, confirmed delete.
+- **H4** — fixed. Provider keys (`GEMINI_API_KEY`, `GROQ_API_KEY`,
+  `OPENROUTER_API_KEY`, `OLLAMA_HOST`) now go through `store_credential()`
+  (DPAPI-encrypted) via `/settings/provider-config`, not `set_setting()`.
+  Verified by reading `data/jarvis.db` directly: `plugin_credentials` holds
+  only encrypted blobs; `settings` has no key material.
+  `main.py` startup also self-heals any pre-fix installs: on first boot after
+  the fix it reads a legacy plaintext value once, writes it into the
+  encrypted store, and deletes the plaintext `settings` row (2026-08-27).
+- **H6** — fixed. PIN is now PBKDF2-HMAC-SHA256 (260k iterations, random
+  salt) with constant-time comparison, plus rate limiting (5 attempts / 5 min
+  window, 15 min lockout). Verified live: 6 wrong PINs in a row locked out
+  the endpoint with `"Too many failed attempts"`.
+- **L2 (partial)** — the stale duplicate `services/jarvis-engine/services/
+  jarvis-engine/src/.../tts_engine.py` tree has been deleted. The root
+  `jarvis/` scaffold duplicate is unaddressed.
+- **New, found during post-audit verification (2026-08-27):**
+  `.pnpm-store/v11/index.db` was tracked in git since the very first commit,
+  with `.pnpm-store/` absent from `.gitignore`. Not a credential (it's pnpm's
+  package-cache index), but it violated the "no DB files in version control"
+  principle behind C2. Fixed: added `.pnpm-store/` to `.gitignore` and
+  untracked it (`git rm --cached`). Not purged from history — low-value
+  given it holds no secrets; `git filter-repo` would be the tool if that's
+  ever wanted.

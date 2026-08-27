@@ -81,16 +81,28 @@ async def lifespan(app: FastAPI):
     if restored:
         print(f"[STARTUP] Restored preferred provider: {restored}")
 
-    from .core.database import get_setting
-    from .plugins.credential_store import get_credential as _get_cred
+    from .core.database import get_setting, delete_setting
+    from .plugins.credential_store import get_credential as _get_cred, store_credential as _store_cred
     for key in ["GEMINI_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY", "OLLAMA_HOST"]:
         # Prefer the encrypted credential store (new path); fall back to the
         # legacy plaintext settings table for installs that haven't re-entered
         # their keys since the encryption upgrade.
-        val = _get_cred("provider_config", key) or await get_setting(key)
+        encrypted_val = _get_cred("provider_config", key)
+        legacy_val = None if encrypted_val else await get_setting(key)
+        val = encrypted_val or legacy_val
         if val:
             setattr(settings, key, val)
             print(f"[STARTUP] Loaded live override for {key}")
+        if legacy_val:
+            # One-time self-heal: move the plaintext value into the
+            # encrypted store and drop the legacy row, so it isn't sitting
+            # in the settings table on every future startup.
+            try:
+                _store_cred("provider_config", key, legacy_val)
+                await delete_setting(key)
+                print(f"[STARTUP] Migrated legacy plaintext {key} to encrypted storage")
+            except Exception as e:
+                print(f"[STARTUP] Could not migrate legacy {key}: {e}")
 
     any_available = False
     for provider in provider_manager.providers:
