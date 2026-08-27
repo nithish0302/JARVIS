@@ -74,9 +74,12 @@ def get_valid_token() -> str:
         raise ValueError("No access token available.")
         
     try:
-        # Check validity (Tokeninfo is fast)
-        resp = httpx.get(
-            f"https://oauth2.googleapis.com/tokeninfo?access_token={access_token}", 
+        # POST with token in the request body — never exposed in URL/logs.
+        # Google's tokeninfo endpoint documents this as the safe form:
+        # https://developers.google.com/identity/sign-in/web/backend-auth#verify-the-integrity-of-the-id-token
+        resp = httpx.post(
+            "https://oauth2.googleapis.com/tokeninfo",
+            data={"access_token": access_token},
             timeout=10.0
         )
         if resp.status_code == 200:

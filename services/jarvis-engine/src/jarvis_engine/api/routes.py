@@ -23,9 +23,72 @@ from ..tools.search_detector import (
 from ..voice.voice_manager import voice_manager
 from ..core.utils import safe_print
 from ..providers import fallback as fallback_module
+from ..plugins.credential_store import store_credential, get_credential as _get_cred
 from ..providers.fallback import run_cascade, build_fallback_note, build_ask_message, build_override_unavailable_message, build_unconfigured_message
 
 router = APIRouter()
+
+# ---------------------------------------------------------------------------
+# PIN Security: rate-limiting + PBKDF2-HMAC hashing + constant-time compare
+# ---------------------------------------------------------------------------
+import hashlib, hmac, os as _os
+
+_PIN_FAIL_COUNT = 0
+_PIN_FAIL_WINDOW_START = 0.0
+_PIN_LOCKOUT_UNTIL = 0.0
+_PIN_MAX_ATTEMPTS = 5
+_PIN_WINDOW_SECONDS = 300   # 5 minutes
+_PIN_LOCKOUT_SECONDS = 900  # 15 minutes
+
+
+def _hash_pin(pin: str, salt: str | None = None) -> str:
+    """Return 'salt$hash' (PBKDF2-HMAC-SHA256). Generates a fresh salt when
+    none is provided (new PIN being set). Accepts an existing salt when
+    verifying a stored hash."""
+    if salt is None:
+        salt = _os.urandom(16).hex()
+    dk = hashlib.pbkdf2_hmac("sha256", pin.encode(), salt.encode(), 260_000)
+    return f"{salt}${dk.hex()}"
+
+
+def _verify_pin(supplied: str, stored_hash: str) -> bool:
+    """Constant-time comparison. Returns True only if the supplied PIN matches
+    the stored PBKDF2 hash. Also accepts a bare 4-digit legacy plaintext PIN
+    (the default '0523') so that installs that haven't set a custom PIN yet
+    still work before the first explicit PIN change."""
+    if "$" not in stored_hash:
+        # Legacy plaintext — treat as plain equality (still constant-time)
+        return hmac.compare_digest(supplied, stored_hash)
+    salt, _ = stored_hash.split("$", 1)
+    return hmac.compare_digest(_hash_pin(supplied, salt), stored_hash)
+
+
+def _pin_check_rate_limit() -> tuple[bool, str]:
+    """Returns (allowed, error_message). Updates counters in-place."""
+    global _PIN_FAIL_COUNT, _PIN_FAIL_WINDOW_START, _PIN_LOCKOUT_UNTIL
+    now = time.monotonic()
+    if now < _PIN_LOCKOUT_UNTIL:
+        remaining = int(_PIN_LOCKOUT_UNTIL - now)
+        return False, f"Too many failed attempts. Try again in {remaining}s."
+    return True, ""
+
+
+def _pin_record_failure():
+    global _PIN_FAIL_COUNT, _PIN_FAIL_WINDOW_START, _PIN_LOCKOUT_UNTIL
+    now = time.monotonic()
+    if now - _PIN_FAIL_WINDOW_START > _PIN_WINDOW_SECONDS:
+        _PIN_FAIL_COUNT = 0
+        _PIN_FAIL_WINDOW_START = now
+    _PIN_FAIL_COUNT += 1
+    if _PIN_FAIL_COUNT >= _PIN_MAX_ATTEMPTS:
+        _PIN_LOCKOUT_UNTIL = now + _PIN_LOCKOUT_SECONDS
+        _PIN_FAIL_COUNT = 0
+
+
+def _pin_record_success():
+    global _PIN_FAIL_COUNT, _PIN_FAIL_WINDOW_START
+    _PIN_FAIL_COUNT = 0
+    _PIN_FAIL_WINDOW_START = 0.0
 
 # WebSocket connections for voice events
 connected_clients: Set[WebSocket] = set()
@@ -117,10 +180,10 @@ async def get_settings_endpoint():
     # manual Settings entry rather than .env. A provider configured only
     # via .env (never overridden through Settings) correctly reads false
     # here.
-    gemini_configured = await get_setting("GEMINI_API_KEY") != ""
-    groq_configured = await get_setting("GROQ_API_KEY") != ""
-    openrouter_configured = await get_setting("OPENROUTER_API_KEY") != ""
-    ollama_configured = await get_setting("OLLAMA_HOST") != ""
+    gemini_configured = bool(_get_cred("provider_config", "GEMINI_API_KEY") or await get_setting("GEMINI_API_KEY"))
+    groq_configured = bool(_get_cred("provider_config", "GROQ_API_KEY") or await get_setting("GROQ_API_KEY"))
+    openrouter_configured = bool(_get_cred("provider_config", "OPENROUTER_API_KEY") or await get_setting("OPENROUTER_API_KEY"))
+    ollama_configured = bool(_get_cred("provider_config", "OLLAMA_HOST") or await get_setting("OLLAMA_HOST"))
 
     return {
         "personality_mode": personality_mode,
@@ -150,8 +213,15 @@ async def get_settings_endpoint():
 @router.post("/settings/verify-pin")
 async def verify_delete_pin_endpoint(request: dict):
     pin = str(request.get("pin", "")).strip()
-    stored_pin = await get_setting("conversation_delete_pin", settings.CONVERSATION_DELETE_PIN)
-    return {"valid": pin == stored_pin}
+    allowed, err = _pin_check_rate_limit()
+    if not allowed:
+        raise HTTPException(status_code=429, detail=err)
+    stored_hash = await get_setting("conversation_delete_pin", settings.CONVERSATION_DELETE_PIN)
+    if _verify_pin(pin, stored_hash):
+        _pin_record_success()
+        return {"valid": True}
+    _pin_record_failure()
+    return {"valid": False}
 
 @router.post("/settings")
 async def update_settings_endpoint(request: dict):
@@ -166,7 +236,7 @@ async def update_settings_endpoint(request: dict):
     if "conversation_delete_pin" in request:
         pin = str(request["conversation_delete_pin"]).strip()
         if pin.isdigit() and len(pin) == 4:
-            await set_setting("conversation_delete_pin", pin)
+            await set_setting("conversation_delete_pin", _hash_pin(pin))
     if "address_preference" in request:
         addr = str(request["address_preference"]).strip()
         # Any short string (a name, "boss", etc.) or "" for no address
@@ -227,10 +297,10 @@ async def update_settings_endpoint(request: dict):
     preferred_model = await get_setting(
         "preferred_model", settings.PREFERRED_MODEL
     )
-    gemini_configured = await get_setting("GEMINI_API_KEY") != ""
-    groq_configured = await get_setting("GROQ_API_KEY") != ""
-    openrouter_configured = await get_setting("OPENROUTER_API_KEY") != ""
-    ollama_configured = await get_setting("OLLAMA_HOST") != ""
+    gemini_configured = bool(_get_cred("provider_config", "GEMINI_API_KEY") or await get_setting("GEMINI_API_KEY"))
+    groq_configured = bool(_get_cred("provider_config", "GROQ_API_KEY") or await get_setting("GROQ_API_KEY"))
+    openrouter_configured = bool(_get_cred("provider_config", "OPENROUTER_API_KEY") or await get_setting("OPENROUTER_API_KEY"))
+    ollama_configured = bool(_get_cred("provider_config", "OLLAMA_HOST") or await get_setting("OLLAMA_HOST"))
 
     return {
         "personality_mode": personality_mode,
@@ -253,19 +323,19 @@ async def update_settings_endpoint(request: dict):
 async def update_provider_config(request: dict):
     if "gemini_api_key" in request:
         val = str(request["gemini_api_key"]).strip()
-        await set_setting("GEMINI_API_KEY", val)
+        store_credential("provider_config", "GEMINI_API_KEY", val)
         settings.GEMINI_API_KEY = val
     if "groq_api_key" in request:
         val = str(request["groq_api_key"]).strip()
-        await set_setting("GROQ_API_KEY", val)
+        store_credential("provider_config", "GROQ_API_KEY", val)
         settings.GROQ_API_KEY = val
     if "openrouter_api_key" in request:
         val = str(request["openrouter_api_key"]).strip()
-        await set_setting("OPENROUTER_API_KEY", val)
+        store_credential("provider_config", "OPENROUTER_API_KEY", val)
         settings.OPENROUTER_API_KEY = val
     if "ollama_host" in request:
         val = str(request["ollama_host"]).strip()
-        await set_setting("OLLAMA_HOST", val)
+        store_credential("provider_config", "OLLAMA_HOST", val)
         settings.OLLAMA_HOST = val
     return {"status": "ok"}
 
@@ -1331,10 +1401,11 @@ def enforce_destructive_confirmation(text: str) -> str:
   def _make_rewriter(action_name: str):
     def _rewrite(match):
       payload = match.group(1)
-      print(
-        f"[SAFETY] Blocked unconfirmed {action_name} UI_ACTION for "
-        f"'{payload}' - rewriting to require confirmation"
-      )
+      if settings.DEBUG_LOG_CONTENT:
+          print(
+            f"[SAFETY] Blocked unconfirmed {action_name} UI_ACTION for "
+            f"'{payload}' - rewriting to require confirmation"
+          )
       return f"[UI_ACTION:confirm_action:{action_name}:{payload}]"
     return _rewrite
 
@@ -2928,11 +2999,17 @@ async def get_conversation_endpoint(conversation_id: str):
 @router.delete("/conversation/{conversation_id}")
 async def delete_conversation_endpoint(conversation_id: str, pin: str = ""):
     # Same server-side check as DELETE /memories/{id} - same stored
-    # conversation_delete_pin setting, same comparison - not a client-side
-    # comparison the frontend could be tricked into skipping.
-    stored_pin = await get_setting("conversation_delete_pin", settings.CONVERSATION_DELETE_PIN)
-    if str(pin).strip() != stored_pin:
+    # conversation_delete_pin setting, hardened with rate limiting and
+    # constant-time hash comparison (not a plain == that could be tricked
+    # client-side, and now also guarded against brute force).
+    allowed, err = _pin_check_rate_limit()
+    if not allowed:
+        raise HTTPException(status_code=429, detail=err)
+    stored_hash = await get_setting("conversation_delete_pin", settings.CONVERSATION_DELETE_PIN)
+    if not _verify_pin(str(pin).strip(), stored_hash):
+        _pin_record_failure()
         raise HTTPException(status_code=403, detail="Invalid PIN")
+    _pin_record_success()
 
     deleted = await delete_conversation(conversation_id)
     if not deleted:
@@ -3014,12 +3091,16 @@ async def update_memory_endpoint(memory_id: str, request: UpdateMemoryRequest):
 @router.delete("/memories/{memory_id}")
 async def delete_memory_endpoint(memory_id: str, pin: str = ""):
     # Same server-side check as /settings/verify-pin - same stored
-    # conversation_delete_pin setting, same comparison - not a separate
-    # memory-specific PIN and not a client-side comparison the frontend
-    # could be tricked into skipping.
-    stored_pin = await get_setting("conversation_delete_pin", settings.CONVERSATION_DELETE_PIN)
-    if str(pin).strip() != stored_pin:
+    # conversation_delete_pin setting, hardened with rate limiting and
+    # constant-time hash comparison.
+    allowed, err = _pin_check_rate_limit()
+    if not allowed:
+        raise HTTPException(status_code=429, detail=err)
+    stored_hash = await get_setting("conversation_delete_pin", settings.CONVERSATION_DELETE_PIN)
+    if not _verify_pin(str(pin).strip(), stored_hash):
+        _pin_record_failure()
         raise HTTPException(status_code=403, detail="Invalid PIN")
+    _pin_record_success()
 
     deleted = await memory_manager.delete_memory(memory_id)
     if not deleted:

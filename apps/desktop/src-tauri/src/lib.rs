@@ -724,33 +724,94 @@ fn delete_file(
   path: String,
   confirmed: bool
 ) -> Result<String, String> {
+
+  // -----------------------------------------------------------------------
+  // HARD SAFETY GATE — runs unconditionally, before `confirmed` is checked.
+  // Canonicalize first so symlinks / ".." traversal can never escape this.
+  // -----------------------------------------------------------------------
+  let raw_path = std::path::Path::new(&path);
+
+  // Require the path to exist so we can canonicalize it.
+  if !raw_path.exists() {
+    return Err(format!("Path does not exist: {}", path));
+  }
+
+  let canonical = raw_path.canonicalize()
+    .map_err(|e| format!("Could not resolve path: {}", e))?;
+
+  // Build the set of always-protected paths.
+  let mut protected: Vec<std::path::PathBuf> = vec![
+    std::path::PathBuf::from(r"C:\"),
+    std::path::PathBuf::from(r"C:\Windows"),
+    std::path::PathBuf::from(r"C:\Program Files"),
+    std::path::PathBuf::from(r"C:\Program Files (x86)"),
+    std::path::PathBuf::from(r"C:\Users"),
+    std::path::PathBuf::from(r"C:\ProgramData"),
+    std::path::PathBuf::from(r"C:\System Volume Information"),
+  ];
+
+  // Also protect the user's own home directory root (e.g. C:\Users\nithish)
+  // — files INSIDE it are fine, the root itself is not.
+  if let Ok(home) = std::env::var("USERPROFILE") {
+    protected.push(std::path::PathBuf::from(home));
+  }
+  // Belt-and-suspenders: also check HOMEDRIVE+HOMEPATH.
+  if let (Ok(drive), Ok(homepath)) = (
+    std::env::var("HOMEDRIVE"),
+    std::env::var("HOMEPATH")
+  ) {
+    protected.push(std::path::PathBuf::from(format!("{}{}", drive, homepath)));
+  }
+
+  // Canonicalize each protected path (best-effort; skip if it doesn't exist).
+  for protected_path in &protected {
+    let canon_protected = protected_path
+      .canonicalize()
+      .unwrap_or_else(|_| protected_path.clone());
+
+    if canonical == canon_protected {
+      return Err(
+        "This path is protected and cannot be deleted, sir.".to_string()
+      );
+    }
+  }
+
+  // Depth check: require at least 3 components from the drive root so that
+  // paths like "C:\Users\username" (2 components after root) are rejected
+  // even if they somehow slipped past the explicit list above.
+  // e.g. C:\Users\nithish\Documents\file.txt has components:
+  //   ["C:\\", "Users", "nithish", "Documents", "file.txt"] — depth 4, ok.
+  // e.g. C:\Users\nithish has depth 2, rejected.
+  let component_count = canonical.components().count();
+  if component_count < 4 {
+    return Err(
+      "This path is too close to the drive root and cannot be deleted, sir."
+        .to_string()
+    );
+  }
+
+  // -----------------------------------------------------------------------
+  // Confirmation gate (caller-supplied; enforced by the frontend confirm
+  // flow — the hard gate above is the real security boundary).
+  // -----------------------------------------------------------------------
   if !confirmed {
     return Err(format!(
       "REQUIRES_CONFIRMATION:Delete {}?", path
     ));
   }
 
-  let p = std::path::Path::new(&path);
-
-  // CRITICAL: Verify path exists before attempting delete
-  if !p.exists() {
-    return Err(format!(
-      "Path does not exist: {}", path
-    ));
-  }
-
-  // Determine if it's a file or folder
-  let is_dir = p.is_dir();
+  // Determine if it's a file or folder.
+  let is_dir = canonical.is_dir();
   let item_type = if is_dir { "folder" } else { "file" };
-  let item_name = p.file_name()
+  let item_name = canonical.file_name()
     .and_then(|n| n.to_str())
     .unwrap_or("item");
 
-  // Perform deletion with appropriate method
+  // Perform deletion with appropriate method.
   let result = if is_dir {
-    fs::remove_dir_all(&path)
+    fs::remove_dir_all(&canonical)
   } else {
-    fs::remove_file(&path)
+    fs::remove_file(&canonical)
   };
 
   match result {
@@ -760,7 +821,6 @@ fn delete_file(
       item_name
     )),
     Err(e) => {
-      // Return detailed error message
       let error_msg = e.to_string();
       Err(format!(
         "Failed to delete {} '{}': {}",
@@ -775,6 +835,7 @@ fn delete_file(
     }
   }
 }
+
 
 // Shutdown computer with confirmation
 #[tauri::command]

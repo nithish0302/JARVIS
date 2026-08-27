@@ -212,6 +212,11 @@ class Settings(BaseSettings):
     PREFERRED_PROVIDER: str = ""
     PREFERRED_MODEL: str = ""
 
+    # Gate prints that include raw user content (email bodies, extracted
+    # memory text). Default False — set to true only for local debugging.
+    # All operational/metadata prints are unaffected by this flag.
+    DEBUG_LOG_CONTENT: bool = False
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
 settings = Settings()

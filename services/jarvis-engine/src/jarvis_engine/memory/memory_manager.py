@@ -398,7 +398,8 @@ class MemoryManager:
         source_conversation_id=conversation_id
       )
       saved.append(content)
-      print(f"[MEMORY EXTRACTED] Category: {category} | Importance: {importance} | Content: {content}")
+      if settings.DEBUG_LOG_CONTENT:
+          print(f"[MEMORY EXTRACTED] Category: {category} | Importance: {importance} | Content: {content}")
       return saved
 
     except Exception as e:

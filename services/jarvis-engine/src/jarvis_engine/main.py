@@ -82,8 +82,12 @@ async def lifespan(app: FastAPI):
         print(f"[STARTUP] Restored preferred provider: {restored}")
 
     from .core.database import get_setting
+    from .plugins.credential_store import get_credential as _get_cred
     for key in ["GEMINI_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY", "OLLAMA_HOST"]:
-        val = await get_setting(key)
+        # Prefer the encrypted credential store (new path); fall back to the
+        # legacy plaintext settings table for installs that haven't re-entered
+        # their keys since the encryption upgrade.
+        val = _get_cred("provider_config", key) or await get_setting(key)
         if val:
             setattr(settings, key, val)
             print(f"[STARTUP] Loaded live override for {key}")

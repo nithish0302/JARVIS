@@ -1,4 +1,5 @@
 import httpx
+from urllib.parse import quote
 from .credential_store import store_credential, get_credential
 
 GITHUB_API_BASE = "https://api.github.com"
@@ -53,7 +54,9 @@ def list_repos() -> list[dict]:
 
 def list_issues(repo: str, state: str = "open") -> list[dict]:
     headers = get_github_headers()
-    resp = httpx.get(f"{GITHUB_API_BASE}/repos/{repo}/issues?state={state}&per_page=100", headers=headers, timeout=30.0)
+    safe_repo = quote(repo, safe="")
+    safe_state = quote(state, safe="")
+    resp = httpx.get(f"{GITHUB_API_BASE}/repos/{safe_repo}/issues?state={safe_state}&per_page=100", headers=headers, timeout=30.0)
     data = _handle_response(resp)
     
     results = []
@@ -72,7 +75,8 @@ def list_issues(repo: str, state: str = "open") -> list[dict]:
 
 def search_issues(query: str) -> list[dict]:
     headers = get_github_headers()
-    resp = httpx.get(f"{GITHUB_API_BASE}/search/issues?q={query}", headers=headers, timeout=30.0)
+    safe_q = quote(query, safe="")
+    resp = httpx.get(f"{GITHUB_API_BASE}/search/issues?q={safe_q}", headers=headers, timeout=30.0)
     data = _handle_response(resp)
     
     results = []
@@ -99,7 +103,9 @@ def create_issue(repo: str, title: str, body: str = "") -> bool:
 
 def list_pull_requests(repo: str, state: str = "open") -> list[dict]:
     headers = get_github_headers()
-    resp = httpx.get(f"{GITHUB_API_BASE}/repos/{repo}/pulls?state={state}&per_page=100", headers=headers, timeout=30.0)
+    safe_repo = quote(repo, safe="")
+    safe_state = quote(state, safe="")
+    resp = httpx.get(f"{GITHUB_API_BASE}/repos/{safe_repo}/pulls?state={safe_state}&per_page=100", headers=headers, timeout=30.0)
     data = _handle_response(resp)
     
     results = []
@@ -114,15 +120,16 @@ def list_pull_requests(repo: str, state: str = "open") -> list[dict]:
 
 def get_pr_status(repo: str, pr_number: int) -> dict:
     headers = get_github_headers()
-    
-    pr_resp = httpx.get(f"{GITHUB_API_BASE}/repos/{repo}/pulls/{pr_number}", headers=headers, timeout=30.0)
+    safe_repo = quote(repo, safe="")
+    safe_pr = quote(str(pr_number), safe="")
+    pr_resp = httpx.get(f"{GITHUB_API_BASE}/repos/{safe_repo}/pulls/{safe_pr}", headers=headers, timeout=30.0)
     pr_data = _handle_response(pr_resp)
     head_sha = pr_data.get("head", {}).get("sha")
     
     if not head_sha:
         raise ValueError("Could not find head sha for PR")
         
-    status_resp = httpx.get(f"{GITHUB_API_BASE}/repos/{repo}/commits/{head_sha}/status", headers=headers, timeout=30.0)
+    status_resp = httpx.get(f"{GITHUB_API_BASE}/repos/{safe_repo}/commits/{head_sha}/status", headers=headers, timeout=30.0)
     status_data = _handle_response(status_resp)
     
     return {
@@ -143,8 +150,8 @@ def search_code(query: str, repo: str = None) -> list[dict]:
     q = query
     if repo:
         q = f"{query} repo:{repo}"
-    
-    resp = httpx.get(f"{GITHUB_API_BASE}/search/code?q={q}", headers=headers, timeout=30.0)
+    safe_q = quote(q, safe="")
+    resp = httpx.get(f"{GITHUB_API_BASE}/search/code?q={safe_q}", headers=headers, timeout=30.0)
     data = _handle_response(resp)
     
     results = []
