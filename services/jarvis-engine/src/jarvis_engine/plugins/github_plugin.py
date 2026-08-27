@@ -145,7 +145,7 @@ def get_pr_status(repo: str, pr_number: int) -> dict:
         ]
     }
 
-def search_code(query: str, repo: str = None) -> list[dict]:
+def search_code(query: str, repo: str | None = None) -> list[dict]:
     headers = get_github_headers()
     q = query
     if repo:

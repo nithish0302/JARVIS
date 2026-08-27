@@ -21,6 +21,5 @@ class BaseProvider(ABC):
     async def is_available(self) -> bool:
         pass
 
-    @abstractmethod
     async def stream(self, messages: List[Message]) -> AsyncGenerator[str, None]:
-        pass
+        yield ""

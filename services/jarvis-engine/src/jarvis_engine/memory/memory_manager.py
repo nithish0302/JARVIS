@@ -27,7 +27,7 @@ class MemoryManager:
     content: str,
     category: str = "general",
     importance: int = 5,
-    source_conversation_id: str = None
+    source_conversation_id: str | None = None
   ) -> str:
     async with aiosqlite.connect(settings.DB_PATH) as db:
 
@@ -125,7 +125,7 @@ class MemoryManager:
         conditions = " OR ".join(
             ["LOWER(content) LIKE ?" for _ in words]
         )
-        params = [f"%{w}%" for w in words]
+        params: list[str | int] = [f"%{w}%" for w in words]
         params.append(limit)
         
         cursor = await db.execute(
@@ -313,7 +313,7 @@ class MemoryManager:
   async def extract_and_save_memories(
     self,
     user_message: str,
-    conversation_id: str = None
+    conversation_id: str | None = None
   ) -> list[str]:
     saved = []
     msg_clean = user_message.strip()
@@ -366,7 +366,7 @@ class MemoryManager:
             temperature=0.0,
             max_tokens=150
           )
-          raw_text = resp.choices[0].message.content.strip()
+          raw_text = (resp.choices[0].message.content or "").strip()
           match = re.search(r'\{[\s\S]*\}', raw_text)
           if match:
             data = json.loads(match.group())

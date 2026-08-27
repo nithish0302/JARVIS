@@ -1,7 +1,7 @@
 """Shared provider-cascade/override/ask-mode logic used by the chat, chat
 stream, and voice endpoints in api/routes.py, so the three don't drift out
 of sync on how provider_override and fallback_mode are honored."""
-from typing import List, Optional, TypedDict
+from typing import List, Optional, TypedDict, Required, NotRequired
 
 from ..core.database import get_setting, set_setting
 from .manager import provider_manager
@@ -10,14 +10,14 @@ VALID_PROVIDERS = {"gemini", "openrouter", "groq", "ollama"}
 
 
 class CascadeResult(TypedDict, total=False):
-    status: str  # "ok" | "asking" | "override_unavailable" | "all_failed"
-    response_text: str
-    provider_used: str
-    model_used: str
-    fallback_occurred: bool
-    failed_provider: Optional[str]
-    failed_providers: List[str]
-    remaining: List[str]
+    status: Required[str]  # "ok" | "asking" | "override_unavailable" | "all_failed"
+    response_text: NotRequired[str]
+    provider_used: NotRequired[str]
+    model_used: NotRequired[str]
+    fallback_occurred: NotRequired[bool]
+    failed_provider: NotRequired[Optional[str]]
+    failed_providers: NotRequired[List[str]]
+    remaining: NotRequired[List[str]]
 
 
 async def get_provider_settings() -> tuple[Optional[str], str]:

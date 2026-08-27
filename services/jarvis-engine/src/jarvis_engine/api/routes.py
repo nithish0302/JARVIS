@@ -150,7 +150,7 @@ async def tts_status():
   from ..voice.tts_engine import tts_engine
   return {
     "is_speaking": tts_engine.is_speaking,
-    "voice": tts_engine.voice
+    "voice": getattr(tts_engine, "kokoro_voice", "unknown")
   }
 
 @router.get("/settings")
@@ -612,9 +612,9 @@ async def voice_input_endpoint(request: dict):
   failed_provider = None
 
   if cascade["status"] == "ok":
-    response_text = cascade["response_text"]
-    provider_used = cascade["provider_used"]
-    model_used = cascade["model_used"]
+    response_text = cascade.get("response_text", "")
+    provider_used = cascade.get("provider_used", "unknown")
+    model_used = cascade.get("model_used", "unknown")
     fallback_occurred = cascade.get("fallback_occurred", False)
     failed_provider = cascade.get("failed_provider")
     if fallback_occurred and failed_provider:
@@ -623,11 +623,11 @@ async def voice_input_endpoint(request: dict):
       f" (after {failed_provider} failed)" if fallback_occurred else ""
     ))
   elif cascade["status"] == "asking":
-    response_text = build_ask_message(cascade["failed_provider"], cascade.get("remaining", []))
+    response_text = build_ask_message(cascade.get("failed_provider") or "unknown", cascade.get("remaining") or [])
     provider_used = "asking"
     model_used = "asking"
   elif cascade["status"] == "override_unavailable":
-    response_text = build_override_unavailable_message(cascade["failed_provider"])
+    response_text = build_override_unavailable_message(cascade.get("failed_provider") or "unknown")
     provider_used = "override_unavailable"
     model_used = "unavailable"
   else:
@@ -807,7 +807,7 @@ def _address_line(address_preference: str, minimal: bool = False) -> str:
 def get_system_prompt(
     personality_mode: str = "assistant",
     modifier: str = "none",
-    address_preference: str = None,
+    address_preference: str | None = None,
 ) -> str:
     if address_preference is None:
         address_preference = settings.ADDRESS_PREFERENCE
@@ -911,7 +911,7 @@ def _time_of_day_greeting() -> str:
         return "Good afternoon"
     return "Good evening"
 
-async def maybe_build_daily_briefing(address_preference: str = None) -> str:
+async def maybe_build_daily_briefing(address_preference: str | None = None) -> str:
     """Returns a briefing string ready to prepend to the first response of
     the day (ending in a blank line), or "" if none is due right now.
 
@@ -1876,7 +1876,7 @@ async def generate_automation_command(
       temperature=0
     )
     
-    text = response.choices[0].message.content.strip()
+    text = (response.choices[0].message.content or "").strip()
     import re
     automation_results = []
     arr_match = re.search(r'\[.*\]', text, re.DOTALL)
@@ -2232,20 +2232,20 @@ async def chat_endpoint(request: ChatRequest):
         failed_provider = None
 
         if cascade["status"] == "ok":
-            response_text = cascade["response_text"]
-            provider_used = cascade["provider_used"]
-            model_used = cascade["model_used"]
+            response_text = cascade.get("response_text", "")
+            provider_used = cascade.get("provider_used", "unknown")
+            model_used = cascade.get("model_used", "unknown")
             fallback_occurred = cascade.get("fallback_occurred", False)
             failed_provider = cascade.get("failed_provider")
             print(f"[CHAT] Successfully got response from {provider_used}" + (
                 f" (after {failed_provider} failed)" if fallback_occurred else ""
             ))
         elif cascade["status"] == "asking":
-            response_text = build_ask_message(cascade["failed_provider"], cascade.get("remaining", []))
+            response_text = build_ask_message(cascade.get("failed_provider") or "unknown", cascade.get("remaining") or [])
             provider_used = "asking"
             model_used = "asking"
         elif cascade["status"] == "override_unavailable":
-            response_text = build_override_unavailable_message(cascade["failed_provider"])
+            response_text = build_override_unavailable_message(cascade.get("failed_provider") or "unknown")
             provider_used = "override_unavailable"
             model_used = "unavailable"
         else:
@@ -3139,7 +3139,7 @@ async def deduplicate_memories():
     count = await cursor.fetchone()
     return {
       "status": "deduplicated",
-      "memories_remaining": count[0]
+      "memories_remaining": count[0] if count else 0
     }
 
 @router.post("/config/openrouter-key")
@@ -3371,7 +3371,7 @@ async def github_pr_status(repo: str, number: int):
     return get_pr_status(repo, number)
 
 @router.get("/plugins/github/search/code")
-async def github_search_code(query: str, repo: str = None):
+async def github_search_code(query: str, repo: str | None = None):
     _check_plugin("github")
     from ..plugins.github_plugin import search_code
     return search_code(query, repo)
