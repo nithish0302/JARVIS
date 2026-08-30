@@ -18,6 +18,18 @@ export function useEngineStatus() {
     // overwrite an honest post-fallback badge with "whichever provider
     // happens to be first available" every 30s.
     let seeded = false
+    // The bundled backend is spawned by the Tauri shell right as the
+    // window opens (see src-tauri/src/lib.rs's spawn_engine_sidecar) and
+    // can take a while to become reachable - torch/kokoro/whisper import
+    // and warm up before uvicorn starts accepting connections. Polling
+    // every 30s would leave the UI reading "JARVIS engine not running"
+    // for up to 30s of a startup that's actually proceeding normally.
+    // This window polls fast instead, and reads as a startup state
+    // ("Starting JARVIS engine...") rather than a failure state, until
+    // either it connects or a real timeout elapses.
+    const STARTUP_GRACE_MS = 45000
+    const startedAt = Date.now()
+    const inStartupGrace = () => Date.now() - startedAt < STARTUP_GRACE_MS
 
     const check = async () => {
       try {
@@ -42,7 +54,11 @@ export function useEngineStatus() {
         }
       } catch {
         setStatus("offline")
-        setError("JARVIS engine not running")
+        setError(
+          inStartupGrace()
+            ? "Starting JARVIS engine..."
+            : "JARVIS engine not running"
+        )
       }
     }
 
@@ -99,11 +115,25 @@ export function useEngineStatus() {
     checkSettings().then(check)
     checkMemories()
 
-    const interval = window.setInterval(check, 30000)
+    // Fast cadence for the startup window, normal 30s cadence after -
+    // reschedules itself each tick rather than running two competing
+    // intervals.
+    let cancelled = false
+    let timeoutId: number
+    const scheduleNext = () => {
+      if (cancelled) return
+      timeoutId = window.setTimeout(async () => {
+        await check()
+        scheduleNext()
+      }, inStartupGrace() ? 1500 : 30000)
+    }
+    scheduleNext()
+
     const memoryInterval = window.setInterval(checkMemories, 60000)
 
     return () => {
-      window.clearInterval(interval)
+      cancelled = true
+      window.clearTimeout(timeoutId)
       window.clearInterval(memoryInterval)
     }
   }, [setStatus, setError, setMemoryCount, setPersonalityMode, setModifier, setAddressPreference, setDailyBriefingEnabled])

@@ -21,6 +21,7 @@ import { CommandPalette } from "./components/palette/CommandPalette/CommandPalet
 import { ShortcutToast } from "./components/layout/ShortcutToast/ShortcutToast";
 import { FallbackToast } from "./components/layout/FallbackToast/FallbackToast";
 import { FirstRunBanner } from "./components/layout/FirstRunBanner/FirstRunBanner";
+import { EngineSetupOverlay } from "./components/layout/EngineSetupOverlay/EngineSetupOverlay";
 import { GapDashboard } from "./components/gaps/GapDashboard";
 import { CapabilitiesDashboard } from "./components/capabilities/CapabilitiesDashboard";
 
@@ -102,6 +103,7 @@ function App() {
       <ShortcutToast />
       <FallbackToast />
       <FirstRunBanner />
+      <EngineSetupOverlay />
     </LayoutProvider>
   );
 }

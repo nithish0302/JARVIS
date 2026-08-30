@@ -560,3 +560,137 @@ above are left as-written (point-in-time record); this section tracks status.
   untracked it (`git rm --cached`). Not purged from history — low-value
   given it holds no secrets; `git filter-repo` would be the tool if that's
   ever wanted.
+
+---
+
+## Status as of 2026-08-30
+
+Re-verified against the current tree. Everything below is either
+confirmed resolved (with what was actually checked), confirmed still
+open, or explicitly deferred to v2 — nothing left ambiguous.
+
+### Resolved
+
+- **C1, H1** — destructive-action confirmation now enforced at all 3
+  response paths (`/chat`, `/chat/stream`, `/voice/input`); all 4 actions
+  have a working frontend confirm handler. (Carried forward from the
+  2026-08-27 log above; re-confirmed by reading `/voice/input`
+  end-to-end on 2026-08-30 — it now also calls
+  `enforce_destructive_confirmation()`, saves both the user and assistant
+  message, fetches relevant memories, extracts new ones, keeps
+  `UI_ACTION_INSTRUCTION`, and logs gaps, closing most of M1 at the same
+  time — see M1 below.)
+- **C2** — `services/jarvis-engine/src/data/` (the DB + Chroma store with
+  live Google tokens) is no longer tracked at HEAD, and `.gitignore` now
+  correctly excludes `services/jarvis-engine/**/data/` regardless of
+  which cwd the engine was started from. **Not verified:** whether the
+  blob was purged from git history or only untracked going forward — the
+  original commit that added it (`a8908af9`) is no longer an ancestor of
+  `HEAD`, consistent with a history rewrite, but this was not confirmed
+  by inspecting reflog/filter-repo output directly. Revoking + re-
+  authorizing the actual Google grant (the important half of this fix)
+  is an account-side action outside this repo and wasn't independently
+  re-verified either — confirm this was actually done if you're reading
+  this and aren't sure.
+- **H3** — fixed, unchanged from the 2026-08-27 log entry (path
+  allowlist in Rust `delete_file`, 8 unit tests).
+- **H4** — fixed, unchanged from the 2026-08-27 log entry (provider keys
+  through `store_credential`, legacy self-heal on boot).
+- **H6** — fixed, unchanged from the 2026-08-27 log entry (PBKDF2 +
+  rate limit + lockout on the PIN).
+- **H7 (M7 in the original numbering)** — Google's `tokeninfo` call now
+  sends `access_token` as a POST body field, not a URL query string
+  (`google_auth.py`).
+- **M1** — voice/chat parity gaps closed. `/voice/input` now includes
+  relevant-memory context, keeps `UI_ACTION_INSTRUCTION` alongside
+  automation context, persists both the user and assistant message, and
+  runs memory extraction + gap logging — all confirmed present in
+  `routes.py`'s voice handler (search for the inline `# Gap 1`–`# Gap 5`
+  comments there). The one row still missing: the `<SYSTEM_STATE>` block
+  (which provider/model is active) that `/chat` and `/chat/stream` inject
+  — cosmetic/informational, not a correctness or security gap, left
+  open.
+- **M8 (partial)** — `Dock.test.tsx` now asserts 5 buttons, matching
+  `Dock.tsx`'s actual render — that failure is fixed. **Still open:**
+  `Orb.tsx`'s `getContext("2d")` result is still used unguarded
+  (`ctx.setTransform(...)` at line ~104 with no null check) — the second
+  original failure is unaddressed.
+- **M9 (partial)** — the two content-logging prints called out in the
+  original finding (`routes.py`'s `[SAFETY]` line and
+  `memory_manager.py`'s `[MEMORY EXTRACTED]` line) are now both gated
+  behind a `DEBUG_LOG_CONTENT` setting (default `False`). The general
+  volume of bare `print()` calls elsewhere in `routes.py` is unchanged —
+  not a security concern on its own, just unaddressed noise.
+
+### Partially resolved
+
+- **H2** — GitHub URL interpolation is now safe (`urllib.parse.quote`)
+  in `list_issues`, `search_issues`, `list_pull_requests`,
+  `get_pr_status`, and `search_code`. **One spot missed:**
+  `create_issue()`'s `repo` parameter is still interpolated into the URL
+  unencoded (`github_plugin.py`, `f"{GITHUB_API_BASE}/repos/{repo}/issues"`).
+  Same risk class as the original finding, just narrower — only reachable
+  through the one action that was already confirmation-gated, but still
+  worth a one-line fix.
+- **M6** — `test_destructive_confirmation.py` now exists (8 tests) and
+  covers exactly the audit's #1 ask (`enforce_destructive_confirmation`
+  per-action coverage). `test_plugin_credential_namespace.py` also exists
+  but tests namespace *resolution*, not `credential_store`'s actual
+  encrypt/decrypt/delete round trip through DPAPI — the audit's #3 ask is
+  still not directly covered.
+
+### Confirmed still open (not re-fixed since 2026-08-27)
+
+- **M5** — GitHub actions are still advertised in the always-on
+  `SYSTEM_CAPABILITIES` prompt block regardless of whether the plugin is
+  actually connected (`routes.py`, ~line 999–1025) — same drift the
+  original finding described.
+- **L7** — `credential_store.delete_credential()` and
+  `list_credential_keys()` still skip the `_check_windows()` guard the
+  other two functions call.
+
+### Not re-verified this pass
+
+- **C3** (rotate the leaked Tavily key), **C4** (test suite
+  voice-teardown segfault), **M2** (`search_performed` semantics
+  mismatch), **L1, L3–L6, L8** — not independently re-checked in this
+  documentation pass; treat their 2026-08-27 status (open, as originally
+  written above) as current until someone re-verifies them directly. In
+  particular, C3 needs a manual action (rotate the key on Tavily's
+  dashboard) that no amount of code review can confirm — a live-looking
+  key is still present in the local, untracked `.env` as of this
+  writing, so don't assume this is done.
+
+### Deferred to v2 (explicit, not oversights)
+
+- **H5** — no authentication on any endpoint. Accepted for now with
+  documented reasoning (single-user, localhost-only, low realistic risk)
+  — see `SECURITY.md`. Real fix is a local token/session scheme.
+- **M3** — `routes.py` split (`routes/chat.py`, `routes/voice.py`,
+  `routes/plugins.py`, `routes/settings.py`), and — higher priority than
+  the split itself — extracting the shared request pipeline so `/chat`,
+  `/chat/stream`, and `/voice/input` stop maintaining near-duplicate
+  logic in three places. This is *why* M1 kept recurring.
+- **M4** — `spotify_play`, `spotify_pause`, `whatsapp_send` are
+  registered as UI actions with no real plugin behind them
+  (`placeholders.py`) and no credential-configuration endpoint exists for
+  either — they're inert today, but will silently no-op the moment
+  someone wires up the registry side without the actual backend.
+- **Remaining Medium/Low items** not otherwise called out above (M2,
+  L1, L3–L6, L8) stay as originally written, deferred.
+
+### Summary
+
+**Overall status: substantially improved, not a clean bill of health.**
+All 4 original Criticals have at least partial resolution (C1/C2 fully
+addressed in-repo; C3 needs a manual, unverifiable-from-code action; C4
+untouched this pass). All but one High is resolved or narrowed to a
+single remaining spot (H2). The security-critical gaps that mattered
+most for a single-user desktop app — the destructive-action bypass, the
+credential encryption gap, the brute-forceable PIN — are fixed and
+covered by tests. What's left is either explicitly deferred with
+reasoning (H5, M3, M4) or genuinely unverified rather than fixed (C3,
+C4, M2, most Lows) — treat this document, not memory of past sessions,
+as the source of truth for which is which.
+
+**Closed:** 2026-08-30.

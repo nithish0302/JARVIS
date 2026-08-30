@@ -3,8 +3,175 @@ use sysinfo::{Disks, System};
 use std::process::Command;
 use std::path::Path;
 use std::fs;
+use std::net::TcpStream;
+use std::time::Duration;
+use tauri_plugin_shell::process::CommandChild;
+use tauri_plugin_shell::ShellExt;
+use tauri::Manager;
+
+mod sidecar_setup;
+use sidecar_setup::SetupState;
 
 pub struct SysState(pub Mutex<System>);
+
+/// Holds the child handle for the bundled Python backend sidecar, if this
+/// instance is the one that launched it. `None` either means the sidecar
+/// hasn't been spawned yet, or the backend was already reachable at
+/// startup (e.g. `pnpm tauri dev` next to a manually-run `uv run start.py`)
+/// so we deliberately did not spawn a second copy - nothing for shutdown
+/// to kill in that case.
+pub struct EngineProcess(pub Mutex<Option<CommandChild>>);
+
+const ENGINE_HOST: &str = "127.0.0.1";
+const ENGINE_PORT: u16 = 8765;
+
+fn engine_already_running() -> bool {
+  TcpStream::connect_timeout(
+    &format!("{}:{}", ENGINE_HOST, ENGINE_PORT).parse().unwrap(),
+    Duration::from_millis(300),
+  )
+  .is_ok()
+}
+
+/// Prepares `<app-data-dir>/` as the sidecar's working directory and seeds
+/// it with the wake-word model, then returns that directory.
+///
+/// The backend's config (jarvis_engine/core/config.py) resolves DB_PATH,
+/// CHROMA_PATH, and WAKE_WORD_MODEL_PATH as paths RELATIVE to the
+/// process's cwd - correct for the dev workflow (always run from
+/// services/jarvis-engine/), meaningless for a frozen sidecar exe, whose
+/// own directory is a temp install path with no writable model/data
+/// layout of its own. Anchoring cwd here instead gives every install a
+/// stable, writable, per-user location - %APPDATA%\com.nithish.jarvis\ -
+/// that survives updates and reinstalls the same way whether the DB
+/// already exists there or is created fresh.
+fn prepare_engine_data_dir(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
+  let data_dir = app.path().app_data_dir().ok()?;
+  let models_dir = data_dir.join("models");
+  if let Err(e) = fs::create_dir_all(&models_dir) {
+    eprintln!("[SIDECAR] Could not create {:?}: {}", models_dir, e);
+    return None;
+  }
+
+  let dest_model = models_dir.join("wake_up_jarvis.onnx");
+  if !dest_model.exists() {
+    if let Ok(resource_dir) = app.path().resource_dir() {
+      let bundled_model = resource_dir.join("models").join("wake_up_jarvis.onnx");
+      if bundled_model.exists() {
+        if let Err(e) = fs::copy(&bundled_model, &dest_model) {
+          eprintln!("[SIDECAR] Could not seed wake-word model: {}", e);
+        } else {
+          println!("[SIDECAR] Seeded wake-word model into {:?}", dest_model);
+        }
+      } else {
+        eprintln!("[SIDECAR] Bundled wake-word model not found at {:?} - voice wake detection will be unavailable until one is placed at {:?}", bundled_model, dest_model);
+      }
+    }
+  }
+
+  Some(data_dir)
+}
+
+/// Recursively copies a directory. std::fs has no built-in for this.
+pub(crate) fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
+  fs::create_dir_all(dst)?;
+  for entry in fs::read_dir(src)? {
+    let entry = entry?;
+    let file_type = entry.file_type()?;
+    let dest_path = dst.join(entry.file_name());
+    if file_type.is_dir() {
+      copy_dir_recursive(&entry.path(), &dest_path)?;
+    } else {
+      fs::copy(entry.path(), &dest_path)?;
+    }
+  }
+  Ok(())
+}
+
+/// Spawns the bundled `jarvis-engine` sidecar unless something is already
+/// listening on the engine port. Drains its stdout/stderr in a background
+/// task so the child's output pipes never fill up and block it, and logs
+/// enough to diagnose a startup failure without a console window.
+///
+/// `_internal` (PyInstaller's onedir support directory, needed physically
+/// next to the sidecar .exe) is no longer bundled into the installer -
+/// see sidecar_setup.rs for why and how it's fetched from a GitHub
+/// Release on first run instead. If that setup fails, this bails out
+/// without spawning the sidecar; the frontend shows the error and a
+/// Retry button (see useSidecarSetup.ts) instead of a silently-broken
+/// "JARVIS engine not running" state.
+pub(crate) async fn spawn_engine_sidecar(app: &tauri::AppHandle) {
+  if engine_already_running() {
+    println!("[SIDECAR] Engine already reachable on {}:{} - not spawning a second copy", ENGINE_HOST, ENGINE_PORT);
+    return;
+  }
+
+  if !sidecar_setup::ensure_sidecar_internal_dir(app).await {
+    return;
+  }
+
+  let sidecar = match app.shell().sidecar("jarvis-engine") {
+    Ok(cmd) => cmd,
+    Err(e) => {
+      eprintln!("[SIDECAR] Could not resolve jarvis-engine sidecar binary: {}", e);
+      return;
+    }
+  };
+
+  let sidecar = match prepare_engine_data_dir(app) {
+    Some(data_dir) => sidecar.current_dir(data_dir),
+    None => {
+      eprintln!("[SIDECAR] Could not resolve app data dir - launching with default cwd");
+      sidecar
+    }
+  };
+
+  match sidecar.spawn() {
+    Ok((mut rx, child)) => {
+      println!("[SIDECAR] jarvis-engine started (pid {})", child.pid());
+      if let Some(state) = app.try_state::<EngineProcess>() {
+        *state.0.lock().unwrap() = Some(child);
+      }
+      tauri::async_runtime::spawn(async move {
+        use tauri_plugin_shell::process::CommandEvent;
+        while let Some(event) = rx.recv().await {
+          match event {
+            CommandEvent::Stdout(line) => {
+              print!("[jarvis-engine] {}", String::from_utf8_lossy(&line));
+            }
+            CommandEvent::Stderr(line) => {
+              eprint!("[jarvis-engine] {}", String::from_utf8_lossy(&line));
+            }
+            CommandEvent::Error(err) => {
+              eprintln!("[jarvis-engine] process error: {}", err);
+            }
+            CommandEvent::Terminated(payload) => {
+              println!("[jarvis-engine] exited: {:?}", payload);
+              break;
+            }
+            _ => {}
+          }
+        }
+      });
+    }
+    Err(e) => {
+      eprintln!("[SIDECAR] Failed to spawn jarvis-engine: {}", e);
+    }
+  }
+}
+
+/// Kills the sidecar we launched, if any. Called on app exit so the
+/// backend never survives the window closing as an orphaned process.
+fn kill_engine_sidecar(app: &tauri::AppHandle) {
+  if let Some(state) = app.try_state::<EngineProcess>() {
+    if let Some(child) = state.0.lock().unwrap().take() {
+      println!("[SIDECAR] Terminating jarvis-engine (pid {})", child.pid());
+      if let Err(e) = child.kill() {
+        eprintln!("[SIDECAR] Failed to kill jarvis-engine: {}", e);
+      }
+    }
+  }
+}
 
 #[tauri::command]
 fn get_system_info(state: tauri::State<SysState>) -> serde_json::Value {
@@ -923,8 +1090,27 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .manage(SysState(Mutex::new(sys)))
+        .manage(EngineProcess(Mutex::new(None)))
+        .manage(SetupState(Mutex::new(sidecar_setup::SetupProgress::default())))
+        .setup(|app| {
+            let handle = app.handle().clone();
+            // Spawned on the async runtime rather than blocking .setup():
+            // the TCP probe, first-run _internal download, and process
+            // spawn must never delay the window from opening. The
+            // frontend polls /health and shows "engine not running" (see
+            // useEngineStatus.ts), and separately listens for
+            // sidecar-setup-progress events (see useSidecarSetup.ts) to
+            // show real download progress instead of an apparently-frozen
+            // app during first-run setup.
+            tauri::async_runtime::spawn(async move {
+                spawn_engine_sidecar(&handle).await;
+            });
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             get_system_info,
+            sidecar_setup::get_sidecar_setup_status,
+            sidecar_setup::retry_sidecar_setup,
             open_application,
             find_application,
             close_application,
@@ -946,8 +1132,17 @@ pub fn run() {
             restart_computer,
             get_power_status,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            // RunEvent::Exit (not just window CloseRequested) so the
+            // backend is also reaped if the app quits via the tray, a
+            // shutdown signal, or any path other than the user clicking
+            // the window's close button.
+            if let tauri::RunEvent::Exit = event {
+                kill_engine_sidecar(app_handle);
+            }
+        });
 }
 
 #[cfg(test)]
