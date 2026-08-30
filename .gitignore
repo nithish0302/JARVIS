@@ -70,3 +70,5 @@ services/jarvis-engine/.env
 # apps/desktop/src/data/ holds real source files (currentModels.ts,
 # graphHubs.ts) that must stay tracked.
 services/jarvis-engine/**/data/
+apps/desktop/src-tauri/binaries/
+services/jarvis-engine/build/
