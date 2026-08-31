@@ -230,12 +230,17 @@ app = FastAPI(
 # lock down which local origin is allowed. Matched by regex rather than one
 # hardcoded string because Tauri's production webview origin differs by
 # platform/version: WebView2 (Windows) serves the packaged app from
-# https://tauri.localhost, while Linux/macOS use the tauri://localhost
-# custom scheme. localhost:<any port> is also allowed so `pnpm tauri dev`
+# tauri.localhost, while Linux/macOS use the tauri://localhost custom
+# scheme. CONFIRMED via debug.log on a real install: WebView2 is not
+# consistently https - one install was observed sending Origin:
+# http://tauri.localhost (not https), which an https-only tauri.localhost
+# pattern silently rejected with no visible error beyond a generic
+# "unable to connect" - so both schemes are allowed here rather than
+# assuming https. localhost:<any port> is also allowed so `pnpm tauri dev`
 # keeps working regardless of which port Vite picks.
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"^(https?://localhost:\d+|tauri://localhost|https://tauri\.localhost)$",
+    allow_origin_regex=r"^(https?://localhost:\d+|tauri://localhost|https?://tauri\.localhost)$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

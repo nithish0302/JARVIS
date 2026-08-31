@@ -8,13 +8,17 @@ import { ActionFeedback } from "../ActionFeedback/ActionFeedback";
 type EffectiveStatus = "idle" | "listening" | "speaking" | "thinking" | "error";
 
 function getEffectiveStatus(status: AIState["status"], voiceStatus: AIState["voiceStatus"]): EffectiveStatus {
-  // Combine status - voice takes priority
+  // Combine status - voice takes priority. "offline" gets the same
+  // treatment as "error" (not idle) - it means the engine is unreachable,
+  // which is more serious than idle and should stay visible rather than
+  // silently falling through to the default.
   return voiceStatus === "listening" ? "listening" :
     voiceStatus === "speaking" ? "speaking" :
     voiceStatus === "processing" ? "thinking" :
     status === "streaming" ? "thinking" :
     status === "connecting" ? "thinking" :
     status === "error" ? "error" :
+    status === "offline" ? "error" :
     "idle";
 }
 
