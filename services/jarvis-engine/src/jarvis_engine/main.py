@@ -15,17 +15,20 @@ for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
         _stream.reconfigure(encoding="utf-8", errors="replace")
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from .api.routes import router
 from .core.database import init_db
 from .core.config import settings, log_api_key_diagnostics
+from .core.diagnostics import diagnostics_logger, RequestLoggingMiddleware, LOG_PATH
 
 # Runs at import time (before the lifespan/DB/model-loading work below) so
 # the masked key previews and any stale-system-env-var warning are the
 # first thing visible in every startup log, not buried after several
 # seconds of provider/model init output.
 log_api_key_diagnostics()
+diagnostics_logger.info("=== jarvis-engine starting up (debug.log: %s) ===", LOG_PATH)
 
 async def _broadcast_audio_levels():
     """Drains audio_level_bus at a throttled ~12Hz and broadcasts the
@@ -222,12 +225,43 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# Single-user local desktop app (no API auth in v1 - see M1 security audit),
+# so CORS only needs to keep non-JARVIS web pages from calling this API, not
+# lock down which local origin is allowed. Matched by regex rather than one
+# hardcoded string because Tauri's production webview origin differs by
+# platform/version: WebView2 (Windows) serves the packaged app from
+# https://tauri.localhost, while Linux/macOS use the tauri://localhost
+# custom scheme. localhost:<any port> is also allowed so `pnpm tauri dev`
+# keeps working regardless of which port Vite picks.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:1420"],
+    allow_origin_regex=r"^(https?://localhost:\d+|tauri://localhost|https://tauri\.localhost)$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Added AFTER CORSMiddleware above so it wraps OUTSIDE it (add_middleware
+# stacks outermost-last) and can observe the Access-Control-Allow-Origin
+# header CORSMiddleware adds (or doesn't) to the actual response - see
+# core/diagnostics.py. This is the primary tool for diagnosing HTTP
+# failures in the packaged app, which has no visible console.
+app.add_middleware(RequestLoggingMiddleware)
+
+
+@app.exception_handler(Exception)
+async def _log_unhandled_exception(request: Request, exc: Exception):
+    """Catches anything not already handled as an HTTPException, so a
+    failure that isn't CORS at all (missing bundled resource, a
+    PyInstaller-frozen-env path issue, a permissions error, etc.) still
+    gets a full traceback written to debug.log instead of surfacing only
+    as a generic client-side "unable to connect"."""
+    diagnostics_logger.error(
+        "UNHANDLED EXCEPTION in handler for %s %s\n%s",
+        request.method, request.url.path,
+        "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
+    )
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+
 
 app.include_router(router)
