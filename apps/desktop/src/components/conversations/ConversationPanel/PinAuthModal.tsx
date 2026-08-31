@@ -4,7 +4,6 @@ import './PinAuthModal.css';
 
 interface PinAuthModalProps {
   onCancel: () => void;
-  // eslint-disable-next-line no-unused-vars
   onConfirm: (val: string) => Promise<void>;
   isOpen: boolean;
   // What the description line says is being deleted, e.g. "conversation" or

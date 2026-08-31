@@ -1,4 +1,3 @@
-/* global KeyboardEvent, Element */
 import { useEffect } from "react"
 import { useAppStore } from "../stores/useAppStore"
 import { useAIStore } from "../stores/useAIStore"

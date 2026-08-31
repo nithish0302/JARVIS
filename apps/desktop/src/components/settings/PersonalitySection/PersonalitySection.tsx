@@ -1,4 +1,3 @@
-/* global HTMLSelectElement, HTMLInputElement */
 import { useState } from "react";
 import type { ChangeEvent } from "react";
 import { SettingsSection } from "../SettingsSection/SettingsSection";

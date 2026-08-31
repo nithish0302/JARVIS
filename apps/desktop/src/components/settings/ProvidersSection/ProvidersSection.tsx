@@ -78,7 +78,7 @@ export function ProvidersSection() {
   const renderField = (
     label: string, 
     value: string, 
-    onChange: (val: string) => void, 
+    onChange: (value: string) => void,
     isConfigured: boolean,
     placeholder: string
   ) => (

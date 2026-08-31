@@ -2,7 +2,6 @@ import { Button } from "../../ui/Button/Button";
 
 export interface SettingsSidebarProps {
   activeSection: string;
-  // eslint-disable-next-line no-unused-vars
   onSectionSelect: (sectionId: string) => void;
 }
 

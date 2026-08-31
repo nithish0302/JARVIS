@@ -1,4 +1,3 @@
-/* eslint-disable no-unused-vars */
 import { SearchSource } from "../types/chat.types"
 export const JARVIS_ENGINE_URL = "http://localhost:8765"
 
@@ -497,7 +496,9 @@ export function connectVoiceWebSocket(
   if (voiceSocket) {
     try {
       voiceSocket.close()
-    } catch {}
+    } catch {
+      // Socket may already be closed/closing; safe to ignore.
+    }
     voiceSocket = null
   }
 
