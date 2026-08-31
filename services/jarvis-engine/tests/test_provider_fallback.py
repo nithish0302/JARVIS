@@ -14,13 +14,16 @@ intermittent hang/crash when run as a full-file batch. The
 `_reset_provider_state` autouse fixture (also conftest.py) resets
 provider_manager.providers and the provider_override/fallback_mode/
 awaiting_provider_choice settings before AND after every test."""
+
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from jarvis_engine.core.database import get_setting, set_setting
 from jarvis_engine.providers.manager import provider_manager, restore_preferred_provider
 
 
-def _provider(name: str, model: str, *, available=True, chat_result=None, chat_error=None):
+def _provider(
+    name: str, model: str, *, available=True, chat_result=None, chat_error=None
+):
     p = MagicMock()
     p.name = name
     p.model = model
@@ -43,14 +46,23 @@ def test_chat_endpoint_reports_accurate_provider_and_no_fallback_by_default(api_
     gemini = _provider("gemini", "gemini-3.6-flash")
     groq = _provider("groq", "openai/gpt-oss-20b")
 
-    with _patch_providers([gemini, groq]), \
-         patch("jarvis_engine.api.routes.needs_web_search", return_value=False), \
-         patch("jarvis_engine.api.routes.is_file_system_command", return_value=(False, {})), \
-         patch("jarvis_engine.api.routes.needs_automation", return_value=False):
-        res = api_client.post("/chat", json={
-            "message": "hello", "conversation_id": None,
-            "provider": "gemini", "model": "gemini-3.6-flash"
-        })
+    with (
+        _patch_providers([gemini, groq]),
+        patch("jarvis_engine.api.routes.needs_web_search", return_value=False),
+        patch(
+            "jarvis_engine.api.routes.is_file_system_command", return_value=(False, {})
+        ),
+        patch("jarvis_engine.api.routes.needs_automation", return_value=False),
+    ):
+        res = api_client.post(
+            "/chat",
+            json={
+                "message": "hello",
+                "conversation_id": None,
+                "provider": "gemini",
+                "model": "gemini-3.6-flash",
+            },
+        )
 
     assert res.status_code == 200
     body = res.json()
@@ -66,14 +78,23 @@ def test_chat_endpoint_reports_fallback_when_first_provider_fails(api_client):
     gemini = _provider("gemini", "gemini-3.6-flash", chat_error=RuntimeError("503"))
     groq = _provider("groq", "openai/gpt-oss-20b", chat_result="I'm Groq, sir.")
 
-    with _patch_providers([gemini, groq]), \
-         patch("jarvis_engine.api.routes.needs_web_search", return_value=False), \
-         patch("jarvis_engine.api.routes.is_file_system_command", return_value=(False, {})), \
-         patch("jarvis_engine.api.routes.needs_automation", return_value=False):
-        res = api_client.post("/chat", json={
-            "message": "hello", "conversation_id": None,
-            "provider": "gemini", "model": "gemini-3.6-flash"
-        })
+    with (
+        _patch_providers([gemini, groq]),
+        patch("jarvis_engine.api.routes.needs_web_search", return_value=False),
+        patch(
+            "jarvis_engine.api.routes.is_file_system_command", return_value=(False, {})
+        ),
+        patch("jarvis_engine.api.routes.needs_automation", return_value=False),
+    ):
+        res = api_client.post(
+            "/chat",
+            json={
+                "message": "hello",
+                "conversation_id": None,
+                "provider": "gemini",
+                "model": "gemini-3.6-flash",
+            },
+        )
 
     assert res.status_code == 200
     body = res.json()
@@ -154,7 +175,9 @@ async def test_provider_override_only_tries_that_provider_even_if_it_fails(api_c
     ollama.chat.assert_not_awaited()
 
 
-async def test_fallback_mode_ask_pauses_instead_of_auto_switching_then_routes_next_message(api_client):
+async def test_fallback_mode_ask_pauses_instead_of_auto_switching_then_routes_next_message(
+    api_client,
+):
     await set_setting("fallback_mode", "ask")
 
     gemini = _provider("gemini", "gemini-3.6-flash", chat_error=RuntimeError("down"))
@@ -182,6 +205,7 @@ async def test_fallback_mode_ask_pauses_instead_of_auto_switching_then_routes_ne
 # --- Preferred provider (soft, persisted reorder) - distinct from
 # provider_override (hard lock) -------------------------------------------
 
+
 async def test_switch_provider_persists_preference_distinct_from_override(api_client):
     """POST /provider/switch must persist preferred_provider/preferred_model
     for restart-restoration, but must NEVER touch provider_override - the
@@ -190,7 +214,9 @@ async def test_switch_provider_persists_preference_distinct_from_override(api_cl
     groq = _provider("groq", "openai/gpt-oss-20b")
 
     with _patch_providers([gemini, groq]):
-        res = api_client.post("/provider/switch", json={"provider": "groq", "model": "openai/gpt-oss-20b"})
+        res = api_client.post(
+            "/provider/switch", json={"provider": "groq", "model": "openai/gpt-oss-20b"}
+        )
 
     assert res.status_code == 200
     assert await get_setting("preferred_provider", "") == "groq"
@@ -209,9 +235,13 @@ async def test_switch_provider_ignores_unknown_provider_name(api_client):
     """A garbage provider name must not get persisted and silently
     "restored" into a no-op reorder on the next startup."""
     with _patch_providers([_provider("gemini", "gemini-3.6-flash")]):
-        res = api_client.post("/provider/switch", json={"provider": "not-a-real-provider", "model": "x"})
+        res = api_client.post(
+            "/provider/switch", json={"provider": "not-a-real-provider", "model": "x"}
+        )
 
-    assert res.status_code == 200  # endpoint itself doesn't reject it (matches existing lenient behavior)
+    assert (
+        res.status_code == 200
+    )  # endpoint itself doesn't reject it (matches existing lenient behavior)
     assert await get_setting("preferred_provider", "") == ""
     assert await get_setting("preferred_model", "") == ""
 
@@ -260,7 +290,9 @@ async def test_restored_preferred_provider_still_falls_back_unlike_override(api_
     await set_setting("preferred_model", "openai/gpt-oss-20b")
 
     groq = _provider("groq", "openai/gpt-oss-20b", available=False)
-    gemini = _provider("gemini", "gemini-3.6-flash", chat_result="Gemini stepped in, sir.")
+    gemini = _provider(
+        "gemini", "gemini-3.6-flash", chat_result="Gemini stepped in, sir."
+    )
 
     with _patch_providers([gemini, groq]):
         restored = await restore_preferred_provider()

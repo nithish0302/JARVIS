@@ -1,6 +1,8 @@
 from abc import ABC, abstractmethod
-from typing import List, AsyncGenerator
+from collections.abc import AsyncGenerator
+
 from ..core.models import Message
+
 
 class BaseProvider(ABC):
     @property
@@ -14,12 +16,12 @@ class BaseProvider(ABC):
         pass
 
     @abstractmethod
-    async def chat(self, messages: List[Message], stream: bool = False) -> str:
+    async def chat(self, messages: list[Message], stream: bool = False) -> str:
         pass
 
     @abstractmethod
     async def is_available(self) -> bool:
         pass
 
-    async def stream(self, messages: List[Message]) -> AsyncGenerator[str, None]:
+    async def stream(self, messages: list[Message]) -> AsyncGenerator[str, None]:
         yield ""

@@ -8,6 +8,7 @@ not call search_web() at all (regression check), and foreground search
 (needs_foreground_search/build_foreground_url) is never invoked from the
 voice path - see the report for why that's a deliberate choice, not an
 oversight."""
+
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from starlette.testclient import TestClient
@@ -33,14 +34,24 @@ def test_voice_input_triggers_web_search_for_search_query():
             "url": "http://example.com/1",
         },
     ]
-    provider = _fake_provider("Something important happened today, according to TechCrunch, sir.")
+    provider = _fake_provider(
+        "Something important happened today, according to TechCrunch, sir."
+    )
 
-    with patch("jarvis_engine.api.routes.provider_manager") as mock_pm, \
-         patch("jarvis_engine.api.routes.search_web", new=AsyncMock(return_value=fake_results)) as mock_search, \
-         patch("jarvis_engine.api.routes.needs_web_search", return_value=True), \
-         patch("jarvis_engine.api.routes.extract_search_query", return_value="latest tech news") as mock_extract, \
-         patch("jarvis_engine.api.routes.needs_foreground_search") as mock_fg, \
-         patch("jarvis_engine.api.routes.build_foreground_url") as mock_build_fg:
+    with (
+        patch("jarvis_engine.api.routes.provider_manager") as mock_pm,
+        patch(
+            "jarvis_engine.api.routes.search_web",
+            new=AsyncMock(return_value=fake_results),
+        ) as mock_search,
+        patch("jarvis_engine.api.routes.needs_web_search", return_value=True),
+        patch(
+            "jarvis_engine.api.routes.extract_search_query",
+            return_value="latest tech news",
+        ) as mock_extract,
+        patch("jarvis_engine.api.routes.needs_foreground_search") as mock_fg,
+        patch("jarvis_engine.api.routes.build_foreground_url") as mock_build_fg,
+    ):
         mock_pm.providers = [provider]
 
         with TestClient(app) as client:
@@ -65,11 +76,12 @@ def test_voice_input_triggers_web_search_for_search_query():
     sent_messages = provider.chat.call_args[0][0]
     assert sent_messages[-1].role == "user"
     search_messages = [
-        m for m in sent_messages
-        if m.role == "system" and "TechCrunch" in m.content
+        m for m in sent_messages if m.role == "system" and "TechCrunch" in m.content
     ]
     assert len(search_messages) == 1
-    assert "spoken aloud" in search_messages[0].content  # voice-specific brevity instruction
+    assert (
+        "spoken aloud" in search_messages[0].content
+    )  # voice-specific brevity instruction
 
     # Voice must never trigger foreground (visible browser tab) search.
     mock_fg.assert_not_called()
@@ -81,14 +93,14 @@ def test_voice_input_ordinary_command_does_not_search():
     search_web at all, and the LLM path proceeds normally."""
     provider = _fake_provider("It's currently quite pleasant outside, sir.")
 
-    with patch("jarvis_engine.api.routes.provider_manager") as mock_pm, \
-         patch("jarvis_engine.api.routes.search_web", new=AsyncMock()) as mock_search:
+    with (
+        patch("jarvis_engine.api.routes.provider_manager") as mock_pm,
+        patch("jarvis_engine.api.routes.search_web", new=AsyncMock()) as mock_search,
+    ):
         mock_pm.providers = [provider]
 
         with TestClient(app) as client:
-            res = client.post(
-                "/voice/input", json={"text": "tell me a joke"}
-            )
+            res = client.post("/voice/input", json={"text": "tell me a joke"})
 
     assert res.status_code == 200
     mock_search.assert_not_awaited()

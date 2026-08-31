@@ -6,13 +6,16 @@ broken, no source tree exists) inside a frozen exe, so it's off here.
 Tauri's sidecar spawn/kill lifecycle is the process supervisor now; the
 dev-mode file watcher isn't needed once this is the thing actually running.
 """
+
 import multiprocessing
 
 if __name__ == "__main__":
     multiprocessing.freeze_support()
 
     import uvicorn
+
     from jarvis_engine.core.config import settings
+
     # Import the ASGI app object directly rather than uvicorn's usual
     # "module:attr" string form. That string is resolved by uvicorn's own
     # importlib call at runtime - invisible to PyInstaller's static

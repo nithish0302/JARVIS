@@ -1,54 +1,95 @@
-from .registry import registry, PluginDefinition
+from .registry import PluginDefinition, registry
+
 
 def register_placeholders():
-    registry.register(PluginDefinition(
-        id="gmail",
-        name="Gmail",
-        description="Read, search, and send emails via Google Workspace.",
-        required_credentials=["access_token", "refresh_token"],
-        credential_namespace="google",
-        capabilities=["Read emails", "Send emails", "Search emails"],
-        ui_actions=["[UI_ACTION:check_gmail]", "[UI_ACTION:search_gmail:<query>]", "[UI_ACTION:send_email:<to>:<subject>:<body>]"]
-    ))
-    registry.register(PluginDefinition(
-        id="google_calendar",
-        name="Google Calendar",
-        description="Manage events and check schedule.",
-        required_credentials=["access_token", "refresh_token"],
-        credential_namespace="google",
-        capabilities=["Read events", "Create events"],
-        ui_actions=["[UI_ACTION:check_calendar]", "[UI_ACTION:check_upcoming_events]", "[UI_ACTION:create_event:<title>:<start>:<end>]"]
-    ))
-    registry.register(PluginDefinition(
-        id="whatsapp",
-        name="WhatsApp",
-        description="Send and receive WhatsApp messages.",
-        required_credentials=["api_key"],
-        capabilities=["Send messages", "Read messages"],
-        ui_actions=["[UI_ACTION:whatsapp_send]"]
-    ))
-    registry.register(PluginDefinition(
-        id="spotify",
-        name="Spotify",
-        description="Control music playback and search tracks.",
-        required_credentials=["oauth_token"],
-        capabilities=["Play music", "Pause music", "Search tracks"],
-        ui_actions=["[UI_ACTION:spotify_play]", "[UI_ACTION:spotify_pause]"]
-    ))
-    registry.register(PluginDefinition(
-        id="weather",
-        name="Weather",
-        description="Check current weather conditions and forecasts via Open-Meteo.",
-        required_credentials=[],
-        capabilities=["Check current weather", "Check forecast"],
-        ui_actions=["[UI_ACTION:check_weather]", "[UI_ACTION:check_weather:<location>]", "[UI_ACTION:check_forecast:<location>:<days>]"]
-    ))
-    registry.register(PluginDefinition(
-        id="github",
-        name="GitHub",
-        description="Manage issues, pull requests, and search code.",
-        required_credentials=["token"],
-        credential_namespace="github",
-        capabilities=["List repositories", "List issues", "Search issues", "Create issues", "List pull requests", "Check PR status", "Search code"],
-        ui_actions=["[UI_ACTION:check_github_repos]", "[UI_ACTION:check_github_issues:<repo>]", "[UI_ACTION:search_github_issues:<query>]", "[UI_ACTION:create_github_issue:<repo>:<title><body>]", "[UI_ACTION:check_github_prs:<repo>]", "[UI_ACTION:check_pr_status:<repo>:<number>]", "[UI_ACTION:search_github_code:<query>:<repo>]"]
-    ))
+    registry.register(
+        PluginDefinition(
+            id="gmail",
+            name="Gmail",
+            description="Read, search, and send emails via Google Workspace.",
+            required_credentials=["access_token", "refresh_token"],
+            credential_namespace="google",
+            capabilities=["Read emails", "Send emails", "Search emails"],
+            ui_actions=[
+                "[UI_ACTION:check_gmail]",
+                "[UI_ACTION:search_gmail:<query>]",
+                "[UI_ACTION:send_email:<to>:<subject>:<body>]",
+            ],
+        )
+    )
+    registry.register(
+        PluginDefinition(
+            id="google_calendar",
+            name="Google Calendar",
+            description="Manage events and check schedule.",
+            required_credentials=["access_token", "refresh_token"],
+            credential_namespace="google",
+            capabilities=["Read events", "Create events"],
+            ui_actions=[
+                "[UI_ACTION:check_calendar]",
+                "[UI_ACTION:check_upcoming_events]",
+                "[UI_ACTION:create_event:<title>:<start>:<end>]",
+            ],
+        )
+    )
+    registry.register(
+        PluginDefinition(
+            id="whatsapp",
+            name="WhatsApp",
+            description="Send and receive WhatsApp messages.",
+            required_credentials=["api_key"],
+            capabilities=["Send messages", "Read messages"],
+            ui_actions=["[UI_ACTION:whatsapp_send]"],
+        )
+    )
+    registry.register(
+        PluginDefinition(
+            id="spotify",
+            name="Spotify",
+            description="Control music playback and search tracks.",
+            required_credentials=["oauth_token"],
+            capabilities=["Play music", "Pause music", "Search tracks"],
+            ui_actions=["[UI_ACTION:spotify_play]", "[UI_ACTION:spotify_pause]"],
+        )
+    )
+    registry.register(
+        PluginDefinition(
+            id="weather",
+            name="Weather",
+            description="Check current weather conditions and forecasts via Open-Meteo.",
+            required_credentials=[],
+            capabilities=["Check current weather", "Check forecast"],
+            ui_actions=[
+                "[UI_ACTION:check_weather]",
+                "[UI_ACTION:check_weather:<location>]",
+                "[UI_ACTION:check_forecast:<location>:<days>]",
+            ],
+        )
+    )
+    registry.register(
+        PluginDefinition(
+            id="github",
+            name="GitHub",
+            description="Manage issues, pull requests, and search code.",
+            required_credentials=["token"],
+            credential_namespace="github",
+            capabilities=[
+                "List repositories",
+                "List issues",
+                "Search issues",
+                "Create issues",
+                "List pull requests",
+                "Check PR status",
+                "Search code",
+            ],
+            ui_actions=[
+                "[UI_ACTION:check_github_repos]",
+                "[UI_ACTION:check_github_issues:<repo>]",
+                "[UI_ACTION:search_github_issues:<query>]",
+                "[UI_ACTION:create_github_issue:<repo>:<title><body>]",
+                "[UI_ACTION:check_github_prs:<repo>]",
+                "[UI_ACTION:check_pr_status:<repo>:<number>]",
+                "[UI_ACTION:search_github_code:<query>:<repo>]",
+            ],
+        )
+    )

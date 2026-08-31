@@ -26,6 +26,7 @@ _API_KEY_FIELDS = [
     "CEREBRAS_API_KEY",
 ]
 
+
 class Settings(BaseSettings):
     JARVIS_HOST: str = "localhost"
     JARVIS_PORT: int = 8765
@@ -218,6 +219,7 @@ class Settings(BaseSettings):
     DEBUG_LOG_CONTENT: bool = False
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+
 
 settings = Settings()
 

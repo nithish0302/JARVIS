@@ -56,6 +56,7 @@ def captured(monkeypatch):
     monkeypatch.setitem(sys.modules, "requests", FakeRequests)
 
     import jarvis_engine.voice.tts_engine as te
+
     monkeypatch.setattr(te, "tts_engine", FakeTTS(), raising=False)
 
     # _speak_response hands off to continuous conversation mode
@@ -64,7 +65,10 @@ def captured(monkeypatch):
     # to a no-op so these handler-level tests don't spawn a real recording
     # thread / touch the microphone.
     import jarvis_engine.voice.voice_manager as vm
-    monkeypatch.setattr(vm.voice_manager, "continue_conversation", MagicMock(), raising=False)
+
+    monkeypatch.setattr(
+        vm.voice_manager, "continue_conversation", MagicMock(), raising=False
+    )
 
     return posts, spoken
 
@@ -97,7 +101,9 @@ def test_direct_command_branch_completes(captured):
     payloads = [j for _, j in posts]
 
     # Broadcast carries the already-executed result as direct_response
-    assert any(j and j.get("direct_response") == "Opening Notepad, sir." for j in payloads)
+    assert any(
+        j and j.get("direct_response") == "Opening Notepad, sir." for j in payloads
+    )
     # It was actually spoken
     assert spoken == ["Opening Notepad, sir."]
     # Status went to speaking - the finally block hands off to continuous
@@ -107,6 +113,7 @@ def test_direct_command_branch_completes(captured):
     assert "speaking" in statuses
 
     import jarvis_engine.voice.voice_manager as vm
+
     vm.voice_manager.continue_conversation.assert_called_once()
 
 
@@ -119,12 +126,15 @@ def test_llm_branch_completes(captured):
     payloads = [j for _, j in posts]
 
     # Text posted without a direct_response, so the LLM pipeline runs
-    assert any(j and j.get("text") == "what is the weather like"
-               and "direct_response" not in j for j in payloads)
+    assert any(
+        j and j.get("text") == "what is the weather like" and "direct_response" not in j
+        for j in payloads
+    )
     # The LLM's response was spoken
     assert spoken == ["The weather is clear, sir."]
 
     import jarvis_engine.voice.voice_manager as vm
+
     vm.voice_manager.continue_conversation.assert_called_once()
 
 
@@ -145,12 +155,13 @@ def test_continue_conversation_called_even_when_tts_fails(captured, monkeypatch)
     _settle(posts, 1)
 
     import jarvis_engine.voice.voice_manager as vm
+
     vm.voice_manager.continue_conversation.assert_called_once()
 
 
 def test_voice_start_route_uses_the_shared_handler():
     """The /voice/start route must not re-install a 1-arg stub."""
-    import jarvis_engine.api.routes as routes
+    from jarvis_engine.api import routes
 
     src = inspect.getsource(routes.start_voice)
     assert "handle_transcription" in src

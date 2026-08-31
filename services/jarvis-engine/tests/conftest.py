@@ -1,4 +1,5 @@
 """Shared fixtures for tests that exercise the FastAPI app directly."""
+
 import pytest
 from starlette.testclient import TestClient
 
@@ -16,8 +17,8 @@ from jarvis_engine.core.config import settings
 # drive voice_manager directly with their own mocks and are unaffected.
 settings.VOICE_DISABLED = True
 
-from jarvis_engine.main import app  # noqa: E402
 from jarvis_engine.core.database import set_setting  # noqa: E402
+from jarvis_engine.main import app  # noqa: E402
 from jarvis_engine.providers.manager import provider_manager  # noqa: E402
 
 

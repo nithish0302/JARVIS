@@ -2,12 +2,13 @@
 importance-weighted retrieval ranking in get_relevant_memories()."""
 
 import uuid
+
 import pytest
 from starlette.testclient import TestClient
 
-from jarvis_engine.main import app
-from jarvis_engine.core.database import get_setting
 from jarvis_engine.core.config import settings
+from jarvis_engine.core.database import get_setting
+from jarvis_engine.main import app
 from jarvis_engine.memory.memory_manager import memory_manager
 
 
@@ -25,7 +26,7 @@ async def test_get_memories_returns_full_records():
         content=_unique_content("full record shape check"),
         category="fact",
         importance=7,
-        source_conversation_id="conv-shape-test"
+        source_conversation_id="conv-shape-test",
     )
     try:
         with TestClient(app) as client:
@@ -37,8 +38,12 @@ async def test_get_memories_returns_full_records():
         match = next((r for r in records if r["id"] == memory_id), None)
         assert match is not None, "Newly saved memory not present in GET /memories"
         for field in (
-            "id", "content", "category", "importance",
-            "created_at", "source_conversation_id"
+            "id",
+            "content",
+            "category",
+            "importance",
+            "created_at",
+            "source_conversation_id",
         ):
             assert field in match, f"Missing field '{field}' in memory record"
         assert match["category"] == "fact"
@@ -53,15 +58,17 @@ async def test_put_memory_edits_and_persists():
     """PUT /memories/{id} edits content/category/importance and the change
     persists (survives a fresh read, not just the response echo)."""
     memory_id = await memory_manager.save_memory(
-        content=_unique_content("original content"),
-        category="general",
-        importance=3
+        content=_unique_content("original content"), category="general", importance=3
     )
     try:
         with TestClient(app) as client:
             res = client.put(
                 f"/memories/{memory_id}",
-                json={"content": "Edited content", "category": "project", "importance": 9}
+                json={
+                    "content": "Edited content",
+                    "category": "project",
+                    "importance": 9,
+                },
             )
         assert res.status_code == 200
         body = res.json()
@@ -82,8 +89,7 @@ async def test_put_memory_edits_and_persists():
 @pytest.mark.asyncio
 async def test_put_memory_rejects_importance_out_of_range():
     memory_id = await memory_manager.save_memory(
-        content=_unique_content("importance validation check"),
-        importance=5
+        content=_unique_content("importance validation check"), importance=5
     )
     try:
         with TestClient(app) as client:
@@ -175,20 +181,28 @@ async def test_get_relevant_memories_favors_higher_importance():
     recently saved (5 and 8)."""
     ids = []
     try:
-        ids.append(await memory_manager.save_memory(
-            content=_unique_content("quasarnetics low importance A"), importance=2
-        ))
-        ids.append(await memory_manager.save_memory(
-            content=_unique_content("quasarnetics high importance A"), importance=9
-        ))
-        ids.append(await memory_manager.save_memory(
-            content=_unique_content("quasarnetics mid importance"), importance=5
-        ))
+        ids.append(
+            await memory_manager.save_memory(
+                content=_unique_content("quasarnetics low importance A"), importance=2
+            )
+        )
+        ids.append(
+            await memory_manager.save_memory(
+                content=_unique_content("quasarnetics high importance A"), importance=9
+            )
+        )
+        ids.append(
+            await memory_manager.save_memory(
+                content=_unique_content("quasarnetics mid importance"), importance=5
+            )
+        )
         # Saved LAST (most recent) but still lower importance than the 9 -
         # a pure-recency ranking would incorrectly place this above the 9.
-        ids.append(await memory_manager.save_memory(
-            content=_unique_content("quasarnetics high importance B"), importance=8
-        ))
+        ids.append(
+            await memory_manager.save_memory(
+                content=_unique_content("quasarnetics high importance B"), importance=8
+            )
+        )
 
         top_2 = await memory_manager.get_relevant_memories("quasarnetics", limit=2)
         assert len(top_2) == 2

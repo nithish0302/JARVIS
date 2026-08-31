@@ -1,24 +1,25 @@
 """Tests for voice/chat parity gaps and voice session conversation continuity."""
 
-import pytest
 import uuid
-import asyncio
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import patch
+
+import aiosqlite
+import pytest
 
 from jarvis_engine.api.routes import router
 from jarvis_engine.core.config import settings
+from jarvis_engine.memory.conversation import (
+    get_conversation_messages,
+)
 from jarvis_engine.memory.memory_manager import memory_manager
-from jarvis_engine.memory.conversation import get_conversation_messages, get_conversations
 from jarvis_engine.voice.voice_manager import VoiceManager
-import jarvis_engine.voice.transcription_handler as th
-import aiosqlite
 
 
 @pytest.mark.asyncio
 async def test_voice_input_persists_messages_and_uses_conversation_id(monkeypatch):
     """Parity Gap 2: voice turns must be persisted to conversations/messages tables."""
-    from starlette.testclient import TestClient
     from fastapi import FastAPI
+    from starlette.testclient import TestClient
 
     app = FastAPI()
     app.include_router(router)
@@ -37,7 +38,9 @@ async def test_voice_input_persists_messages_and_uses_conversation_id(monkeypatc
     monkeypatch.setattr("jarvis_engine.api.routes.run_cascade", fake_cascade)
 
     cid = str(uuid.uuid4())
-    res = client.post("/voice/input", json={"text": "hello jarvis", "conversation_id": cid})
+    res = client.post(
+        "/voice/input", json={"text": "hello jarvis", "conversation_id": cid}
+    )
     assert res.status_code == 200
     data = res.json()
     assert data["conversation_id"] == cid
@@ -54,15 +57,17 @@ async def test_voice_input_persists_messages_and_uses_conversation_id(monkeypatc
 @pytest.mark.asyncio
 async def test_voice_input_memory_context_injection(monkeypatch):
     """Parity Gap 1: get_relevant_memories must be injected into prompt."""
-    from starlette.testclient import TestClient
     from fastapi import FastAPI
+    from starlette.testclient import TestClient
 
     app = FastAPI()
     app.include_router(router)
     client = TestClient(app)
 
     # Save a test memory
-    mem_id = await memory_manager.save_memory("Nithish prefers dark roast coffee", importance=8)
+    mem_id = await memory_manager.save_memory(
+        "Nithish prefers dark roast coffee", importance=8
+    )
 
     captured_messages = []
 
@@ -91,8 +96,8 @@ async def test_voice_input_memory_context_injection(monkeypatch):
 @pytest.mark.asyncio
 async def test_voice_input_memory_extraction(monkeypatch):
     """Parity Gap 3: extract_and_save_memories must be called on voice turn."""
-    from starlette.testclient import TestClient
     from fastapi import FastAPI
+    from starlette.testclient import TestClient
 
     app = FastAPI()
     app.include_router(router)
@@ -117,7 +122,10 @@ async def test_voice_input_memory_extraction(monkeypatch):
     monkeypatch.setattr(memory_manager, "extract_and_save_memories", fake_extract)
 
     cid = str(uuid.uuid4())
-    res = client.post("/voice/input", json={"text": "I like dark roast coffee", "conversation_id": cid})
+    res = client.post(
+        "/voice/input",
+        json={"text": "I like dark roast coffee", "conversation_id": cid},
+    )
     assert res.status_code == 200
 
     assert len(extracted_calls) == 1
@@ -127,8 +135,8 @@ async def test_voice_input_memory_extraction(monkeypatch):
 @pytest.mark.asyncio
 async def test_voice_input_gap_logging(monkeypatch):
     """Parity Gap 4: detect_and_log_gap must fire on voice capability gaps."""
-    from starlette.testclient import TestClient
     from fastapi import FastAPI
+    from starlette.testclient import TestClient
 
     app = FastAPI()
     app.include_router(router)
@@ -151,22 +159,24 @@ async def test_voice_input_gap_logging(monkeypatch):
     assert res.status_code == 200
 
     # Verify entry in gap_log table
-    async with aiosqlite.connect(settings.DB_PATH) as db:
-        async with db.execute(
+    async with (
+        aiosqlite.connect(settings.DB_PATH) as db,
+        db.execute(
             "SELECT user_request, gap_reason FROM gap_log WHERE user_request = ?",
-            (request_text,)
-        ) as cursor:
-            row = await cursor.fetchone()
-            assert row is not None
-            assert row[0] == request_text
-            assert "I can't book a flight" in row[1]
+            (request_text,),
+        ) as cursor,
+    ):
+        row = await cursor.fetchone()
+        assert row is not None
+        assert row[0] == request_text
+        assert "I can't book a flight" in row[1]
 
 
 @pytest.mark.asyncio
 async def test_voice_input_preserves_ui_action_instruction_with_automation(monkeypatch):
     """Parity Gap 5: UI_ACTION_INSTRUCTION must not be dropped when automation is detected."""
-    from starlette.testclient import TestClient
     from fastapi import FastAPI
+    from starlette.testclient import TestClient
 
     app = FastAPI()
     app.include_router(router)
@@ -186,7 +196,10 @@ async def test_voice_input_preserves_ui_action_instruction_with_automation(monke
         }
 
     monkeypatch.setattr("jarvis_engine.api.routes.run_cascade", fake_cascade)
-    monkeypatch.setattr("jarvis_engine.api.routes.is_file_system_command", lambda t: (True, {"action": "open_app", "path": "notepad.exe"}))
+    monkeypatch.setattr(
+        "jarvis_engine.api.routes.is_file_system_command",
+        lambda t: (True, {"action": "open_app", "path": "notepad.exe"}),
+    )
 
     res = client.post("/voice/input", json={"text": "open notepad"})
     assert res.status_code == 200

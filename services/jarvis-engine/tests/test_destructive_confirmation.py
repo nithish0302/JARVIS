@@ -23,6 +23,7 @@ rather than opening a fresh TestClient(app) per test - each entry/exit
 runs the app's real lifespan, and doing that once per parametrized case
 reliably crashed the run.
 """
+
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -49,7 +50,9 @@ def _quiet_request(providers):
     return (
         patch.object(provider_manager, "providers", providers),
         patch("jarvis_engine.api.routes.needs_web_search", return_value=False),
-        patch("jarvis_engine.api.routes.is_file_system_command", return_value=(False, {})),
+        patch(
+            "jarvis_engine.api.routes.is_file_system_command", return_value=(False, {})
+        ),
         patch("jarvis_engine.api.routes.needs_automation", return_value=False),
     )
 
@@ -57,6 +60,7 @@ def _quiet_request(providers):
 # --------------------------------------------------------------------------
 # The guard itself
 # --------------------------------------------------------------------------
+
 
 @pytest.mark.parametrize("action", DESTRUCTIVE_UI_ACTIONS)
 def test_every_destructive_action_is_rewritten_to_confirm_action(action):
@@ -96,14 +100,14 @@ def test_multiple_destructive_actions_in_one_response_all_rewritten():
     result = enforce_destructive_confirmation(raw)
     assert "[UI_ACTION:confirm_action:send_email:a@b.com:Hi:There]" in result
     assert (
-        "[UI_ACTION:confirm_action:create_github_issue:me/repo:Bug:It broke]"
-        in result
+        "[UI_ACTION:confirm_action:create_github_issue:me/repo:Bug:It broke]" in result
     )
 
 
 # --------------------------------------------------------------------------
 # C1: the voice path must apply the guard
 # --------------------------------------------------------------------------
+
 
 @pytest.mark.parametrize("action", DESTRUCTIVE_UI_ACTIONS)
 def test_voice_input_applies_destructive_confirmation(api_client, action):
@@ -154,12 +158,15 @@ def test_chat_still_applies_destructive_confirmation(api_client):
     )
 
     with providers, no_search, no_fs, no_auto:
-        res = api_client.post("/chat", json={
-            "message": "email a@b.com saying hi",
-            "conversation_id": None,
-            "provider": "ollama",
-            "model": "phi4-mini",
-        })
+        res = api_client.post(
+            "/chat",
+            json={
+                "message": "email a@b.com saying hi",
+                "conversation_id": None,
+                "provider": "ollama",
+                "model": "phi4-mini",
+            },
+        )
 
     assert res.status_code == 200
     body = res.json()["response"]
@@ -182,12 +189,15 @@ def test_voice_and_chat_produce_identical_guard_output(api_client):
 
     providers, no_search, no_fs, no_auto = _quiet_request([_provider(raw)])
     with providers, no_search, no_fs, no_auto:
-        chat = api_client.post("/chat", json={
-            "message": "file a github issue",
-            "conversation_id": None,
-            "provider": "ollama",
-            "model": "phi4-mini",
-        }).json()["response"]
+        chat = api_client.post(
+            "/chat",
+            json={
+                "message": "file a github issue",
+                "conversation_id": None,
+                "provider": "ollama",
+                "model": "phi4-mini",
+            },
+        ).json()["response"]
 
     assert expected in voice
     assert expected in chat

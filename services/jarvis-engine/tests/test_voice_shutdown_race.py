@@ -15,10 +15,9 @@ tests passed file-by-file.
 
 shutdown() now joins the loader threads first (_await_loaders).
 """
+
 import threading
 import time
-
-import pytest
 
 from jarvis_engine.core.config import settings
 from jarvis_engine.voice.voice_manager import VoiceManager
@@ -37,8 +36,8 @@ def test_shutdown_waits_for_a_slow_loader_before_tearing_down():
 
     def slow_loader():
         started.set()
-        time.sleep(0.4)          # still constructing...
-        vm.wake_word_detector = detector   # ...assigned only now
+        time.sleep(0.4)  # still constructing...
+        vm.wake_word_detector = detector  # ...assigned only now
         vm.wake_word_ready.set()
 
     t = threading.Thread(target=slow_loader, name="wakeword-loader")

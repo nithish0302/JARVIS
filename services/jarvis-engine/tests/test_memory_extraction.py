@@ -1,10 +1,10 @@
 import asyncio
 import json
 import uuid
-import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiosqlite
+import pytest
 
 from jarvis_engine.core.config import settings
 from jarvis_engine.memory.memory_manager import memory_manager
@@ -23,7 +23,9 @@ async def _find_memory_id_by_content(content: str) -> str | None:
         return row[0] if row else None
 
 
-def _fake_groq_response(should_save: bool, content: str = "", category: str = "general", importance: int = 5):
+def _fake_groq_response(
+    should_save: bool, content: str = "", category: str = "general", importance: int = 5
+):
     """Builds an object shaped like what extract_and_save_memories()
     reads off a real Groq response: resp.choices[0].message.content is a
     JSON string, exactly as the AsyncGroq SDK returns it.
@@ -36,12 +38,14 @@ def _fake_groq_response(should_save: bool, content: str = "", category: str = "g
     surfaced anywhere. First-draft bug in this fix, caught by actually
     running the test rather than trusting the code once it looked right.
     """
-    payload = json.dumps({
-        "should_save": should_save,
-        "content": content,
-        "category": category,
-        "importance": importance,
-    })
+    payload = json.dumps(
+        {
+            "should_save": should_save,
+            "content": content,
+            "category": category,
+            "importance": importance,
+        }
+    )
     resp = MagicMock()
     resp.choices = [MagicMock()]
     resp.choices[0].message.content = payload
@@ -56,6 +60,7 @@ async def test_false_positive_doubt_rejected():
     print(f"\n[TEST 1] False positive doubt '{msg}' -> Saved: {saved}")
     assert len(saved) == 0, f"Expected 0 saved memories, got {saved}"
 
+
 @pytest.mark.asyncio
 async def test_false_positive_question_rejected():
     """Verify 'how do i use the graph feature' is rejected and not saved as memory."""
@@ -64,6 +69,7 @@ async def test_false_positive_question_rejected():
     saved = await memory_manager.extract_and_save_memories(msg, "test-conv-2")
     print(f"\n[TEST 2] False positive question '{msg}' -> Saved: {saved}")
     assert len(saved) == 0, f"Expected 0 saved memories, got {saved}"
+
 
 @pytest.mark.asyncio
 async def test_genuine_memory_saved(monkeypatch):
@@ -127,20 +133,25 @@ async def test_genuine_memory_saved(monkeypatch):
         # And it's really in the DB, not just returned - the actual thing
         # this test is responsible for verifying.
         memory_id = await _find_memory_id_by_content(fake_content)
-        assert memory_id is not None, "Memory was reported saved but not found in the DB"
+        assert memory_id is not None, (
+            "Memory was reported saved but not found in the DB"
+        )
     finally:
         memory_id = await _find_memory_id_by_content(fake_content)
         if memory_id:
             await memory_manager.delete_memory(memory_id)
+
 
 @pytest.mark.asyncio
 async def test_groq_timeout_fallback_skips_saving():
     """Verify that if Groq call times out or throws, extraction safely skips saving."""
     with patch("groq.AsyncGroq") as mock_groq_cls:
         mock_client = MagicMock()
-        mock_client.chat.completions.create = AsyncMock(side_effect=TimeoutError("Request timed out"))
+        mock_client.chat.completions.create = AsyncMock(
+            side_effect=TimeoutError("Request timed out")
+        )
         mock_groq_cls.return_value = mock_client
-        
+
         msg = "i am a developer building JARVIS with Tauri"
         saved = await memory_manager.extract_and_save_memories(msg, "test-conv-4")
         print(f"\n[TEST 4] Groq timeout fallback -> Saved: {saved}")

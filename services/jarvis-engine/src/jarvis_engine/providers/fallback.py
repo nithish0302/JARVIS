@@ -1,7 +1,8 @@
 """Shared provider-cascade/override/ask-mode logic used by the chat, chat
 stream, and voice endpoints in api/routes.py, so the three don't drift out
 of sync on how provider_override and fallback_mode are honored."""
-from typing import List, Optional, TypedDict, Required, NotRequired
+
+from typing import NotRequired, Required, TypedDict
 
 from ..core.database import get_setting, set_setting
 from .manager import provider_manager
@@ -15,23 +16,25 @@ class CascadeResult(TypedDict, total=False):
     provider_used: NotRequired[str]
     model_used: NotRequired[str]
     fallback_occurred: NotRequired[bool]
-    failed_provider: NotRequired[Optional[str]]
-    failed_providers: NotRequired[List[str]]
-    remaining: NotRequired[List[str]]
+    failed_provider: NotRequired[str | None]
+    failed_providers: NotRequired[list[str]]
+    remaining: NotRequired[list[str]]
 
 
-async def get_provider_settings() -> tuple[Optional[str], str]:
+async def get_provider_settings() -> tuple[str | None, str]:
     """Returns (provider_override or None, fallback_mode)."""
     override = (await get_setting("provider_override", "") or "").strip().lower()
     if override not in VALID_PROVIDERS:
         override = None
-    fallback_mode = (await get_setting("fallback_mode", "auto") or "auto").strip().lower()
+    fallback_mode = (
+        (await get_setting("fallback_mode", "auto") or "auto").strip().lower()
+    )
     if fallback_mode not in ("auto", "ask"):
         fallback_mode = "auto"
     return override, fallback_mode
 
 
-def extract_provider_from_text(text: str) -> Optional[str]:
+def extract_provider_from_text(text: str) -> str | None:
     """Best-effort scan of free text for a provider name, used to read the
     user's answer after we've asked which provider to fall back to."""
     lowered = (text or "").lower()
@@ -43,7 +46,7 @@ def extract_provider_from_text(text: str) -> Optional[str]:
     return None
 
 
-async def consume_awaiting_choice(user_text: str) -> Optional[str]:
+async def consume_awaiting_choice(user_text: str) -> str | None:
     """If a prior turn asked the user to pick a fallback provider, this is
     their answer. Clears the pending flag either way (a non-matching reply
     falls through to a normal auto cascade rather than getting the user
@@ -59,8 +62,10 @@ def build_fallback_note(failed_provider: str, used_provider: str) -> str:
     return f"{failed_provider.title()} had an issue, so I used {used_provider.title()} instead. "
 
 
-def build_ask_message(failed_provider: str, remaining: List[str]) -> str:
-    options = ", ".join(p.title() for p in remaining) if remaining else "another provider"
+def build_ask_message(failed_provider: str, remaining: list[str]) -> str:
+    options = (
+        ", ".join(p.title() for p in remaining) if remaining else "another provider"
+    )
     return (
         f"{failed_provider.title()} had an issue, sir, and I'm set to ask before "
         f"falling back rather than switch automatically. Would you like me to "
@@ -95,7 +100,9 @@ async def _provider_available(provider) -> bool:
         return False
 
 
-async def run_cascade(messages, user_text: str = "", providers: Optional[list] = None) -> CascadeResult:
+async def run_cascade(
+    messages, user_text: str = "", providers: list | None = None
+) -> CascadeResult:
     """Runs the provider cascade honoring provider_override and
     fallback_mode. `providers` overrides the trial order (e.g. callers that
     reorder for automation/file commands) but provider_override still takes
@@ -109,9 +116,7 @@ async def run_cascade(messages, user_text: str = "", providers: Optional[list] =
         override = one_shot_provider
 
     if override:
-        provider = next(
-            (p for p in providers if p.name == override), None
-        )
+        provider = next((p for p in providers if p.name == override), None)
         if provider is None or not await _provider_available(provider):
             return {"status": "override_unavailable", "failed_provider": override}
         try:
@@ -127,17 +132,14 @@ async def run_cascade(messages, user_text: str = "", providers: Optional[list] =
             "failed_provider": None,
         }
 
-    failed_providers: List[str] = []
+    failed_providers: list[str] = []
     for provider in providers:
         available = await _provider_available(provider)
         if not available:
             failed_providers.append(provider.name)
             if fallback_mode == "ask":
                 await set_setting("awaiting_provider_choice", "true")
-                remaining = [
-                    p.name for p in providers
-                    if p.name != provider.name
-                ]
+                remaining = [p.name for p in providers if p.name != provider.name]
                 return {
                     "status": "asking",
                     "failed_provider": provider.name,
@@ -152,10 +154,7 @@ async def run_cascade(messages, user_text: str = "", providers: Optional[list] =
             failed_providers.append(provider.name)
             if fallback_mode == "ask":
                 await set_setting("awaiting_provider_choice", "true")
-                remaining = [
-                    p.name for p in providers
-                    if p.name != provider.name
-                ]
+                remaining = [p.name for p in providers if p.name != provider.name]
                 return {
                     "status": "asking",
                     "failed_provider": provider.name,

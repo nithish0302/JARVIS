@@ -34,20 +34,21 @@ def clean_text_for_tts(text: str) -> str:
         return ""
 
     # Strip UI_ACTION tags
-    clean = re.sub(r'\[UI_ACTION:[^\]]*\]', '', text).strip()
+    clean = re.sub(r"\[UI_ACTION:[^\]]*\]", "", text).strip()
 
     # Strip markdown formatting
-    clean = re.sub(r'\*\*(.+?)\*\*', r'\1', clean)  # Bold
-    clean = re.sub(r'\*(.+?)\*', r'\1', clean)  # Italic
-    clean = re.sub(r'#{1,6}\s', '', clean)  # Headers
-    clean = re.sub(r'`(.+?)`', r'\1', clean)  # Inline code
-    clean = re.sub(r'```[\s\S]*?```', '', clean)  # Code blocks
+    clean = re.sub(r"\*\*(.+?)\*\*", r"\1", clean)  # Bold
+    clean = re.sub(r"\*(.+?)\*", r"\1", clean)  # Italic
+    clean = re.sub(r"#{1,6}\s", "", clean)  # Headers
+    clean = re.sub(r"`(.+?)`", r"\1", clean)  # Inline code
+    clean = re.sub(r"```[\s\S]*?```", "", clean)  # Code blocks
 
     return clean.strip()
 
 
 def _post_status(status: str, timeout: int = 2):
     import requests
+
     try:
         requests.post(VOICE_STATUS_URL, json={"status": status}, timeout=timeout)
     except Exception:
@@ -86,7 +87,9 @@ def _speak_response(response_text: str):
         voice_manager.continue_conversation()
 
 
-def handle_transcription(text: str, direct_result: str = None, conversation_id: str = None):
+def handle_transcription(
+    text: str, direct_result: str = None, conversation_id: str = None
+):
     """Entry point invoked by VoiceManager once speech is transcribed."""
     print(f"[VOICE COMMAND] {text}")
 
@@ -102,11 +105,7 @@ def handle_transcription(text: str, direct_result: str = None, conversation_id: 
                 payload = {"text": text, "direct_response": direct_result}
                 if conversation_id:
                     payload["conversation_id"] = conversation_id
-                requests.post(
-                    VOICE_INPUT_URL,
-                    json=payload,
-                    timeout=10
-                )
+                requests.post(VOICE_INPUT_URL, json=payload, timeout=10)
             except Exception as e:
                 print(f"Broadcast error: {e}")
 
@@ -123,11 +122,7 @@ def handle_transcription(text: str, direct_result: str = None, conversation_id: 
             payload = {"text": text}
             if conversation_id:
                 payload["conversation_id"] = conversation_id
-            response = requests.post(
-                VOICE_INPUT_URL,
-                json=payload,
-                timeout=60
-            )
+            response = requests.post(VOICE_INPUT_URL, json=payload, timeout=60)
             if response.status_code == 200:
                 ai_response = response.json().get("response", "")
                 if ai_response:

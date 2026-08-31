@@ -1,6 +1,7 @@
 """Phrase-based interrupts (as opposed to the loudness-based barge-in in
 wake_word.py): saying the wake phrase or a stop word mid-response must
 interrupt TTS and NOT be sent downstream as a literal command."""
+
 import threading
 from unittest.mock import MagicMock, patch
 
@@ -9,40 +10,47 @@ import pytest
 
 from jarvis_engine.voice.voice_manager import VoiceManager, match_interrupt_phrase
 
-
 # --- match_interrupt_phrase: pure matching logic -----------------------
 
-@pytest.mark.parametrize("text,expected", [
-    ("wake up jarvis", "wake"),
-    ("Wake Up Jarvis", "wake"),  # case-insensitive
-    ("wake up jarvis.", "wake"),  # trailing punctuation stripped
-    ("wake up jarvis wake up jarvis", "wake"),  # the doubled bug-report case
-    ("stop", "stop"),
-    ("Stop.", "stop"),
-    ("stop please", "stop"),
-    ("wait", "stop"),
-    ("wait a second", "stop"),
-    ("cancel", "stop"),
-    ("never mind", "stop"),
-    ("hold on", "stop"),
-])
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("wake up jarvis", "wake"),
+        ("Wake Up Jarvis", "wake"),  # case-insensitive
+        ("wake up jarvis.", "wake"),  # trailing punctuation stripped
+        ("wake up jarvis wake up jarvis", "wake"),  # the doubled bug-report case
+        ("stop", "stop"),
+        ("Stop.", "stop"),
+        ("stop please", "stop"),
+        ("wait", "stop"),
+        ("wait a second", "stop"),
+        ("cancel", "stop"),
+        ("never mind", "stop"),
+        ("hold on", "stop"),
+    ],
+)
 def test_matches_interrupt_phrases(text, expected):
     assert match_interrupt_phrase(text) == expected
 
 
-@pytest.mark.parametrize("text", [
-    "what time is it",
-    "open notepad",
-    "stopwatch",  # "stop" prefix but not a word boundary
-    "waiting for the bus",  # "wait" prefix but not a word boundary
-    "wakeboarding is fun",  # not the wake phrase
-    "",
-])
+@pytest.mark.parametrize(
+    "text",
+    [
+        "what time is it",
+        "open notepad",
+        "stopwatch",  # "stop" prefix but not a word boundary
+        "waiting for the bus",  # "wait" prefix but not a word boundary
+        "wakeboarding is fun",  # not the wake phrase
+        "",
+    ],
+)
 def test_normal_commands_are_not_interrupts(text):
     assert match_interrupt_phrase(text) is None
 
 
 # --- _process_voice_command: end-to-end interrupt handling --------------
+
 
 def _make_manager(transcribed_text: str, on_transcription=None) -> VoiceManager:
     vm = VoiceManager()

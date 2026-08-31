@@ -1,11 +1,14 @@
 import os
+
 import aiosqlite
+
 from .config import settings
+
 
 async def init_db() -> None:
     # Ensure data directory exists
     os.makedirs(os.path.dirname(settings.DB_PATH), exist_ok=True)
-    
+
     async with aiosqlite.connect(settings.DB_PATH) as db:
         await db.execute("""
             CREATE TABLE IF NOT EXISTS conversations (
@@ -27,7 +30,7 @@ async def init_db() -> None:
                 source_conversation_id TEXT
             )
         """)
-        
+
         await db.execute("""
             CREATE TABLE IF NOT EXISTS messages (
                 id TEXT PRIMARY KEY,
@@ -94,10 +97,13 @@ async def init_db() -> None:
         await db.commit()
         print("[DB] Database initialized with performance indexes and settings table")
 
+
 async def get_setting(key: str, default: str = "") -> str:
     try:
         async with aiosqlite.connect(settings.DB_PATH) as db:
-            cursor = await db.execute("SELECT value FROM settings WHERE key = ?", (key,))
+            cursor = await db.execute(
+                "SELECT value FROM settings WHERE key = ?", (key,)
+            )
             row = await cursor.fetchone()
             if row:
                 return row[0]
@@ -105,16 +111,18 @@ async def get_setting(key: str, default: str = "") -> str:
         print(f"[DB] Error reading setting {key}: {e}")
     return default
 
+
 async def set_setting(key: str, value: str) -> None:
     try:
         async with aiosqlite.connect(settings.DB_PATH) as db:
             await db.execute(
                 "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                (key, value)
+                (key, value),
             )
             await db.commit()
     except Exception as e:
         print(f"[DB] Error writing setting {key}: {e}")
+
 
 async def delete_setting(key: str) -> None:
     try:
@@ -123,4 +131,3 @@ async def delete_setting(key: str) -> None:
             await db.commit()
     except Exception as e:
         print(f"[DB] Error deleting setting {key}: {e}")
-

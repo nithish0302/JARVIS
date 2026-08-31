@@ -33,39 +33,50 @@ WMO_CODES = {
     99: "Thunderstorm with heavy hail",
 }
 
+
 def _get_description(code: int) -> str:
     return WMO_CODES.get(code, "Unknown weather")
+
 
 def _geocode(location: str) -> tuple[float, float, str]:
     """Returns (latitude, longitude, resolved_name)."""
     resp = httpx.get(
         "https://geocoding-api.open-meteo.com/v1/search",
         params={"name": location, "count": 1},
-        timeout=15.0
+        timeout=15.0,
     )
     resp.raise_for_status()
     data = resp.json()
-    
+
     results = data.get("results")
     if not results:
         raise ValueError(f"Location not found: {location}")
-        
+
     first = results[0]
     return first.get("latitude"), first.get("longitude"), first.get("name")
 
+
 def get_current_weather(location: str) -> dict:
     lat, lon, resolved_name = _geocode(location)
-    
+
     params = {
         "latitude": lat,
         "longitude": lon,
-        "current": ["temperature_2m", "apparent_temperature", "relative_humidity_2m", "wind_speed_10m", "weather_code"]
+        "current": [
+            "temperature_2m",
+            "apparent_temperature",
+            "relative_humidity_2m",
+            "wind_speed_10m",
+            "weather_code",
+        ],
     }
-    
-    resp = httpx.get("https://api.open-meteo.com/v1/forecast", params=params, timeout=15.0)
+
+    resp = httpx.get(
+        "https://api.open-meteo.com/v1/forecast", params=params, timeout=15.0
+    )
     resp.raise_for_status()
     data = resp.json()
-    
+
     current = data.get("current", {})
     return {
         "location_name": resolved_name,
@@ -73,34 +84,46 @@ def get_current_weather(location: str) -> dict:
         "feels_like": current.get("apparent_temperature"),
         "humidity": current.get("relative_humidity_2m"),
         "wind_speed": current.get("wind_speed_10m"),
-        "weather_description": _get_description(current.get("weather_code", -1))
+        "weather_description": _get_description(current.get("weather_code", -1)),
     }
+
 
 def get_forecast(location: str, days: int = 3) -> list[dict]:
     lat, lon, resolved_name = _geocode(location)
-    
+
     params = {
         "latitude": lat,
         "longitude": lon,
-        "daily": ["weather_code", "temperature_2m_max", "temperature_2m_min", "precipitation_probability_max"],
-        "forecast_days": days
+        "daily": [
+            "weather_code",
+            "temperature_2m_max",
+            "temperature_2m_min",
+            "precipitation_probability_max",
+        ],
+        "forecast_days": days,
     }
-    
-    resp = httpx.get("https://api.open-meteo.com/v1/forecast", params=params, timeout=15.0)
+
+    resp = httpx.get(
+        "https://api.open-meteo.com/v1/forecast", params=params, timeout=15.0
+    )
     resp.raise_for_status()
     data = resp.json()
-    
+
     daily = data.get("daily", {})
     times = daily.get("time", [])
-    
+
     results = []
     for i in range(len(times)):
-        results.append({
-            "date": times[i],
-            "high": daily.get("temperature_2m_max", [])[i],
-            "low": daily.get("temperature_2m_min", [])[i],
-            "description": _get_description(daily.get("weather_code", [])[i]),
-            "precipitation_chance": daily.get("precipitation_probability_max", [])[i]
-        })
-        
+        results.append(
+            {
+                "date": times[i],
+                "high": daily.get("temperature_2m_max", [])[i],
+                "low": daily.get("temperature_2m_min", [])[i],
+                "description": _get_description(daily.get("weather_code", [])[i]),
+                "precipitation_chance": daily.get("precipitation_probability_max", [])[
+                    i
+                ],
+            }
+        )
+
     return results

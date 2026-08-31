@@ -1,145 +1,161 @@
-import numpy as np
-import re
-import threading
-import tempfile
 import os
+import re
 import subprocess
+import tempfile
+import threading
 import time
 from pathlib import Path
-from .wake_word import WakeWordDetector
-from .speech_recorder import SpeechRecorder
+
+import numpy as np
+
 from ..core.config import settings
+from .speech_recorder import SpeechRecorder
+from .wake_word import WakeWordDetector
 
 # Whitelisted applications for voice commands (SECURITY: prevents command injection)
 ALLOWED_APPS = {
-  "notepad.exe", "calc.exe", "firefox", "chrome", "explorer.exe",
-  "code", "spotify", "discord", "taskmgr.exe",
-  "ms-settings:", "ms-windows-store:"
+    "notepad.exe",
+    "calc.exe",
+    "firefox",
+    "chrome",
+    "explorer.exe",
+    "code",
+    "spotify",
+    "discord",
+    "taskmgr.exe",
+    "ms-settings:",
+    "ms-windows-store:",
 }
 
 # Direct command mapping for instant execution without LLM
 VOICE_COMMAND_MAP = {
-  "open notepad": ("open_app", "notepad.exe"),
-  "open calculator": ("open_app", "calc.exe"),
-  "open calc": ("open_app", "calc.exe"),
-  "open firefox": ("open_app", "firefox"),
-  "open chrome": ("open_app", "chrome"),
-  "open explorer": ("open_app", "explorer.exe"),
-  "open file explorer": ("open_app", "explorer.exe"),
-  "open vs code": ("open_app", "code"),
-  "open vscode": ("open_app", "code"),
-  "open spotify": ("open_app", "spotify"),
-  "open discord": ("open_app", "discord"),
-  "open task manager": ("open_app", "taskmgr.exe"),
-  "lock screen": ("lock_screen", None),
-  "lock my screen": ("lock_screen", None),
-  "lock the screen": ("lock_screen", None),
-  "volume up": ("volume", "up"),
-  "volume down": ("volume", "down"),
-  "mute": ("volume", "mute"),
-  "unmute": ("volume", "unmute"),
-  "take screenshot": ("screenshot", None),
-  "open settings": ("open_app", "ms-settings:"),
-  "open store": ("open_app", "ms-windows-store:"),
-  "what time is it": ("system_query", "time"),
-  "what is the time": ("system_query", "time"),
-  "what is my ip": ("system_query", "ip"),
-  "my ip address": ("system_query", "ip"),
-  "battery level": ("system_query", "battery"),
-  "battery status": ("system_query", "battery"),
+    "open notepad": ("open_app", "notepad.exe"),
+    "open calculator": ("open_app", "calc.exe"),
+    "open calc": ("open_app", "calc.exe"),
+    "open firefox": ("open_app", "firefox"),
+    "open chrome": ("open_app", "chrome"),
+    "open explorer": ("open_app", "explorer.exe"),
+    "open file explorer": ("open_app", "explorer.exe"),
+    "open vs code": ("open_app", "code"),
+    "open vscode": ("open_app", "code"),
+    "open spotify": ("open_app", "spotify"),
+    "open discord": ("open_app", "discord"),
+    "open task manager": ("open_app", "taskmgr.exe"),
+    "lock screen": ("lock_screen", None),
+    "lock my screen": ("lock_screen", None),
+    "lock the screen": ("lock_screen", None),
+    "volume up": ("volume", "up"),
+    "volume down": ("volume", "down"),
+    "mute": ("volume", "mute"),
+    "unmute": ("volume", "unmute"),
+    "take screenshot": ("screenshot", None),
+    "open settings": ("open_app", "ms-settings:"),
+    "open store": ("open_app", "ms-windows-store:"),
+    "what time is it": ("system_query", "time"),
+    "what is the time": ("system_query", "time"),
+    "what is my ip": ("system_query", "ip"),
+    "my ip address": ("system_query", "ip"),
+    "battery level": ("system_query", "battery"),
+    "battery status": ("system_query", "battery"),
 }
 
+
 def _register_cuda_dll_dirs():
-  """faster-whisper's CTranslate2 backend links against cuBLAS/cuDNN by a
-  CUDA-12-specific filename (cublas64_12.dll, cudnn64_9.dll) regardless of
-  the driver's own CUDA version. Without this, WhisperModel(device="cuda")
-  *constructs* successfully but fails the moment it actually runs inference
-  ("cublas64_12.dll is not found").
+    """faster-whisper's CTranslate2 backend links against cuBLAS/cuDNN by a
+    CUDA-12-specific filename (cublas64_12.dll, cudnn64_9.dll) regardless of
+    the driver's own CUDA version. Without this, WhisperModel(device="cuda")
+    *constructs* successfully but fails the moment it actually runs inference
+    ("cublas64_12.dll is not found").
 
-  os.add_dll_directory() does NOT fix this - CTranslate2's native extension
-  loads these libraries in a way that only honors PATH, not the
-  AddDllDirectory-registered search list. Prepending to PATH is the only
-  approach verified to work here.
+    os.add_dll_directory() does NOT fix this - CTranslate2's native extension
+    loads these libraries in a way that only honors PATH, not the
+    AddDllDirectory-registered search list. Prepending to PATH is the only
+    approach verified to work here.
 
-  cuBLAS comes from the nvidia-cublas-cu12 pip package (cublas64_12.dll -
-  no naming collision with torch's own cublas64_13.dll). cuDNN deliberately
-  does NOT come from a separate nvidia-cudnn-cu12 package: that DLL is
-  named cudnn64_9.dll in EVERY nvidia-cudnn-cu* package regardless of CUDA
-  major version, identical to the name torch already bundles under
-  torch/lib. Installing a second, differently-built copy causes Kokoro's
-  torch CUDA calls to intermix DLLs from both installs mid-process
-  ("CUDNN_STATUS_SUBLIBRARY_VERSION_MISMATCH"). Pointing CTranslate2 at
-  torch's own torch/lib instead gives both consumers the same, internally
-  consistent cuDNN build."""
-  if os.name != "nt":
-    return
-  try:
-    import importlib.util
-    dirs = []
-    spec = importlib.util.find_spec("nvidia.cublas")
-    if spec and spec.submodule_search_locations:
-      for loc in spec.submodule_search_locations:
-        bin_dir = os.path.join(loc, "bin")
-        if os.path.isdir(bin_dir):
-          dirs.append(bin_dir)
+    cuBLAS comes from the nvidia-cublas-cu12 pip package (cublas64_12.dll -
+    no naming collision with torch's own cublas64_13.dll). cuDNN deliberately
+    does NOT come from a separate nvidia-cudnn-cu12 package: that DLL is
+    named cudnn64_9.dll in EVERY nvidia-cudnn-cu* package regardless of CUDA
+    major version, identical to the name torch already bundles under
+    torch/lib. Installing a second, differently-built copy causes Kokoro's
+    torch CUDA calls to intermix DLLs from both installs mid-process
+    ("CUDNN_STATUS_SUBLIBRARY_VERSION_MISMATCH"). Pointing CTranslate2 at
+    torch's own torch/lib instead gives both consumers the same, internally
+    consistent cuDNN build."""
+    if os.name != "nt":
+        return
+    try:
+        import importlib.util
 
-    torch_spec = importlib.util.find_spec("torch")
-    if torch_spec and torch_spec.submodule_search_locations:
-      for loc in torch_spec.submodule_search_locations:
-        lib_dir = os.path.join(loc, "lib")
-        if os.path.isdir(lib_dir):
-          dirs.append(lib_dir)
+        dirs = []
+        spec = importlib.util.find_spec("nvidia.cublas")
+        if spec and spec.submodule_search_locations:
+            for loc in spec.submodule_search_locations:
+                bin_dir = os.path.join(loc, "bin")
+                if os.path.isdir(bin_dir):
+                    dirs.append(bin_dir)
 
-    if dirs:
-      os.environ["PATH"] = os.pathsep.join(dirs) + os.pathsep + os.environ.get("PATH", "")
-  except Exception as e:
-    print(f"[VOICE] Failed to register CUDA DLL directories: {e}")
+        torch_spec = importlib.util.find_spec("torch")
+        if torch_spec and torch_spec.submodule_search_locations:
+            for loc in torch_spec.submodule_search_locations:
+                lib_dir = os.path.join(loc, "lib")
+                if os.path.isdir(lib_dir):
+                    dirs.append(lib_dir)
+
+        if dirs:
+            os.environ["PATH"] = (
+                os.pathsep.join(dirs) + os.pathsep + os.environ.get("PATH", "")
+            )
+    except Exception as e:
+        print(f"[VOICE] Failed to register CUDA DLL directories: {e}")
 
 
 def _normalize_for_phrase_match(text: str) -> str:
-  """Lowercase, strip trailing punctuation, and drop apostrophes so
-  Whisper's inconsistent contractions ("that's" vs "thats") and config
-  phrase lists (written without apostrophes) compare equal."""
-  normalized = text.lower().strip().rstrip(".,!?")
-  return normalized.replace("'", "").replace("’", "")
+    """Lowercase, strip trailing punctuation, and drop apostrophes so
+    Whisper's inconsistent contractions ("that's" vs "thats") and config
+    phrase lists (written without apostrophes) compare equal."""
+    normalized = text.lower().strip().rstrip(".,!?")
+    return normalized.replace("'", "").replace("’", "")
 
 
 def _matches_interrupt_phrase(normalized_text: str, phrase: str) -> bool:
-  """True if normalized_text (already normalized via
-  _normalize_for_phrase_match) IS phrase, or starts with phrase followed by
-  a word boundary - so "stop please" and the doubled "wake up jarvis wake
-  up jarvis" from the original bug report both match, but "stopwatch" or
-  "waiting" don't. `phrase` must also already be normalized."""
-  if normalized_text == phrase:
-    return True
-  return re.match(re.escape(phrase) + r"\b", normalized_text) is not None
+    """True if normalized_text (already normalized via
+    _normalize_for_phrase_match) IS phrase, or starts with phrase followed by
+    a word boundary - so "stop please" and the doubled "wake up jarvis wake
+    up jarvis" from the original bug report both match, but "stopwatch" or
+    "waiting" don't. `phrase` must also already be normalized."""
+    if normalized_text == phrase:
+        return True
+    return re.match(re.escape(phrase) + r"\b", normalized_text) is not None
 
 
 def match_interrupt_phrase(text: str) -> str | None:
-  """Checks a FINAL Whisper transcript against settings.WAKE_PHRASE and
-  settings.INTERRUPT_PHRASES (see core/config.py for the full rationale).
-  Returns "wake" if it's the wake phrase, "stop" if it's one of the other
-  interrupt phrases, None if it's an ordinary command."""
-  normalized = _normalize_for_phrase_match(text)
-  if _matches_interrupt_phrase(normalized, _normalize_for_phrase_match(settings.WAKE_PHRASE)):
-    return "wake"
-  for phrase in settings.INTERRUPT_PHRASES:
-    if _matches_interrupt_phrase(normalized, _normalize_for_phrase_match(phrase)):
-      return "stop"
-  return None
+    """Checks a FINAL Whisper transcript against settings.WAKE_PHRASE and
+    settings.INTERRUPT_PHRASES (see core/config.py for the full rationale).
+    Returns "wake" if it's the wake phrase, "stop" if it's one of the other
+    interrupt phrases, None if it's an ordinary command."""
+    normalized = _normalize_for_phrase_match(text)
+    if _matches_interrupt_phrase(
+        normalized, _normalize_for_phrase_match(settings.WAKE_PHRASE)
+    ):
+        return "wake"
+    for phrase in settings.INTERRUPT_PHRASES:
+        if _matches_interrupt_phrase(normalized, _normalize_for_phrase_match(phrase)):
+            return "stop"
+    return None
 
 
 def match_continuous_exit_phrase(text: str) -> bool:
-  """Checks a FINAL transcript against settings.CONTINUOUS_MODE_EXIT_PHRASES,
-  using the exact same phrase-matching mechanism as match_interrupt_phrase
-  above (reused, not a second matching system). Callers must check this
-  BEFORE match_interrupt_phrase and before treating text as a normal
-  command (see voice_manager._process_voice_command)."""
-  normalized = _normalize_for_phrase_match(text)
-  for phrase in settings.CONTINUOUS_MODE_EXIT_PHRASES:
-    if _matches_interrupt_phrase(normalized, _normalize_for_phrase_match(phrase)):
-      return True
-  return False
+    """Checks a FINAL transcript against settings.CONTINUOUS_MODE_EXIT_PHRASES,
+    using the exact same phrase-matching mechanism as match_interrupt_phrase
+    above (reused, not a second matching system). Callers must check this
+    BEFORE match_interrupt_phrase and before treating text as a normal
+    command (see voice_manager._process_voice_command)."""
+    normalized = _normalize_for_phrase_match(text)
+    for phrase in settings.CONTINUOUS_MODE_EXIT_PHRASES:
+        if _matches_interrupt_phrase(normalized, _normalize_for_phrase_match(phrase)):
+            return True
+    return False
 
 
 # CONFIRMED INCIDENT: a user said "Go to sleep." while in continuous mode.
@@ -161,830 +177,902 @@ def match_continuous_exit_phrase(text: str) -> bool:
 # _process_voice_command's pending-confirmation check, also without
 # involving the LLM.
 _UNCERTAIN_EXIT_KEYWORDS = (
-  "sleep",
-  "stop listening",
-  "shut down",
-  "power down",
-  "im done",
-  "thats enough",
+    "sleep",
+    "stop listening",
+    "shut down",
+    "power down",
+    "im done",
+    "thats enough",
 )
 _UNCERTAIN_EXIT_MAX_WORDS = 6
 
 _AFFIRMATIVE_PHRASES = (
-  "yes", "yeah", "yep", "yup", "correct", "please",
-  "affirmative", "do it", "please do", "thats right", "right", "go ahead",
+    "yes",
+    "yeah",
+    "yep",
+    "yup",
+    "correct",
+    "please",
+    "affirmative",
+    "do it",
+    "please do",
+    "thats right",
+    "right",
+    "go ahead",
 )
 
 
 def _looks_like_uncertain_exit_intent(text: str) -> bool:
-  """True for a SHORT utterance that sounds like it MIGHT be trying to end
-  a continuous-mode session, even though match_continuous_exit_phrase()
-  above didn't match it exactly. Deliberately loose/substring-based (not
-  meant to enumerate every phrasing) and gated on length specifically so it
-  doesn't fire on a normal, longer sentence that happens to mention one of
-  these words for an unrelated reason (see _process_voice_command's caller
-  for the full false-positive reasoning, e.g. "what's the nearest bus
-  stop")."""
-  normalized = _normalize_for_phrase_match(text)
-  if not normalized:
-    return False
-  if len(normalized.split()) > _UNCERTAIN_EXIT_MAX_WORDS:
-    return False
-  return any(keyword in normalized for keyword in _UNCERTAIN_EXIT_KEYWORDS)
+    """True for a SHORT utterance that sounds like it MIGHT be trying to end
+    a continuous-mode session, even though match_continuous_exit_phrase()
+    above didn't match it exactly. Deliberately loose/substring-based (not
+    meant to enumerate every phrasing) and gated on length specifically so it
+    doesn't fire on a normal, longer sentence that happens to mention one of
+    these words for an unrelated reason (see _process_voice_command's caller
+    for the full false-positive reasoning, e.g. "what's the nearest bus
+    stop")."""
+    normalized = _normalize_for_phrase_match(text)
+    if not normalized:
+        return False
+    if len(normalized.split()) > _UNCERTAIN_EXIT_MAX_WORDS:
+        return False
+    return any(keyword in normalized for keyword in _UNCERTAIN_EXIT_KEYWORDS)
 
 
 def _is_affirmative(text: str) -> bool:
-  """True if text is a short, clear "yes" to the deterministic exit
-  confirmation question above - checked the same word-boundary way as
-  every other phrase match in this module, never via the LLM."""
-  normalized = _normalize_for_phrase_match(text)
-  if not normalized:
-    return False
-  return any(
-    _matches_interrupt_phrase(normalized, phrase) for phrase in _AFFIRMATIVE_PHRASES
-  )
+    """True if text is a short, clear "yes" to the deterministic exit
+    confirmation question above - checked the same word-boundary way as
+    every other phrase match in this module, never via the LLM."""
+    normalized = _normalize_for_phrase_match(text)
+    if not normalized:
+        return False
+    return any(
+        _matches_interrupt_phrase(normalized, phrase) for phrase in _AFFIRMATIVE_PHRASES
+    )
 
 
 def execute_voice_command(text: str) -> str | None:
-  """Try to execute a direct voice command. Returns response if handled, None if not."""
-  msg = text.lower().strip().rstrip(".,!?")
+    """Try to execute a direct voice command. Returns response if handled, None if not."""
+    msg = text.lower().strip().rstrip(".,!?")
 
-  # Exact match
-  if msg in VOICE_COMMAND_MAP:
-    action, param = VOICE_COMMAND_MAP[msg]
-    return _execute_action(action, param)
+    # Exact match
+    if msg in VOICE_COMMAND_MAP:
+        action, param = VOICE_COMMAND_MAP[msg]
+        return _execute_action(action, param)
 
-  # Partial match
-  for cmd, (action, param) in VOICE_COMMAND_MAP.items():
-    if cmd in msg:
-      return _execute_action(action, param)
+    # Partial match
+    for cmd, (action, param) in VOICE_COMMAND_MAP.items():
+        if cmd in msg:
+            return _execute_action(action, param)
 
-  return None  # Not a direct command
+    return None  # Not a direct command
+
 
 def _execute_action(action: str, param: str | None) -> str:
-  """Execute a direct voice action and return response."""
-  if action == "open_app":
-    # SECURITY: Whitelist validation to prevent command injection
-    if param not in ALLOWED_APPS:
-      print(f"[SECURITY] Blocked attempt to open non-whitelisted app: {param}")
-      return f"Application '{param}' is not whitelisted for voice commands, sir."
+    """Execute a direct voice action and return response."""
+    if action == "open_app":
+        # SECURITY: Whitelist validation to prevent command injection
+        if param not in ALLOWED_APPS:
+            print(f"[SECURITY] Blocked attempt to open non-whitelisted app: {param}")
+            return f"Application '{param}' is not whitelisted for voice commands, sir."
 
-    try:
-      subprocess.Popen(
-        ["cmd", "/C", "start", "", param],
-        creationflags=subprocess.CREATE_NO_WINDOW
-      )
-      app_name = param.replace(".exe","").replace("ms-","").replace(":","").title()
-      return f"Opening {app_name}, sir."
-    except Exception as e:
-      return f"Failed to open: {e}"
+        try:
+            subprocess.Popen(
+                ["cmd", "/C", "start", "", param],
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+            app_name = (
+                param.replace(".exe", "").replace("ms-", "").replace(":", "").title()
+            )
+            return f"Opening {app_name}, sir."
+        except Exception as e:
+            return f"Failed to open: {e}"
 
-  elif action == "lock_screen":
-    subprocess.Popen(
-      ["rundll32.exe","user32.dll,LockWorkStation"]
-    )
-    return "Screen locked, sir."
+    elif action == "lock_screen":
+        subprocess.Popen(["rundll32.exe", "user32.dll,LockWorkStation"])
+        return "Screen locked, sir."
 
-  elif action == "volume":
-    import ctypes
-    vk_map = {
-      "up": 0xAF,     # VK_VOLUME_UP
-      "down": 0xAE,   # VK_VOLUME_DOWN
-      "mute": 0xAD,   # VK_VOLUME_MUTE
-    }
-    if param in vk_map:
-      vk = vk_map[param]
-      ctypes.windll.user32.keybd_event(vk, 0, 0, 0)
-      ctypes.windll.user32.keybd_event(vk, 0, 2, 0)  # KEYEVENTF_KEYUP
-    return f"Volume {param}, sir."
+    elif action == "volume":
+        import ctypes
 
-  elif action == "system_query":
-    if param == "time":
-      from datetime import datetime
-      now = datetime.now().strftime("%I:%M %p")
-      return f"The time is {now}, sir."
-    elif param == "ip":
-      import socket
-      try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        ip = s.getsockname()[0]
-        s.close()
-      except Exception:
-        ip = socket.gethostbyname(socket.gethostname())
-      return f"Your IP is {ip}, sir."
-    elif param == "battery":
-      import ctypes
-      class SYSTEM_POWER_STATUS(ctypes.Structure):
-        _fields_ = [
-          ("ACLineStatus", ctypes.c_byte),
-          ("BatteryFlag", ctypes.c_byte),
-          ("BatteryLifePercent", ctypes.c_byte),
-          ("SystemStatusFlag", ctypes.c_byte),
-          ("BatteryLifeTime", ctypes.c_ulong),
-          ("BatteryFullLifeTime", ctypes.c_ulong),
-        ]
-      status = SYSTEM_POWER_STATUS()
-      if ctypes.windll.kernel32.GetSystemPowerStatus(ctypes.byref(status)):
-        if status.BatteryLifePercent != 255:
-          charging = "charging" if status.ACLineStatus == 1 else "on battery"
-          return f"Battery is at {status.BatteryLifePercent}% ({charging}), sir."
-        else:
-          return "System is running on AC power with no battery, sir."
-      return "Unable to retrieve battery status, sir."
+        vk_map = {
+            "up": 0xAF,  # VK_VOLUME_UP
+            "down": 0xAE,  # VK_VOLUME_DOWN
+            "mute": 0xAD,  # VK_VOLUME_MUTE
+        }
+        if param in vk_map:
+            vk = vk_map[param]
+            ctypes.windll.user32.keybd_event(vk, 0, 0, 0)
+            ctypes.windll.user32.keybd_event(vk, 0, 2, 0)  # KEYEVENTF_KEYUP
+        return f"Volume {param}, sir."
 
-  return "Done, sir."
+    elif action == "system_query":
+        if param == "time":
+            from datetime import datetime
+
+            now = datetime.now().strftime("%I:%M %p")
+            return f"The time is {now}, sir."
+        elif param == "ip":
+            import socket
+
+            try:
+                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                s.connect(("8.8.8.8", 80))
+                ip = s.getsockname()[0]
+                s.close()
+            except Exception:
+                ip = socket.gethostbyname(socket.gethostname())
+            return f"Your IP is {ip}, sir."
+        elif param == "battery":
+            import ctypes
+
+            class SYSTEM_POWER_STATUS(ctypes.Structure):
+                _fields_ = [
+                    ("ACLineStatus", ctypes.c_byte),
+                    ("BatteryFlag", ctypes.c_byte),
+                    ("BatteryLifePercent", ctypes.c_byte),
+                    ("SystemStatusFlag", ctypes.c_byte),
+                    ("BatteryLifeTime", ctypes.c_ulong),
+                    ("BatteryFullLifeTime", ctypes.c_ulong),
+                ]
+
+            status = SYSTEM_POWER_STATUS()
+            if ctypes.windll.kernel32.GetSystemPowerStatus(ctypes.byref(status)):
+                if status.BatteryLifePercent != 255:
+                    charging = "charging" if status.ACLineStatus == 1 else "on battery"
+                    return (
+                        f"Battery is at {status.BatteryLifePercent}% ({charging}), sir."
+                    )
+                else:
+                    return "System is running on AC power with no battery, sir."
+            return "Unable to retrieve battery status, sir."
+
+    return "Done, sir."
+
 
 class VoiceManager:
-  def __init__(self):
-    self.is_listening = False
-    self.wake_word_detector = None
-    self.speech_recorder = SpeechRecorder()
-    self.on_transcription = None
+    def __init__(self):
+        self.is_listening = False
+        self.wake_word_detector = None
+        self.speech_recorder = SpeechRecorder()
+        self.on_transcription = None
 
-    # Get the jarvis-engine root directory
-    # voice_manager.py is at: jarvis-engine/src/jarvis_engine/voice/voice_manager.py
-    # So we need to go up 4 levels to reach jarvis-engine/
-    engine_root = Path(__file__).parent.parent.parent.parent
-    self.model_path = str(engine_root / "models" / "wake_up_jarvis.onnx")
-    print(f"Looking for wake word model at: {self.model_path}")
-    self.whisper_model = None
-    self.whisper_ready = threading.Event()
-    self.wake_word_ready = threading.Event()
-    self._initialized = False
+        # Get the jarvis-engine root directory
+        # voice_manager.py is at: jarvis-engine/src/jarvis_engine/voice/voice_manager.py
+        # So we need to go up 4 levels to reach jarvis-engine/
+        engine_root = Path(__file__).parent.parent.parent.parent
+        self.model_path = str(engine_root / "models" / "wake_up_jarvis.onnx")
+        print(f"Looking for wake word model at: {self.model_path}")
+        self.whisper_model = None
+        self.whisper_ready = threading.Event()
+        self.wake_word_ready = threading.Event()
+        self._initialized = False
 
-    # Handles on the background loader threads started by initialize().
-    # shutdown() joins these BEFORE tearing anything down. Without that,
-    # shutdown races a loader mid-construction: it reads
-    # self.wake_word_detector while the loader has not assigned it yet,
-    # sees None, skips stop(), and the loader then opens a mic
-    # InputStream that nothing ever closes. The native sounddevice
-    # callback is still live when the interpreter tears down, which is an
-    # access violation - reproducible as a hard segfault when the app
-    # lifespan is started and stopped in quick succession.
-    self._loader_threads: list[threading.Thread] = []
+        # Handles on the background loader threads started by initialize().
+        # shutdown() joins these BEFORE tearing anything down. Without that,
+        # shutdown races a loader mid-construction: it reads
+        # self.wake_word_detector while the loader has not assigned it yet,
+        # sees None, skips stop(), and the loader then opens a mic
+        # InputStream that nothing ever closes. The native sounddevice
+        # callback is still live when the interpreter tears down, which is an
+        # access violation - reproducible as a hard segfault when the app
+        # lifespan is started and stopped in quick succession.
+        self._loader_threads: list[threading.Thread] = []
 
-    # Continuous conversation mode - session-only (never persisted, always
-    # starts False on a fresh VoiceManager). _continuous_generation
-    # disambiguates one continuous-mode session from the next (guards a
-    # stale in-flight recording loop from a just-exited session against
-    # racing a brand new one); _continuous_timer_token does the same for
-    # the silence timer specifically (guards a timer that's already about
-    # to fire against a reset that happened a moment earlier). Both follow
-    # the same atomic check-and-set-under-lock pattern as
-    # wake_word.py's _detection_lock.
-    self.continuous_mode = False
-    self._continuous_lock = threading.Lock()
-    self._continuous_generation = 0
-    self._continuous_timer: threading.Timer | None = None
-    self._continuous_timer_token = 0
+        # Continuous conversation mode - session-only (never persisted, always
+        # starts False on a fresh VoiceManager). _continuous_generation
+        # disambiguates one continuous-mode session from the next (guards a
+        # stale in-flight recording loop from a just-exited session against
+        # racing a brand new one); _continuous_timer_token does the same for
+        # the silence timer specifically (guards a timer that's already about
+        # to fire against a reset that happened a moment earlier). Both follow
+        # the same atomic check-and-set-under-lock pattern as
+        # wake_word.py's _detection_lock.
+        self.continuous_mode = False
+        self._continuous_lock = threading.Lock()
+        self._continuous_generation = 0
+        self._continuous_timer: threading.Timer | None = None
+        self._continuous_timer_token = 0
 
-    # ONE thread runs the whole continuous-mode session's recording loop
-    # (spawned by continue_conversation() only on the FIRST call that
-    # enters continuous mode - see its docstring). After dispatching a
-    # normal command it does not return: it waits here for
-    # continue_conversation()'s LATER calls (once that command's response
-    # has actually been spoken) to signal it, then loops back and records
-    # the next turn itself. This is what makes it correct to only ever
-    # spawn one thread per session - without this wait, the thread would
-    # exit after the first dispatched command and nothing would ever open
-    # the mic again. Bounded by _continuous_turn_wait_timeout so a pipeline
-    # that never reaches _speak_response can't strand this thread alive
-    # forever (tests shorten this to keep the suite fast).
-    self._continuous_turn_ready = threading.Event()
-    self._continuous_turn_wait_timeout = 120.0
+        # ONE thread runs the whole continuous-mode session's recording loop
+        # (spawned by continue_conversation() only on the FIRST call that
+        # enters continuous mode - see its docstring). After dispatching a
+        # normal command it does not return: it waits here for
+        # continue_conversation()'s LATER calls (once that command's response
+        # has actually been spoken) to signal it, then loops back and records
+        # the next turn itself. This is what makes it correct to only ever
+        # spawn one thread per session - without this wait, the thread would
+        # exit after the first dispatched command and nothing would ever open
+        # the mic again. Bounded by _continuous_turn_wait_timeout so a pipeline
+        # that never reaches _speak_response can't strand this thread alive
+        # forever (tests shorten this to keep the suite fast).
+        self._continuous_turn_ready = threading.Event()
+        self._continuous_turn_wait_timeout = 120.0
 
-    # Set when an utterance looked like an uncertain exit intent (see
-    # _looks_like_uncertain_exit_intent) and JARVIS asked a deterministic
-    # confirmation question instead of guessing or asking the LLM. The
-    # VERY NEXT transcript is checked against it (see _process_voice_command)
-    # - "yes" performs the real exit, anything else is treated as this
-    # turn's actual command instead of being silently discarded. Reset
-    # whenever a continuous-mode session starts or ends so a stale pending
-    # confirmation can never bleed into a different session.
-    self._pending_exit_confirmation = False
-
-    # Session-level conversation_id for thread continuity across continuous mode turns
-    self.conversation_id: str | None = None
-
-  def _set_is_listening(self, val: bool):
-    self.is_listening = val
-
-  def initialize(
-    self,
-    on_transcription: callable
-  ):
-    """Kicks off Whisper and wake-word loading in background daemon
-    threads and returns immediately - it does NOT block on either model
-    being ready. Check self.whisper_ready / self.wake_word_ready (or
-    GET /health's voice_ready field) for real readiness.
-
-    Safe to call more than once (e.g. startup, then POST /voice/start):
-    the handler is refreshed but the models/mic stream are only brought up
-    once. Re-running the loaders would open a SECOND InputStream and
-    dispatch every wake word twice."""
-    self.on_transcription = on_transcription
-
-    if self._initialized:
-      print("Voice manager already initialized - refreshed handler only")
-      return
-
-    # Test / headless escape hatch. The handler is still installed above,
-    # so anything that drives transcription directly keeps working; what
-    # is skipped is the two loader threads, i.e. the faster-whisper model
-    # download and the openWakeWord mic stream. Checked here rather than
-    # in main.py's lifespan so POST /voice/start honours it too.
-    if settings.VOICE_DISABLED:
-      print("[VOICE] VOICE_DISABLED set - skipping Whisper + wake word loading")
-      return
-
-    self._initialized = True
-
-    def _load_whisper():
-      _t_whisper = time.time()
-      if settings.USE_GPU:
-        _register_cuda_dll_dirs()
-      from faster_whisper import WhisperModel
-      print("Loading Whisper model in background...")
-
-      # GPU path: try float16 first, then int8 on the same device (some
-      # cards/driver combos choke on fp16 kernels), then fall back to CPU
-      # entirely if CUDA init fails. Log which path actually loaded so it's
-      # diagnosable in the field, not just at implementation time.
-      attempts = []
-      if settings.USE_GPU:
-        attempts.append(("cuda", "float16"))
-        attempts.append(("cuda", "int8_float16"))
-      attempts.append(("cpu", "int8"))
-
-      for device, compute_type in attempts:
-        try:
-          model = WhisperModel(
-            "small.en",
-            device=device,
-            compute_type=compute_type
-          )
-          # Construction alone doesn't prove the device works - CTranslate2
-          # loads cuBLAS/cuDNN lazily, so a missing DLL or incompatible
-          # kernel only surfaces on the first real inference. Run one to
-          # actually validate this attempt before committing to it.
-          list(model.transcribe(
-            np.zeros(16000, dtype=np.float32), language="en"
-          )[0])
-          self.whisper_model = model
-          print(
-            f"Whisper model ready! device={device} "
-            f"compute_type={compute_type} [{time.time() - _t_whisper:.2f}s]"
-          )
-          break
-        except Exception as e:
-          print(f"Whisper load failed on device={device} compute_type={compute_type}: {e}")
-          self.whisper_model = None
-      else:
-        print(f"Whisper load failed on all devices [{time.time() - _t_whisper:.2f}s]")
-
-      self.whisper_ready.set()
-
-    def _load_wake_word():
-      _t_wake = time.time()
-      self.wake_word_detector = WakeWordDetector(
-        model_path=self.model_path,
-        on_detected=self._on_wake_word_detected,
-        # threshold / barge-in tuning come from core/config.py defaults.
-        threshold=settings.WAKE_WORD_THRESHOLD,
-        get_is_listening=lambda: self.is_listening,
-        set_is_listening=self._set_is_listening,
-        cooldown_seconds=2.0,
-        tts_mute_buffer_seconds=settings.WAKE_WORD_TTS_MUTE_BUFFER_SECONDS
-      )
-      print(f"[TIMING] WakeWordDetector construction (openWakeWord Model load): {time.time() - _t_wake:.2f}s")
-      _t_wake_start = time.time()
-      self.wake_word_detector.start()
-      print(f"[TIMING] WakeWordDetector.start() (mic stream open): {time.time() - _t_wake_start:.2f}s")
-      self.wake_word_ready.set()
-
-    # Keep handles so shutdown() can wait these out instead of tearing
-    # down underneath them - see _await_loaders().
-    self._loader_threads = [
-      threading.Thread(target=_load_whisper, daemon=True, name="whisper-loader"),
-      threading.Thread(target=_load_wake_word, daemon=True, name="wakeword-loader"),
-    ]
-    for t in self._loader_threads:
-      t.start()
-    print("Voice manager initialize() returned - Whisper + wake word loading in background")
-  
-  def _on_wake_word_detected(self):
-    try:
-      self._start_listening_cycle()
-    except Exception as e:
-      print(f"[VOICE] Wake word handling error: {e}")
-      self._broadcast_status("idle")
-      self.is_listening = False
-
-  def _broadcast_status(self, status: str):
-    import requests
-    try:
-      requests.post(
-        "http://localhost:8765/voice/status/update",
-        json={"status": status},
-        timeout=2
-      )
-    except Exception:
-      pass
-
-  def _start_listening_cycle(self):
-    """Says "Yes sir?" and opens a new recording window in parallel - the
-    normal wake-word trigger path, but also reused by the wake-phrase
-    interrupt below (match_interrupt_phrase() returning "wake") so hearing
-    the wake phrase mid-response reaches the exact same fresh cycle the
-    wake-word MODEL would give if it weren't muted during TTS."""
-    self.is_listening = True
-    import uuid
-    if not self.conversation_id:
-      self.conversation_id = str(uuid.uuid4())
-
-    # Respond immediately
-    print("[VOICE] Wake word detected - responding")
-    self._broadcast_status("listening")
-
-    from .tts_engine import tts_engine
-
-    # Set the instant "Yes sir?" playback genuinely finishes (is_speaking
-    # True -> False), not when this thread happens to be joined or timed
-    # out. The recording thread below starts immediately in parallel - it
-    # does NOT wait on this event before opening the mic, only before
-    # starting its own wait_for_speech_timeout countdown (see
-    # SpeechRecorder.record).
-    tts_finished_event = threading.Event()
-
-    def say_yes():
-      tts_engine.speak_sync(
-        "Yes sir?",
-        on_speech_end=tts_finished_event.set
-      )
-
-    t = threading.Thread(target=say_yes, daemon=True)
-    t.start()
-
-    print("[VOICE] Recording command...")
-    t2 = threading.Thread(
-      target=self._process_voice_command, args=(tts_finished_event,), daemon=True
-    )
-    t2.start()
-
-  def _arm_continuous_timer(self):
-    """(Re)start the session-level continuous-mode silence timer. Caller
-    MUST hold self._continuous_lock. Always cancels any existing timer and
-    bumps the per-arm token first, so a timer that's already mid-fire (past
-    cancel()'s ability to stop it) is guaranteed to see a stale token in
-    _on_continuous_timeout and no-op - same atomic-under-lock pattern as
-    wake_word.py's _detection_lock."""
-    if self._continuous_timer is not None:
-      self._continuous_timer.cancel()
-    self._continuous_timer_token += 1
-    token = self._continuous_timer_token
-    timer = threading.Timer(
-      settings.CONTINUOUS_MODE_TIMEOUT_SECONDS,
-      self._on_continuous_timeout,
-      args=(token,)
-    )
-    timer.daemon = True
-    self._continuous_timer = timer
-    timer.start()
-
-  def _cancel_continuous_timer(self):
-    """Caller MUST hold self._continuous_lock."""
-    if self._continuous_timer is not None:
-      self._continuous_timer.cancel()
-      self._continuous_timer = None
-
-  def _on_continuous_timeout(self, token: int):
-    """Fires on the Timer's own thread after CONTINUOUS_MODE_TIMEOUT_SECONDS
-    of silence with no new speech resetting it. Only acts if this is still
-    the timer that's currently armed - a stale fire (real speech reset the
-    deadline a moment before this ran, or continuous mode already exited a
-    different way) is a no-op."""
-    with self._continuous_lock:
-      if not self.continuous_mode or token != self._continuous_timer_token:
-        return
-      self.continuous_mode = False
-      self.conversation_id = None
-      self._continuous_generation += 1
-      self._continuous_timer = None
-    print(
-      f"[VOICE] Continuous mode silence timeout "
-      f"({settings.CONTINUOUS_MODE_TIMEOUT_SECONDS}s) - exiting to wake-word-only"
-    )
-    self._exit_continuous_mode()
-
-  def _exit_continuous_mode(self):
-    """Speaks the closing acknowledgment and returns to wake-word-only
-    idle. Callers must have ALREADY flipped continuous_mode=False, bumped
-    _continuous_generation, and cancelled the timer under
-    self._continuous_lock - this only handles the TTS/status/is_listening
-    side effects, so there is exactly one place per exit path that performs
-    the actual state transition."""
-    self._pending_exit_confirmation = False
-    self.conversation_id = None
-    from .tts_engine import tts_engine
-    tts_engine.speak_sync(
-      "Going to sleep, sir.",
-      on_speech_start=lambda: self._broadcast_status("speaking")
-    )
-    self._broadcast_status("idle")
-    self.is_listening = False
-
-  def continue_conversation(self):
-    """Called once a normal command's response has finished speaking (see
-    transcription_handler._speak_response, invoked for BOTH the
-    direct-command and LLM paths).
-
-    Enters continuous_mode and spawns the session's ONE recording thread on
-    the FIRST call after a wake-word trigger. Every LATER call within the
-    same session does NOT spawn another thread - that thread is already
-    alive, waiting (see the post-dispatch wait in _process_voice_command)
-    for exactly this signal, so re-arming here just re-arms the silence
-    timer and wakes it up to record the next turn itself. Spawning a new
-    thread on every call used to race that already-alive thread (duplicate
-    recordings, exit phrases only working intermittently - see this
-    function's git history for the incident)."""
-    with self._continuous_lock:
-      was_continuous = self.continuous_mode
-      self.continuous_mode = True
-      if not was_continuous:
-        # Fresh session: a NEW generation so any stale thread left over
-        # from a just-exited previous session can never be mistaken for
-        # this one (see the class docstring note by continuous_mode), and
-        # no confirmation question from a prior (now-ended) session can
-        # still be "pending" here.
-        self._continuous_generation += 1
+        # Set when an utterance looked like an uncertain exit intent (see
+        # _looks_like_uncertain_exit_intent) and JARVIS asked a deterministic
+        # confirmation question instead of guessing or asking the LLM. The
+        # VERY NEXT transcript is checked against it (see _process_voice_command)
+        # - "yes" performs the real exit, anything else is treated as this
+        # turn's actual command instead of being silently discarded. Reset
+        # whenever a continuous-mode session starts or ends so a stale pending
+        # confirmation can never bleed into a different session.
         self._pending_exit_confirmation = False
-        import uuid
-        if not self.conversation_id:
-          self.conversation_id = str(uuid.uuid4())
-      self._arm_continuous_timer()
 
-    self.is_listening = True
-    self._broadcast_status("continuous")
-    if not was_continuous:
-      threading.Thread(
-        target=self._process_voice_command,
-        args=(None,),
-        daemon=True,
-        name="continuous-voice-cycle"
-      ).start()
-    else:
-      self._continuous_turn_ready.set()
+        # Session-level conversation_id for thread continuity across continuous mode turns
+        self.conversation_id: str | None = None
 
-  def _process_voice_command(self, tts_finished_event: threading.Event):
-    # Set (not reset to False in the finally below) only when this
-    # recording resolves to the wake-phrase interrupt outside continuous
-    # mode, which re-arms a fresh cycle via _start_listening_cycle() - that
-    # call already sets is_listening back to True, and letting the finally
-    # below clobber it to False immediately after would create a race
-    # where the new cycle looks "not listening" until its own recording
-    # thread gets going.
-    rearmed = False
-    # Stamped once at entry, not re-read per iteration: this call represents
-    # ONE continuous-mode session (if any) for its entire lifetime, even
-    # across several no-speech/interrupt loop iterations below. Comparing
-    # against self._continuous_generation lets every continuous-mode branch
-    # detect "a different session has since taken over" (timer fired, or an
-    # exit phrase was handled) and abandon itself instead of racing it -
-    # see continue_conversation()'s docstring.
-    generation = self._continuous_generation
-    try:
-      while True:
-        # Record speech - mic opens immediately, in parallel with "Yes sir?"
-        # still playing (first window only; tts_finished_event is None for
-        # every continuous-mode window after that, so the wait starts
-        # counting down immediately).
-        audio = self.speech_recorder.record(tts_finished_event=tts_finished_event)
-        tts_finished_event = None
+    def _set_is_listening(self, val: bool):
+        self.is_listening = val
 
-        if len(audio) == 0:
-          print("[VOICE] No speech detected within timeout.")
-          # This is a per-WINDOW timeout (SpeechRecorder's own
-          # wait_for_speech_timeout, ~6s) - NOT the session-level
-          # CONTINUOUS_MODE_TIMEOUT_SECONDS silence timer, which owns the
-          # decision to actually exit continuous mode and is not reset by
-          # this. Just open the next window and keep waiting.
-          if self.continuous_mode and generation == self._continuous_generation:
-            continue
-          self._broadcast_status("idle")
-          return
+    def initialize(self, on_transcription: callable):
+        """Kicks off Whisper and wake-word loading in background daemon
+        threads and returns immediately - it does NOT block on either model
+        being ready. Check self.whisper_ready / self.wake_word_ready (or
+        GET /health's voice_ready field) for real readiness.
 
-        # Transcribe with faster-whisper
-        text = self._transcribe(audio)
-        if not (text and text.strip()):
-          print("[VOICE] Recorded audio but transcription was empty.")
-          from .tts_engine import tts_engine
-          tts_engine.speak_sync(
-            "Didn't catch that, sir.",
-            on_speech_start=lambda: self._broadcast_status("speaking")
-          )
-          if self.continuous_mode and generation == self._continuous_generation:
-            with self._continuous_lock:
-              if generation == self._continuous_generation and self.continuous_mode:
-                self._arm_continuous_timer()
-            self._broadcast_status("continuous")
-            continue
-          self._broadcast_status("idle")
-          return
+        Safe to call more than once (e.g. startup, then POST /voice/start):
+        the handler is refreshed but the models/mic stream are only brought up
+        once. Re-running the loaders would open a SECOND InputStream and
+        dispatch every wake word twice."""
+        self.on_transcription = on_transcription
 
-        clean_text = text.strip()
-
-        # Real speech resolved to an actual transcript: reset the
-        # session-level silence timer (NOT reset by the no-speech/empty
-        # branches above - only genuine speech counts, per design).
-        if self.continuous_mode:
-          with self._continuous_lock:
-            if generation != self._continuous_generation or not self.continuous_mode:
-              # A different session (exit-then-re-enter, or the timer
-              # already fired) has since taken over - abandon this stale
-              # iteration rather than acting on its behalf.
-              return
-            self._arm_continuous_timer()
-
-        # PENDING EXIT CONFIRMATION - if the PREVIOUS turn asked "Did you
-        # want me to stop listening, sir?" (see the uncertain-exit-intent
-        # check below), THIS transcript is the answer, checked
-        # deterministically (never via the LLM - see the module-level
-        # comment above _looks_like_uncertain_exit_intent for why). A clear
-        # "yes" performs the real exit, backed by the same state-changing
-        # code as an exact exit phrase; anything else clears the pending
-        # flag and falls through to treat this transcript as this turn's
-        # actual command, rather than silently discarding it.
-        if self.continuous_mode and self._pending_exit_confirmation:
-          self._pending_exit_confirmation = False
-          if _is_affirmative(clean_text):
-            print(f"[VOICE] Exit confirmation answered yes: {clean_text!r}")
-            with self._continuous_lock:
-              if generation != self._continuous_generation or not self.continuous_mode:
-                return
-              self.continuous_mode = False
-              self._continuous_generation += 1
-              self._cancel_continuous_timer()
-            self._exit_continuous_mode()
+        if self._initialized:
+            print("Voice manager already initialized - refreshed handler only")
             return
 
-        # CONTINUOUS-MODE EXIT PHRASES - on the FINAL transcript, checked
-        # BEFORE the interrupt-phrase list and before any command handling
-        # (reuses match_interrupt_phrase's matching mechanism via
-        # match_continuous_exit_phrase - see voice_manager module docstring
-        # helpers above). Only meaningful while actually in continuous mode.
-        if self.continuous_mode and match_continuous_exit_phrase(clean_text):
-          print(f"[VOICE] Continuous mode exit phrase detected: {clean_text!r}")
-          with self._continuous_lock:
-            if generation != self._continuous_generation or not self.continuous_mode:
-              return
+        # Test / headless escape hatch. The handler is still installed above,
+        # so anything that drives transcription directly keeps working; what
+        # is skipped is the two loader threads, i.e. the faster-whisper model
+        # download and the openWakeWord mic stream. Checked here rather than
+        # in main.py's lifespan so POST /voice/start honours it too.
+        if settings.VOICE_DISABLED:
+            print("[VOICE] VOICE_DISABLED set - skipping Whisper + wake word loading")
+            return
+
+        self._initialized = True
+
+        def _load_whisper():
+            _t_whisper = time.time()
+            if settings.USE_GPU:
+                _register_cuda_dll_dirs()
+            from faster_whisper import WhisperModel
+
+            print("Loading Whisper model in background...")
+
+            # GPU path: try float16 first, then int8 on the same device (some
+            # cards/driver combos choke on fp16 kernels), then fall back to CPU
+            # entirely if CUDA init fails. Log which path actually loaded so it's
+            # diagnosable in the field, not just at implementation time.
+            attempts = []
+            if settings.USE_GPU:
+                attempts.append(("cuda", "float16"))
+                attempts.append(("cuda", "int8_float16"))
+            attempts.append(("cpu", "int8"))
+
+            for device, compute_type in attempts:
+                try:
+                    model = WhisperModel(
+                        "small.en", device=device, compute_type=compute_type
+                    )
+                    # Construction alone doesn't prove the device works - CTranslate2
+                    # loads cuBLAS/cuDNN lazily, so a missing DLL or incompatible
+                    # kernel only surfaces on the first real inference. Run one to
+                    # actually validate this attempt before committing to it.
+                    list(
+                        model.transcribe(
+                            np.zeros(16000, dtype=np.float32), language="en"
+                        )[0]
+                    )
+                    self.whisper_model = model
+                    print(
+                        f"Whisper model ready! device={device} "
+                        f"compute_type={compute_type} [{time.time() - _t_whisper:.2f}s]"
+                    )
+                    break
+                except Exception as e:
+                    print(
+                        f"Whisper load failed on device={device} compute_type={compute_type}: {e}"
+                    )
+                    self.whisper_model = None
+            else:
+                print(
+                    f"Whisper load failed on all devices [{time.time() - _t_whisper:.2f}s]"
+                )
+
+            self.whisper_ready.set()
+
+        def _load_wake_word():
+            _t_wake = time.time()
+            self.wake_word_detector = WakeWordDetector(
+                model_path=self.model_path,
+                on_detected=self._on_wake_word_detected,
+                # threshold / barge-in tuning come from core/config.py defaults.
+                threshold=settings.WAKE_WORD_THRESHOLD,
+                get_is_listening=lambda: self.is_listening,
+                set_is_listening=self._set_is_listening,
+                cooldown_seconds=2.0,
+                tts_mute_buffer_seconds=settings.WAKE_WORD_TTS_MUTE_BUFFER_SECONDS,
+            )
+            print(
+                f"[TIMING] WakeWordDetector construction (openWakeWord Model load): {time.time() - _t_wake:.2f}s"
+            )
+            _t_wake_start = time.time()
+            self.wake_word_detector.start()
+            print(
+                f"[TIMING] WakeWordDetector.start() (mic stream open): {time.time() - _t_wake_start:.2f}s"
+            )
+            self.wake_word_ready.set()
+
+        # Keep handles so shutdown() can wait these out instead of tearing
+        # down underneath them - see _await_loaders().
+        self._loader_threads = [
+            threading.Thread(target=_load_whisper, daemon=True, name="whisper-loader"),
+            threading.Thread(
+                target=_load_wake_word, daemon=True, name="wakeword-loader"
+            ),
+        ]
+        for t in self._loader_threads:
+            t.start()
+        print(
+            "Voice manager initialize() returned - Whisper + wake word loading in background"
+        )
+
+    def _on_wake_word_detected(self):
+        try:
+            self._start_listening_cycle()
+        except Exception as e:
+            print(f"[VOICE] Wake word handling error: {e}")
+            self._broadcast_status("idle")
+            self.is_listening = False
+
+    def _broadcast_status(self, status: str):
+        import requests
+
+        try:
+            requests.post(
+                "http://localhost:8765/voice/status/update",
+                json={"status": status},
+                timeout=2,
+            )
+        except Exception:
+            pass
+
+    def _start_listening_cycle(self):
+        """Says "Yes sir?" and opens a new recording window in parallel - the
+        normal wake-word trigger path, but also reused by the wake-phrase
+        interrupt below (match_interrupt_phrase() returning "wake") so hearing
+        the wake phrase mid-response reaches the exact same fresh cycle the
+        wake-word MODEL would give if it weren't muted during TTS."""
+        self.is_listening = True
+        import uuid
+
+        if not self.conversation_id:
+            self.conversation_id = str(uuid.uuid4())
+
+        # Respond immediately
+        print("[VOICE] Wake word detected - responding")
+        self._broadcast_status("listening")
+
+        from .tts_engine import tts_engine
+
+        # Set the instant "Yes sir?" playback genuinely finishes (is_speaking
+        # True -> False), not when this thread happens to be joined or timed
+        # out. The recording thread below starts immediately in parallel - it
+        # does NOT wait on this event before opening the mic, only before
+        # starting its own wait_for_speech_timeout countdown (see
+        # SpeechRecorder.record).
+        tts_finished_event = threading.Event()
+
+        def say_yes():
+            tts_engine.speak_sync("Yes sir?", on_speech_end=tts_finished_event.set)
+
+        t = threading.Thread(target=say_yes, daemon=True)
+        t.start()
+
+        print("[VOICE] Recording command...")
+        t2 = threading.Thread(
+            target=self._process_voice_command, args=(tts_finished_event,), daemon=True
+        )
+        t2.start()
+
+    def _arm_continuous_timer(self):
+        """(Re)start the session-level continuous-mode silence timer. Caller
+        MUST hold self._continuous_lock. Always cancels any existing timer and
+        bumps the per-arm token first, so a timer that's already mid-fire (past
+        cancel()'s ability to stop it) is guaranteed to see a stale token in
+        _on_continuous_timeout and no-op - same atomic-under-lock pattern as
+        wake_word.py's _detection_lock."""
+        if self._continuous_timer is not None:
+            self._continuous_timer.cancel()
+        self._continuous_timer_token += 1
+        token = self._continuous_timer_token
+        timer = threading.Timer(
+            settings.CONTINUOUS_MODE_TIMEOUT_SECONDS,
+            self._on_continuous_timeout,
+            args=(token,),
+        )
+        timer.daemon = True
+        self._continuous_timer = timer
+        timer.start()
+
+    def _cancel_continuous_timer(self):
+        """Caller MUST hold self._continuous_lock."""
+        if self._continuous_timer is not None:
+            self._continuous_timer.cancel()
+            self._continuous_timer = None
+
+    def _on_continuous_timeout(self, token: int):
+        """Fires on the Timer's own thread after CONTINUOUS_MODE_TIMEOUT_SECONDS
+        of silence with no new speech resetting it. Only acts if this is still
+        the timer that's currently armed - a stale fire (real speech reset the
+        deadline a moment before this ran, or continuous mode already exited a
+        different way) is a no-op."""
+        with self._continuous_lock:
+            if not self.continuous_mode or token != self._continuous_timer_token:
+                return
+            self.continuous_mode = False
+            self.conversation_id = None
+            self._continuous_generation += 1
+            self._continuous_timer = None
+        print(
+            f"[VOICE] Continuous mode silence timeout "
+            f"({settings.CONTINUOUS_MODE_TIMEOUT_SECONDS}s) - exiting to wake-word-only"
+        )
+        self._exit_continuous_mode()
+
+    def _exit_continuous_mode(self):
+        """Speaks the closing acknowledgment and returns to wake-word-only
+        idle. Callers must have ALREADY flipped continuous_mode=False, bumped
+        _continuous_generation, and cancelled the timer under
+        self._continuous_lock - this only handles the TTS/status/is_listening
+        side effects, so there is exactly one place per exit path that performs
+        the actual state transition."""
+        self._pending_exit_confirmation = False
+        self.conversation_id = None
+        from .tts_engine import tts_engine
+
+        tts_engine.speak_sync(
+            "Going to sleep, sir.",
+            on_speech_start=lambda: self._broadcast_status("speaking"),
+        )
+        self._broadcast_status("idle")
+        self.is_listening = False
+
+    def continue_conversation(self):
+        """Called once a normal command's response has finished speaking (see
+        transcription_handler._speak_response, invoked for BOTH the
+        direct-command and LLM paths).
+
+        Enters continuous_mode and spawns the session's ONE recording thread on
+        the FIRST call after a wake-word trigger. Every LATER call within the
+        same session does NOT spawn another thread - that thread is already
+        alive, waiting (see the post-dispatch wait in _process_voice_command)
+        for exactly this signal, so re-arming here just re-arms the silence
+        timer and wakes it up to record the next turn itself. Spawning a new
+        thread on every call used to race that already-alive thread (duplicate
+        recordings, exit phrases only working intermittently - see this
+        function's git history for the incident)."""
+        with self._continuous_lock:
+            was_continuous = self.continuous_mode
+            self.continuous_mode = True
+            if not was_continuous:
+                # Fresh session: a NEW generation so any stale thread left over
+                # from a just-exited previous session can never be mistaken for
+                # this one (see the class docstring note by continuous_mode), and
+                # no confirmation question from a prior (now-ended) session can
+                # still be "pending" here.
+                self._continuous_generation += 1
+                self._pending_exit_confirmation = False
+                import uuid
+
+                if not self.conversation_id:
+                    self.conversation_id = str(uuid.uuid4())
+            self._arm_continuous_timer()
+
+        self.is_listening = True
+        self._broadcast_status("continuous")
+        if not was_continuous:
+            threading.Thread(
+                target=self._process_voice_command,
+                args=(None,),
+                daemon=True,
+                name="continuous-voice-cycle",
+            ).start()
+        else:
+            self._continuous_turn_ready.set()
+
+    def _process_voice_command(self, tts_finished_event: threading.Event):
+        # Set (not reset to False in the finally below) only when this
+        # recording resolves to the wake-phrase interrupt outside continuous
+        # mode, which re-arms a fresh cycle via _start_listening_cycle() - that
+        # call already sets is_listening back to True, and letting the finally
+        # below clobber it to False immediately after would create a race
+        # where the new cycle looks "not listening" until its own recording
+        # thread gets going.
+        rearmed = False
+        # Stamped once at entry, not re-read per iteration: this call represents
+        # ONE continuous-mode session (if any) for its entire lifetime, even
+        # across several no-speech/interrupt loop iterations below. Comparing
+        # against self._continuous_generation lets every continuous-mode branch
+        # detect "a different session has since taken over" (timer fired, or an
+        # exit phrase was handled) and abandon itself instead of racing it -
+        # see continue_conversation()'s docstring.
+        generation = self._continuous_generation
+        try:
+            while True:
+                # Record speech - mic opens immediately, in parallel with "Yes sir?"
+                # still playing (first window only; tts_finished_event is None for
+                # every continuous-mode window after that, so the wait starts
+                # counting down immediately).
+                audio = self.speech_recorder.record(
+                    tts_finished_event=tts_finished_event
+                )
+                tts_finished_event = None
+
+                if len(audio) == 0:
+                    print("[VOICE] No speech detected within timeout.")
+                    # This is a per-WINDOW timeout (SpeechRecorder's own
+                    # wait_for_speech_timeout, ~6s) - NOT the session-level
+                    # CONTINUOUS_MODE_TIMEOUT_SECONDS silence timer, which owns the
+                    # decision to actually exit continuous mode and is not reset by
+                    # this. Just open the next window and keep waiting.
+                    if (
+                        self.continuous_mode
+                        and generation == self._continuous_generation
+                    ):
+                        continue
+                    self._broadcast_status("idle")
+                    return
+
+                # Transcribe with faster-whisper
+                text = self._transcribe(audio)
+                if not (text and text.strip()):
+                    print("[VOICE] Recorded audio but transcription was empty.")
+                    from .tts_engine import tts_engine
+
+                    tts_engine.speak_sync(
+                        "Didn't catch that, sir.",
+                        on_speech_start=lambda: self._broadcast_status("speaking"),
+                    )
+                    if (
+                        self.continuous_mode
+                        and generation == self._continuous_generation
+                    ):
+                        with self._continuous_lock:
+                            if (
+                                generation == self._continuous_generation
+                                and self.continuous_mode
+                            ):
+                                self._arm_continuous_timer()
+                        self._broadcast_status("continuous")
+                        continue
+                    self._broadcast_status("idle")
+                    return
+
+                clean_text = text.strip()
+
+                # Real speech resolved to an actual transcript: reset the
+                # session-level silence timer (NOT reset by the no-speech/empty
+                # branches above - only genuine speech counts, per design).
+                if self.continuous_mode:
+                    with self._continuous_lock:
+                        if (
+                            generation != self._continuous_generation
+                            or not self.continuous_mode
+                        ):
+                            # A different session (exit-then-re-enter, or the timer
+                            # already fired) has since taken over - abandon this stale
+                            # iteration rather than acting on its behalf.
+                            return
+                        self._arm_continuous_timer()
+
+                # PENDING EXIT CONFIRMATION - if the PREVIOUS turn asked "Did you
+                # want me to stop listening, sir?" (see the uncertain-exit-intent
+                # check below), THIS transcript is the answer, checked
+                # deterministically (never via the LLM - see the module-level
+                # comment above _looks_like_uncertain_exit_intent for why). A clear
+                # "yes" performs the real exit, backed by the same state-changing
+                # code as an exact exit phrase; anything else clears the pending
+                # flag and falls through to treat this transcript as this turn's
+                # actual command, rather than silently discarding it.
+                if self.continuous_mode and self._pending_exit_confirmation:
+                    self._pending_exit_confirmation = False
+                    if _is_affirmative(clean_text):
+                        print(f"[VOICE] Exit confirmation answered yes: {clean_text!r}")
+                        with self._continuous_lock:
+                            if (
+                                generation != self._continuous_generation
+                                or not self.continuous_mode
+                            ):
+                                return
+                            self.continuous_mode = False
+                            self._continuous_generation += 1
+                            self._cancel_continuous_timer()
+                        self._exit_continuous_mode()
+                        return
+
+                # CONTINUOUS-MODE EXIT PHRASES - on the FINAL transcript, checked
+                # BEFORE the interrupt-phrase list and before any command handling
+                # (reuses match_interrupt_phrase's matching mechanism via
+                # match_continuous_exit_phrase - see voice_manager module docstring
+                # helpers above). Only meaningful while actually in continuous mode.
+                if self.continuous_mode and match_continuous_exit_phrase(clean_text):
+                    print(
+                        f"[VOICE] Continuous mode exit phrase detected: {clean_text!r}"
+                    )
+                    with self._continuous_lock:
+                        if (
+                            generation != self._continuous_generation
+                            or not self.continuous_mode
+                        ):
+                            return
+                        self.continuous_mode = False
+                        self._continuous_generation += 1
+                        self._cancel_continuous_timer()
+                    self._exit_continuous_mode()
+                    return
+
+                # UNCERTAIN EXIT INTENT - a short utterance that sounds like it
+                # MIGHT be trying to end the session but didn't exactly match the
+                # configured phrase list above (the confirmed incident: "Go to
+                # sleep." with no "jarvis" reached the LLM, which fabricated
+                # "Understood. Ending session." while the session kept running -
+                # see _looks_like_uncertain_exit_intent's docstring). Ask a
+                # deterministic, code-generated confirmation question INSTEAD of
+                # ever handing this to execute_voice_command/the LLM - the actual
+                # exit only happens if the NEXT turn confirms it (handled by the
+                # PENDING EXIT CONFIRMATION check above, next time through this
+                # loop).
+                if self.continuous_mode and _looks_like_uncertain_exit_intent(
+                    clean_text
+                ):
+                    print(
+                        f"[VOICE] Uncertain exit intent, asking for confirmation: {clean_text!r}"
+                    )
+                    self._pending_exit_confirmation = True
+                    from .tts_engine import tts_engine
+
+                    tts_engine.speak_sync(
+                        "Did you want me to stop listening, sir?",
+                        on_speech_start=lambda: self._broadcast_status("speaking"),
+                    )
+                    if (
+                        generation == self._continuous_generation
+                        and self.continuous_mode
+                    ):
+                        with self._continuous_lock:
+                            if (
+                                generation == self._continuous_generation
+                                and self.continuous_mode
+                            ):
+                                self._arm_continuous_timer()
+                        self._broadcast_status("continuous")
+                        continue
+                    self._broadcast_status("idle")
+                    return
+
+                # PHRASE-BASED INTERRUPT CHECK - on the FINAL transcript only,
+                # before this text goes anywhere near execute_voice_command or
+                # the LLM. Complements (doesn't replace) the loudness-based
+                # barge-in in wake_word.py: that one reacts to volume alone and
+                # doesn't know what was said; this one recognizes specific
+                # phrases regardless of volume and decides what happens next.
+                interrupt = match_interrupt_phrase(clean_text)
+                if interrupt:
+                    print(
+                        f"[VOICE] Interrupt phrase detected ({interrupt}): {clean_text!r}"
+                    )
+                    from .tts_engine import tts_engine
+
+                    if tts_engine.is_speaking:
+                        tts_engine.stop()
+                    if interrupt == "wake":
+                        if self.continuous_mode:
+                            # Already listening continuously - saying the wake phrase
+                            # again is redundant. Ignore it silently (no new "Yes sir?",
+                            # no fresh cycle) rather than restarting anything, and keep
+                            # listening for the next real command.
+                            if generation == self._continuous_generation:
+                                continue
+                            return
+                        # Fresh cycle: new "Yes sir?" + new recording window, same
+                        # as a normal wake-word trigger.
+                        rearmed = True
+                        self._start_listening_cycle()
+                        return
+                    else:
+                        # "stop"/"wait"/"cancel"/etc - stop playback. Outside
+                        # continuous mode this drops back to wake-word-only idle,
+                        # unchanged from before. Inside continuous mode, an interrupt
+                        # phrase is deliberately NOT one of the 4 explicit exit
+                        # phrases, so it must not silently end the conversation -
+                        # that would make it a second, undocumented exit path. Keep
+                        # listening for the next command instead.
+                        if (
+                            self.continuous_mode
+                            and generation == self._continuous_generation
+                        ):
+                            self._broadcast_status("continuous")
+                            continue
+                        self._broadcast_status("idle")
+                        return
+
+                # Cleared BEFORE dispatch (not just before the wait below) so
+                # there's no window, however unlikely, where an async response
+                # that finishes unusually fast could call continue_conversation()
+                # -> set() before we get to clear() and wait() for it.
+                self._continuous_turn_ready.clear()
+
+                # Try direct command first
+                direct_result = execute_voice_command(clean_text)
+                if direct_result:
+                    print(f"[VOICE DIRECT] {direct_result}")
+                    if self.on_transcription:
+                        self.on_transcription(
+                            clean_text,
+                            direct_result,
+                            conversation_id=self.conversation_id,
+                        )
+                # No direct command match - use LLM
+                elif self.on_transcription:
+                    self.on_transcription(
+                        clean_text, None, conversation_id=self.conversation_id
+                    )
+
+                if self.continuous_mode and generation == self._continuous_generation:
+                    # Stay alive as the session's ONE thread rather than returning:
+                    # on_transcription() just fired the response pipeline off
+                    # asynchronously (it hasn't been spoken yet), so wait here for
+                    # continue_conversation() to signal that it has - see this
+                    # thread's docstring at the top of _process_voice_command and
+                    # continue_conversation()'s docstring. A signal that arrives
+                    # after a DIFFERENT session has already superseded this one
+                    # (generation mismatch, or continuous_mode already false) means
+                    # abandon this iteration instead of recording on its behalf.
+                    self.is_listening = False
+                    signaled = self._continuous_turn_ready.wait(
+                        timeout=self._continuous_turn_wait_timeout
+                    )
+                    if (
+                        not signaled
+                        or generation != self._continuous_generation
+                        or not self.continuous_mode
+                    ):
+                        return
+                    self.is_listening = True
+                    continue
+
+                # Whether (and how) the conversation continues from here is decided
+                # once the response has actually been spoken - see
+                # continue_conversation() / transcription_handler._speak_response.
+                return
+        except Exception as e:
+            print(f"Voice processing error: {e}")
+            self._broadcast_status("idle")
+        finally:
+            if not rearmed:
+                self.is_listening = False
+
+    def _transcribe(self, audio: np.ndarray) -> str:
+        if not self.whisper_ready.is_set():
+            print("Whisper still warming up, waiting...")
+            self.whisper_ready.wait(timeout=30)
+        if not self.whisper_model:
+            print("Whisper not loaded")
+            return ""
+        try:
+            # Use self.whisper_model directly
+            # No loading here - model already loaded
+            import soundfile as sf
+
+            audio_16 = (audio * 32768).astype(np.int16)
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+                sf.write(tmp.name, audio_16, 16000, subtype="PCM_16")
+                tmp_path = tmp.name
+
+            segments, _ = self.whisper_model.transcribe(
+                tmp_path, language="en", task="transcribe"
+            )
+            text = " ".join(seg.text for seg in segments).strip()
+            os.unlink(tmp_path)
+            # Removed duplicate print - already printed in process_voice
+            return text
+        except Exception as e:
+            print(f"Transcription error: {e}")
+            return ""
+
+    def _await_loaders(self, timeout: float | None = None) -> bool:
+        """Block until the initialize() loader threads have finished, up to
+        `timeout` seconds total. Returns True if all of them finished.
+
+        join() rather than waiting on whisper_ready / wake_word_ready: those
+        Events are only set on the loaders' success paths, so a loader that
+        raises (a missing wake-word model file, a CUDA import blowing up)
+        would never set its Event and a wait() on it would hang forever.
+        join() returns however the thread ended.
+
+        Bounded because a loader can legitimately be slow the first time -
+        faster-whisper downloads the model on a cold cache - and a shutdown
+        that can hang indefinitely is worse than one that leaves a thread
+        behind. On timeout we log loudly and carry on; that is the old
+        behaviour, so the worst case is no worse than before the fix.
+        """
+        if timeout is None:
+            timeout = settings.VOICE_SHUTDOWN_LOADER_TIMEOUT
+
+        pending = [t for t in self._loader_threads if t.is_alive()]
+        if not pending:
+            self._loader_threads = []
+            return True
+
+        print(
+            f"[VOICE] Shutdown waiting up to {timeout:.1f}s for loader threads "
+            f"still running: {[t.name for t in pending]}"
+        )
+        deadline = time.time() + timeout
+        for t in pending:
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                break
+            t.join(remaining)
+
+        stragglers = [t.name for t in self._loader_threads if t.is_alive()]
+        self._loader_threads = [t for t in self._loader_threads if t.is_alive()]
+        if stragglers:
+            print(
+                f"[VOICE] WARNING: loader threads still running after {timeout:.1f}s "
+                f"({stragglers}); shutting down anyway. A mic stream opened after "
+                f"this point will not be closed."
+            )
+            return False
+        return True
+
+    def shutdown(self):
+        """Clean up resources on shutdown."""
+        # FIRST, before touching any state the loaders also write. A loader
+        # mid-flight assigns self.wake_word_detector / self.whisper_model
+        # AFTER the checks below have already run, so tearing down first
+        # leaves an unowned mic stream and a live audio callback pointing at
+        # objects being freed. Waiting here is what makes shutdown safe to
+        # call at any point in the startup sequence.
+        self._await_loaders()
+
+        # Allow a later initialize() to bring the models back up.
+        self._initialized = False
+        self.whisper_ready.clear()
+        self.wake_word_ready.clear()
+
+        # Continuous mode must not survive a shutdown - cancel its timer
+        # (never leave a background Timer thread outliving the engine), bump
+        # the generation so any recording loop still unwinding treats itself
+        # as stale rather than looping back into another window, and wake the
+        # session's thread if it's currently parked waiting for the next turn
+        # (see _process_voice_command's post-dispatch wait) - otherwise it
+        # would sit there for up to _continuous_turn_wait_timeout instead of
+        # noticing the stale generation and exiting immediately.
+        with self._continuous_lock:
             self.continuous_mode = False
             self._continuous_generation += 1
             self._cancel_continuous_timer()
-          self._exit_continuous_mode()
-          return
+        self._pending_exit_confirmation = False
+        self._continuous_turn_ready.set()
 
-        # UNCERTAIN EXIT INTENT - a short utterance that sounds like it
-        # MIGHT be trying to end the session but didn't exactly match the
-        # configured phrase list above (the confirmed incident: "Go to
-        # sleep." with no "jarvis" reached the LLM, which fabricated
-        # "Understood. Ending session." while the session kept running -
-        # see _looks_like_uncertain_exit_intent's docstring). Ask a
-        # deterministic, code-generated confirmation question INSTEAD of
-        # ever handing this to execute_voice_command/the LLM - the actual
-        # exit only happens if the NEXT turn confirms it (handled by the
-        # PENDING EXIT CONFIRMATION check above, next time through this
-        # loop).
-        if self.continuous_mode and _looks_like_uncertain_exit_intent(clean_text):
-          print(f"[VOICE] Uncertain exit intent, asking for confirmation: {clean_text!r}")
-          self._pending_exit_confirmation = True
-          from .tts_engine import tts_engine
-          tts_engine.speak_sync(
-            "Did you want me to stop listening, sir?",
-            on_speech_start=lambda: self._broadcast_status("speaking")
-          )
-          if generation == self._continuous_generation and self.continuous_mode:
-            with self._continuous_lock:
-              if generation == self._continuous_generation and self.continuous_mode:
-                self._arm_continuous_timer()
-            self._broadcast_status("continuous")
-            continue
-          self._broadcast_status("idle")
-          return
+        if self.wake_word_detector:
+            self.wake_word_detector.stop()
+            self.wake_word_detector = None
 
-        # PHRASE-BASED INTERRUPT CHECK - on the FINAL transcript only,
-        # before this text goes anywhere near execute_voice_command or
-        # the LLM. Complements (doesn't replace) the loudness-based
-        # barge-in in wake_word.py: that one reacts to volume alone and
-        # doesn't know what was said; this one recognizes specific
-        # phrases regardless of volume and decides what happens next.
-        interrupt = match_interrupt_phrase(clean_text)
-        if interrupt:
-          print(f"[VOICE] Interrupt phrase detected ({interrupt}): {clean_text!r}")
-          from .tts_engine import tts_engine
-          if tts_engine.is_speaking:
-            tts_engine.stop()
-          if interrupt == "wake":
-            if self.continuous_mode:
-              # Already listening continuously - saying the wake phrase
-              # again is redundant. Ignore it silently (no new "Yes sir?",
-              # no fresh cycle) rather than restarting anything, and keep
-              # listening for the next real command.
-              if generation == self._continuous_generation:
-                continue
-              return
-            # Fresh cycle: new "Yes sir?" + new recording window, same
-            # as a normal wake-word trigger.
-            rearmed = True
-            self._start_listening_cycle()
-            return
-          else:
-            # "stop"/"wait"/"cancel"/etc - stop playback. Outside
-            # continuous mode this drops back to wake-word-only idle,
-            # unchanged from before. Inside continuous mode, an interrupt
-            # phrase is deliberately NOT one of the 4 explicit exit
-            # phrases, so it must not silently end the conversation -
-            # that would make it a second, undocumented exit path. Keep
-            # listening for the next command instead.
-            if self.continuous_mode and generation == self._continuous_generation:
-              self._broadcast_status("continuous")
-              continue
-            self._broadcast_status("idle")
-            return
+        # Clean up Whisper model to free memory (~140MB)
+        if self.whisper_model:
+            print("Cleaning up Whisper model...")
+            del self.whisper_model
+            self.whisper_model = None
 
-        # Cleared BEFORE dispatch (not just before the wait below) so
-        # there's no window, however unlikely, where an async response
-        # that finishes unusually fast could call continue_conversation()
-        # -> set() before we get to clear() and wait() for it.
-        self._continuous_turn_ready.clear()
+            # Force garbage collection to free memory immediately
+            import gc
 
-        # Try direct command first
-        direct_result = execute_voice_command(clean_text)
-        if direct_result:
-          print(f"[VOICE DIRECT] {direct_result}")
-          if self.on_transcription:
-            self.on_transcription(clean_text, direct_result, conversation_id=self.conversation_id)
-        else:
-          # No direct command match - use LLM
-          if self.on_transcription:
-            self.on_transcription(clean_text, None, conversation_id=self.conversation_id)
+            gc.collect()
+            print("Voice manager shutdown complete")
 
-        if self.continuous_mode and generation == self._continuous_generation:
-          # Stay alive as the session's ONE thread rather than returning:
-          # on_transcription() just fired the response pipeline off
-          # asynchronously (it hasn't been spoken yet), so wait here for
-          # continue_conversation() to signal that it has - see this
-          # thread's docstring at the top of _process_voice_command and
-          # continue_conversation()'s docstring. A signal that arrives
-          # after a DIFFERENT session has already superseded this one
-          # (generation mismatch, or continuous_mode already false) means
-          # abandon this iteration instead of recording on its behalf.
-          self.is_listening = False
-          signaled = self._continuous_turn_ready.wait(
-            timeout=self._continuous_turn_wait_timeout
-          )
-          if not signaled or generation != self._continuous_generation or not self.continuous_mode:
-            return
-          self.is_listening = True
-          continue
-
-        # Whether (and how) the conversation continues from here is decided
-        # once the response has actually been spoken - see
-        # continue_conversation() / transcription_handler._speak_response.
-        return
-    except Exception as e:
-      print(f"Voice processing error: {e}")
-      self._broadcast_status("idle")
-    finally:
-      if not rearmed:
-        self.is_listening = False
-
-  def _transcribe(
-    self, audio: np.ndarray
-  ) -> str:
-    if not self.whisper_ready.is_set():
-      print("Whisper still warming up, waiting...")
-      self.whisper_ready.wait(timeout=30)
-    if not self.whisper_model:
-      print("Whisper not loaded")
-      return ""
-    try:
-      # Use self.whisper_model directly
-      # No loading here - model already loaded
-      import soundfile as sf
-
-      audio_16 = (audio * 32768).astype(np.int16)
-      with tempfile.NamedTemporaryFile(
-        suffix=".wav", delete=False
-      ) as tmp:
-        sf.write(tmp.name, audio_16, 16000,
-                 subtype="PCM_16")
-        tmp_path = tmp.name
-
-      segments, _ = self.whisper_model.transcribe(
-        tmp_path,
-        language="en",
-        task="transcribe"
-      )
-      text = " ".join(
-        seg.text for seg in segments
-      ).strip()
-      os.unlink(tmp_path)
-      # Removed duplicate print - already printed in process_voice
-      return text
-    except Exception as e:
-      print(f"Transcription error: {e}")
-      return ""
-  
-  def _await_loaders(self, timeout: float | None = None) -> bool:
-    """Block until the initialize() loader threads have finished, up to
-    `timeout` seconds total. Returns True if all of them finished.
-
-    join() rather than waiting on whisper_ready / wake_word_ready: those
-    Events are only set on the loaders' success paths, so a loader that
-    raises (a missing wake-word model file, a CUDA import blowing up)
-    would never set its Event and a wait() on it would hang forever.
-    join() returns however the thread ended.
-
-    Bounded because a loader can legitimately be slow the first time -
-    faster-whisper downloads the model on a cold cache - and a shutdown
-    that can hang indefinitely is worse than one that leaves a thread
-    behind. On timeout we log loudly and carry on; that is the old
-    behaviour, so the worst case is no worse than before the fix.
-    """
-    if timeout is None:
-      timeout = settings.VOICE_SHUTDOWN_LOADER_TIMEOUT
-
-    pending = [t for t in self._loader_threads if t.is_alive()]
-    if not pending:
-      self._loader_threads = []
-      return True
-
-    print(
-      f"[VOICE] Shutdown waiting up to {timeout:.1f}s for loader threads "
-      f"still running: {[t.name for t in pending]}"
-    )
-    deadline = time.time() + timeout
-    for t in pending:
-      remaining = deadline - time.time()
-      if remaining <= 0:
-        break
-      t.join(remaining)
-
-    stragglers = [t.name for t in self._loader_threads if t.is_alive()]
-    self._loader_threads = [t for t in self._loader_threads if t.is_alive()]
-    if stragglers:
-      print(
-        f"[VOICE] WARNING: loader threads still running after {timeout:.1f}s "
-        f"({stragglers}); shutting down anyway. A mic stream opened after "
-        f"this point will not be closed."
-      )
-      return False
-    return True
-
-  def shutdown(self):
-    """Clean up resources on shutdown."""
-    # FIRST, before touching any state the loaders also write. A loader
-    # mid-flight assigns self.wake_word_detector / self.whisper_model
-    # AFTER the checks below have already run, so tearing down first
-    # leaves an unowned mic stream and a live audio callback pointing at
-    # objects being freed. Waiting here is what makes shutdown safe to
-    # call at any point in the startup sequence.
-    self._await_loaders()
-
-    # Allow a later initialize() to bring the models back up.
-    self._initialized = False
-    self.whisper_ready.clear()
-    self.wake_word_ready.clear()
-
-    # Continuous mode must not survive a shutdown - cancel its timer
-    # (never leave a background Timer thread outliving the engine), bump
-    # the generation so any recording loop still unwinding treats itself
-    # as stale rather than looping back into another window, and wake the
-    # session's thread if it's currently parked waiting for the next turn
-    # (see _process_voice_command's post-dispatch wait) - otherwise it
-    # would sit there for up to _continuous_turn_wait_timeout instead of
-    # noticing the stale generation and exiting immediately.
-    with self._continuous_lock:
-      self.continuous_mode = False
-      self._continuous_generation += 1
-      self._cancel_continuous_timer()
-    self._pending_exit_confirmation = False
-    self._continuous_turn_ready.set()
-
-    if self.wake_word_detector:
-      self.wake_word_detector.stop()
-      self.wake_word_detector = None
-
-    # Clean up Whisper model to free memory (~140MB)
-    if self.whisper_model:
-      print("Cleaning up Whisper model...")
-      del self.whisper_model
-      self.whisper_model = None
-
-      # Force garbage collection to free memory immediately
-      import gc
-      gc.collect()
-      print("Voice manager shutdown complete")
 
 voice_manager = VoiceManager()

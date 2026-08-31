@@ -17,6 +17,7 @@ the first embed/search call that actually needs it - so a restart with
 nothing new to embed (the common case once the retrofit migration has
 run once) costs nothing extra.
 """
+
 import asyncio
 import os
 import threading
@@ -41,6 +42,7 @@ def _get_collection():
         if _collection is not None:
             return _collection
         import chromadb
+
         chroma_path = getattr(settings, "CHROMA_PATH", "data/chroma")
         os.makedirs(chroma_path, exist_ok=True)
         client = chromadb.PersistentClient(path=chroma_path)
@@ -56,10 +58,13 @@ def _get_model():
         if _model is not None:
             return _model
         from sentence_transformers import SentenceTransformer
+
         print(f"[VECTOR STORE] Loading embedding model {_EMBED_MODEL_NAME} on CPU...")
         _t0 = __import__("time").time()
         _model = SentenceTransformer(_EMBED_MODEL_NAME, device="cpu")
-        print(f"[VECTOR STORE] Embedding model ready ({__import__('time').time() - _t0:.2f}s)")
+        print(
+            f"[VECTOR STORE] Embedding model ready ({__import__('time').time() - _t0:.2f}s)"
+        )
         return _model
 
 
@@ -79,7 +84,9 @@ def _upsert_sync(memory_id: str, content: str, category: str, importance: int) -
         ids=[memory_id],
         embeddings=[embedding],
         documents=[content],
-        metadatas=[{"category": category or "general", "importance": int(importance or 5)}],
+        metadatas=[
+            {"category": category or "general", "importance": int(importance or 5)}
+        ],
     )
 
 
@@ -110,7 +117,9 @@ def _search_sync(query: str, limit: int) -> list[dict]:
     if count == 0:
         return []
     query_embedding = _embed_sync([query])[0]
-    result = collection.query(query_embeddings=[query_embedding], n_results=min(limit, count))
+    result = collection.query(
+        query_embeddings=[query_embedding], n_results=min(limit, count)
+    )
     ids = result.get("ids", [[]])[0]
     distances = result.get("distances", [[]])[0]
     return [{"id": mid, "distance": dist} for mid, dist in zip(ids, distances)]
@@ -139,7 +148,7 @@ def _migrate_sync(memories: list[dict]) -> int:
     existing_ids = set()
     CHUNK = 500
     for i in range(0, len(all_ids), CHUNK):
-        chunk_ids = all_ids[i:i + CHUNK]
+        chunk_ids = all_ids[i : i + CHUNK]
         got = collection.get(ids=chunk_ids)
         existing_ids.update(got.get("ids", []))
 
@@ -147,7 +156,9 @@ def _migrate_sync(memories: list[dict]) -> int:
     if not missing:
         return 0
 
-    print(f"[VECTOR STORE] Retrofit migration: embedding {len(missing)} existing memories...")
+    print(
+        f"[VECTOR STORE] Retrofit migration: embedding {len(missing)} existing memories..."
+    )
     texts = [m["content"] for m in missing]
     embeddings = _embed_sync(texts)
     collection.upsert(
@@ -162,7 +173,9 @@ def _migrate_sync(memories: list[dict]) -> int:
             for m in missing
         ],
     )
-    print(f"[VECTOR STORE] Retrofit migration complete: {len(missing)} memories embedded")
+    print(
+        f"[VECTOR STORE] Retrofit migration complete: {len(missing)} memories embedded"
+    )
     return len(missing)
 
 

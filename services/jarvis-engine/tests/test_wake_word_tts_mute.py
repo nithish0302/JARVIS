@@ -15,7 +15,6 @@ import threading
 import time
 
 import numpy as np
-import pytest
 
 from jarvis_engine.core.config import settings
 from jarvis_engine.voice.wake_word import WakeWordDetector

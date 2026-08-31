@@ -9,7 +9,7 @@ Every test builds a FRESH VoiceManager() (never the shared `voice_manager`
 singleton) so state never leaks between tests or other test files - same
 pattern as test_interrupt_phrases.py.
 """
-import threading
+
 import time
 from unittest.mock import MagicMock, patch
 
@@ -18,47 +18,53 @@ import pytest
 
 from jarvis_engine.voice.voice_manager import (
     VoiceManager,
-    match_continuous_exit_phrase,
-    _looks_like_uncertain_exit_intent,
     _is_affirmative,
+    _looks_like_uncertain_exit_intent,
+    match_continuous_exit_phrase,
 )
-
 
 # --- match_continuous_exit_phrase: pure matching logic -------------------
 
-@pytest.mark.parametrize("text", [
-    "stop listening jarvis",
-    "Stop Listening Jarvis",  # case-insensitive
-    "stop listening jarvis.",  # trailing punctuation
-    "jarvis go to sleep",
-    "Jarvis go to sleep.",
-    "thats all jarvis",
-    "that's all jarvis",  # apostrophe-insensitive
-    "That's All Jarvis",
-    "jarvis i will talk to you later",
-    "Jarvis I Will Talk To You Later",
-    # Bare variants without "jarvis" attached - CONFIRMED INCIDENT: "Go to
-    # sleep." (no wake word) matched nothing and reached the LLM, which
-    # fabricated a fake "session ended" response.
-    "go to sleep",
-    "Go to sleep.",
-    "stop listening",
-    "Stop Listening.",
-    "thats all",
-    "that's all",
-])
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "stop listening jarvis",
+        "Stop Listening Jarvis",  # case-insensitive
+        "stop listening jarvis.",  # trailing punctuation
+        "jarvis go to sleep",
+        "Jarvis go to sleep.",
+        "thats all jarvis",
+        "that's all jarvis",  # apostrophe-insensitive
+        "That's All Jarvis",
+        "jarvis i will talk to you later",
+        "Jarvis I Will Talk To You Later",
+        # Bare variants without "jarvis" attached - CONFIRMED INCIDENT: "Go to
+        # sleep." (no wake word) matched nothing and reached the LLM, which
+        # fabricated a fake "session ended" response.
+        "go to sleep",
+        "Go to sleep.",
+        "stop listening",
+        "Stop Listening.",
+        "thats all",
+        "that's all",
+    ],
+)
 def test_matches_continuous_exit_phrases(text):
     assert match_continuous_exit_phrase(text) is True
 
 
-@pytest.mark.parametrize("text", [
-    "what time is it",
-    "open notepad",
-    "stop",  # an INTERRUPT phrase, not an exit phrase
-    "wake up jarvis",
-    "jarvis",
-    "",
-])
+@pytest.mark.parametrize(
+    "text",
+    [
+        "what time is it",
+        "open notepad",
+        "stop",  # an INTERRUPT phrase, not an exit phrase
+        "wake up jarvis",
+        "jarvis",
+        "",
+    ],
+)
 def test_normal_text_is_not_a_continuous_exit_phrase(text):
     assert match_continuous_exit_phrase(text) is False
 
@@ -66,49 +72,79 @@ def test_normal_text_is_not_a_continuous_exit_phrase(text):
 # --- _looks_like_uncertain_exit_intent / _is_affirmative: the second,
 # phrase-list-independent defense layer -----------------------------------
 
-@pytest.mark.parametrize("text", [
-    "sleep",
-    "I need sleep",
-    "shut down",
-    "power down",
-    "im done",
-    "I'm done",
-    "thats enough",
-    "that's enough",
-])
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "sleep",
+        "I need sleep",
+        "shut down",
+        "power down",
+        "im done",
+        "I'm done",
+        "thats enough",
+        "that's enough",
+    ],
+)
 def test_uncertain_exit_intent_matches_short_sleep_stop_phrases(text):
     assert _looks_like_uncertain_exit_intent(text) is True
 
 
-@pytest.mark.parametrize("text", [
-    "what time is it",
-    "open notepad",
-    "what's the nearest bus stop",  # contains "stop" but NOT "stop listening"
-    "how do I get more sleep at night without waking up early",  # "sleep" present but > 6 words
-    "",
-    "hello",
-])
+@pytest.mark.parametrize(
+    "text",
+    [
+        "what time is it",
+        "open notepad",
+        "what's the nearest bus stop",  # contains "stop" but NOT "stop listening"
+        "how do I get more sleep at night without waking up early",  # "sleep" present but > 6 words
+        "",
+        "hello",
+    ],
+)
 def test_uncertain_exit_intent_does_not_false_positive(text):
     assert _looks_like_uncertain_exit_intent(text) is False
 
 
-@pytest.mark.parametrize("text", [
-    "yes", "Yes.", "yeah", "yep", "yup", "correct", "please",
-    "affirmative", "do it", "please do", "thats right", "right", "go ahead",
-    "yes please",  # word-boundary prefix match, same style as other phrase checks
-])
+@pytest.mark.parametrize(
+    "text",
+    [
+        "yes",
+        "Yes.",
+        "yeah",
+        "yep",
+        "yup",
+        "correct",
+        "please",
+        "affirmative",
+        "do it",
+        "please do",
+        "thats right",
+        "right",
+        "go ahead",
+        "yes please",  # word-boundary prefix match, same style as other phrase checks
+    ],
+)
 def test_is_affirmative_matches_clear_yes(text):
     assert _is_affirmative(text) is True
 
 
-@pytest.mark.parametrize("text", [
-    "no", "what time is it", "open notepad", "", "maybe", "not really",
-])
+@pytest.mark.parametrize(
+    "text",
+    [
+        "no",
+        "what time is it",
+        "open notepad",
+        "",
+        "maybe",
+        "not really",
+    ],
+)
 def test_is_affirmative_rejects_anything_else(text):
     assert _is_affirmative(text) is False
 
 
 # --- end-to-end: _process_voice_command while continuous_mode -----------
+
 
 def _make_manager(audio_sequence, transcripts) -> VoiceManager:
     """audio_sequence: list of np arrays returned by successive
@@ -117,7 +153,9 @@ def _make_manager(audio_sequence, transcripts) -> VoiceManager:
     (only consulted for non-empty audio windows)."""
     vm = VoiceManager()
     vm.speech_recorder = MagicMock()
-    vm.speech_recorder.record.side_effect = list(audio_sequence) + [audio_sequence[-1]] * 10
+    vm.speech_recorder.record.side_effect = (
+        list(audio_sequence) + [audio_sequence[-1]] * 10
+    )
     vm._transcribe = MagicMock(side_effect=list(transcripts) + [transcripts[-1]] * 10)
     vm.on_transcription = MagicMock()
     # These tests call _process_voice_command directly/synchronously (no
@@ -178,7 +216,9 @@ def test_uncertain_exit_intent_asks_deterministic_confirmation_not_llm(mock_tts)
     non-affirmative reply, just so the call terminates naturally via the
     normal dispatch return path."""
     mock_tts.is_speaking = False
-    vm = _make_manager([NONEMPTY, NONEMPTY], ["I think I should sleep now", "no thanks"])
+    vm = _make_manager(
+        [NONEMPTY, NONEMPTY], ["I think I should sleep now", "no thanks"]
+    )
     vm.continuous_mode = True
     vm.is_listening = True
 
@@ -222,7 +262,9 @@ def test_confirmation_answered_with_something_else_is_treated_as_a_command(mock_
     """If the "answer" isn't a clear yes, it must NOT be silently discarded
     - it's processed as this turn's actual command instead."""
     mock_tts.is_speaking = False
-    vm = _make_manager([NONEMPTY, NONEMPTY], ["I think I should sleep now", "open notepad"])
+    vm = _make_manager(
+        [NONEMPTY, NONEMPTY], ["I think I should sleep now", "open notepad"]
+    )
     vm.continuous_mode = True
     vm.is_listening = True
 
@@ -310,7 +352,7 @@ def test_redundant_wake_phrase_in_continuous_mode_is_ignored(mock_tts):
 
 @patch("jarvis_engine.voice.tts_engine.tts_engine")
 def test_stop_interrupt_in_continuous_mode_keeps_listening(mock_tts):
-    """"stop"/"wait"/etc are NOT one of the 4 explicit exit phrases, so
+    """ "stop"/"wait"/etc are NOT one of the 4 explicit exit phrases, so
     they must not silently end the conversation - only stop playback and
     keep listening for the next command."""
     mock_tts.is_speaking = True
@@ -368,10 +410,13 @@ def test_normal_command_in_continuous_mode_resets_is_listening_false(mock_tts):
 
 # --- continue_conversation(): entering / re-arming continuous mode -------
 
+
 def test_continue_conversation_enters_continuous_mode_and_opens_mic():
     vm = VoiceManager()
     vm.speech_recorder = MagicMock()
-    vm.speech_recorder.record.return_value = np.array([])  # window comes back empty; keep it simple
+    vm.speech_recorder.record.return_value = np.array(
+        []
+    )  # window comes back empty; keep it simple
     assert vm.continuous_mode is False
 
     vm.continue_conversation()
@@ -464,9 +509,15 @@ def test_five_real_turns_run_on_a_single_thread_with_no_duplicate_recordings(moc
     vm = VoiceManager()
     vm.speech_recorder = MagicMock()
     vm.speech_recorder.record.return_value = NONEMPTY
-    vm._transcribe = MagicMock(side_effect=[
-        "open notepad", "what time is it", "volume up", "lock screen", "mute",
-    ])
+    vm._transcribe = MagicMock(
+        side_effect=[
+            "open notepad",
+            "what time is it",
+            "volume up",
+            "lock screen",
+            "mute",
+        ]
+    )
     vm.on_transcription = MagicMock()
     vm._continuous_turn_wait_timeout = 2.0
     # _broadcast_status does a real (localhost, but still real) HTTP POST -
@@ -515,6 +566,7 @@ def test_five_real_turns_run_on_a_single_thread_with_no_duplicate_recordings(moc
 
 
 # --- session-level silence timer -----------------------------------------
+
 
 @patch("jarvis_engine.voice.tts_engine.tts_engine")
 def test_timeout_fires_exits_continuous_mode_and_speaks_ack(mock_tts):
@@ -574,6 +626,7 @@ def test_real_speech_rearms_timer_cancelling_the_previous_one():
 
 
 # --- shutdown() must never leak the timer/state ---------------------------
+
 
 def test_shutdown_cancels_continuous_timer_and_resets_state():
     vm = VoiceManager()

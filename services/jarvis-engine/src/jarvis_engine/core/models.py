@@ -1,16 +1,20 @@
-from pydantic import BaseModel, Field
 from typing import Literal
+
+from pydantic import BaseModel, Field
+
 
 class Message(BaseModel):
     role: Literal["user", "assistant", "system"]
     content: str
     timestamp: str
 
+
 class ChatRequest(BaseModel):
     message: str
     conversation_id: str | None = None
     provider: str = "ollama"
     model: str = "llama3.2:3b"
+
 
 class ChatResponse(BaseModel):
     response: str
@@ -23,16 +27,19 @@ class ChatResponse(BaseModel):
     fallback_occurred: bool = False
     failed_provider: str | None = None
 
+
 class ProviderStatus(BaseModel):
     name: str
     available: bool
     model: str
+
 
 class HealthResponse(BaseModel):
     status: str
     version: str
     providers: list[ProviderStatus]
     voice_ready: bool = False
+
 
 class Memory(BaseModel):
     id: str
@@ -44,10 +51,12 @@ class Memory(BaseModel):
     access_count: int = 0
     source_conversation_id: str | None = None
 
+
 class CreateMemoryRequest(BaseModel):
     content: str
     category: str = "general"
     importance: int = 5
+
 
 class UpdateMemoryRequest(BaseModel):
     # All fields optional - PUT only changes whatever is provided, existing
@@ -56,10 +65,12 @@ class UpdateMemoryRequest(BaseModel):
     category: str | None = None
     importance: int | None = Field(default=None, ge=1, le=10)
 
+
 class SearchResult(BaseModel):
     title: str
     url: str
     snippet: str
+
 
 class SearchResponse(BaseModel):
     query: str

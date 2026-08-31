@@ -1,16 +1,12 @@
 import pytest
-import asyncio
-from jarvis_engine.core.database import init_db, get_setting, set_setting
+
 from jarvis_engine.api.routes import (
-    get_system_prompt,
-    PERSONALITY_ASSISTANT_PROMPT,
-    PERSONALITY_DEVELOPER_PROMPT,
-    PERSONALITY_RESEARCH_PROMPT,
-    MODIFIER_PLANNER_PROMPT,
-    MODIFIER_QUIET_PROMPT,
     get_settings_endpoint,
+    get_system_prompt,
     update_settings_endpoint,
 )
+from jarvis_engine.core.database import get_setting, init_db
+
 
 @pytest.mark.asyncio
 async def test_personality_prompt_combinations():
@@ -47,12 +43,15 @@ async def test_personality_prompt_combinations():
     assert "You are JARVIS, a premium AI desktop assistant" in p_fallback
     assert "[MODIFIER:" not in p_fallback
 
+
 @pytest.mark.asyncio
 async def test_settings_persistence_and_endpoints():
     await init_db()
 
     # Initial update via endpoint
-    res1 = await update_settings_endpoint({"personality_mode": "developer", "modifier": "planner"})
+    res1 = await update_settings_endpoint(
+        {"personality_mode": "developer", "modifier": "planner"}
+    )
     assert res1["personality_mode"] == "developer"
     assert res1["modifier"] == "planner"
 
@@ -73,6 +72,8 @@ async def test_settings_persistence_and_endpoints():
     assert res2["modifier"] == "quiet"
 
     # Reset back to assistant / none
-    res3 = await update_settings_endpoint({"personality_mode": "assistant", "modifier": "none"})
+    res3 = await update_settings_endpoint(
+        {"personality_mode": "assistant", "modifier": "none"}
+    )
     assert res3["personality_mode"] == "assistant"
     assert res3["modifier"] == "none"

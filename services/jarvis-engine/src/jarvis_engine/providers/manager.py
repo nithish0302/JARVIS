@@ -1,10 +1,10 @@
-from typing import List, Optional
-from .base import BaseProvider
-from .ollama import OllamaProvider
-from .groq_provider import GroqProvider
-from .openrouter import OpenRouterProvider
-from .gemini_provider import GeminiProvider
 from ..core.models import Message, ProviderStatus
+from .base import BaseProvider
+from .gemini_provider import GeminiProvider
+from .groq_provider import GroqProvider
+from .ollama import OllamaProvider
+from .openrouter import OpenRouterProvider
+
 # Cerebras is integrated but INACTIVE: the account returns HTTP 402
 # (payment_required / param "quota") on every chat completion, for every model
 # in its catalog. Auth is fine (/v1/models returns 200), so this is purely an
@@ -12,6 +12,7 @@ from ..core.models import Message, ProviderStatus
 # ready to go - re-add the import and the CerebrasProvider() entry below to
 # re-enable once the billing side is sorted out.
 # from .cerebras_provider import CerebrasProvider
+
 
 class ProviderManager:
     """Manages the fallback list of AI LLM providers.
@@ -22,8 +23,9 @@ class ProviderManager:
     affects all subsequent and concurrent in-flight requests across the application.
     This is an intentional design tradeoff appropriate for a single-user desktop assistant.
     """
+
     def __init__(self):
-        self._all_providers: List[BaseProvider] = [
+        self._all_providers: list[BaseProvider] = [
             GeminiProvider(),
             OpenRouterProvider(),
             GroqProvider(),
@@ -31,7 +33,7 @@ class ProviderManager:
         ]
 
     @property
-    def providers(self) -> List[BaseProvider]:
+    def providers(self) -> list[BaseProvider]:
         """The active provider cascade, computed fresh on every access.
 
         Ollama is silently excluded whenever OLLAMA_HOST is unset (neither
@@ -44,12 +46,13 @@ class ProviderManager:
         needing to know why.
         """
         from ..core.config import settings
+
         if not settings.OLLAMA_HOST:
             return [p for p in self._all_providers if p.name != "ollama"]
         return list(self._all_providers)
 
     @providers.setter
-    def providers(self, value: List[BaseProvider]):
+    def providers(self, value: list[BaseProvider]):
         """Tests patch provider_manager.providers directly with fake
         provider lists (see tests/test_provider_fallback.py's
         _patch_providers / conftest.py's _reset_provider_state) - keep
@@ -69,7 +72,9 @@ class ProviderManager:
 
     def set_active_provider(self, provider_name: str, model_name: str):
         """Reorder the underlying providers list so the chosen provider is prioritized first."""
-        selected = next((p for p in self._all_providers if p.name == provider_name), None)
+        selected = next(
+            (p for p in self._all_providers if p.name == provider_name), None
+        )
         if selected:
             # We don't dynamically change the model inside the provider for now,
             # as they read from config. If we need to support dynamic model switching,
@@ -87,14 +92,17 @@ class ProviderManager:
         connection-failure one.
         """
         from ..core.config import settings
-        return not any([
-            settings.GEMINI_API_KEY,
-            settings.GROQ_API_KEY,
-            settings.OPENROUTER_API_KEY,
-            settings.OLLAMA_HOST,
-        ])
 
-    async def chat(self, messages: List[Message]) -> tuple[str, str, str]:
+        return not any(
+            [
+                settings.GEMINI_API_KEY,
+                settings.GROQ_API_KEY,
+                settings.OPENROUTER_API_KEY,
+                settings.OLLAMA_HOST,
+            ]
+        )
+
+    async def chat(self, messages: list[Message]) -> tuple[str, str, str]:
         for provider in self.providers:
             try:
                 if await provider.is_available():
@@ -118,23 +126,24 @@ class ProviderManager:
             )
         return (message, "none", "none")
 
-    async def get_status(self) -> List[ProviderStatus]:
+    async def get_status(self) -> list[ProviderStatus]:
         statuses = []
         for provider in self.providers:
             statuses.append(
                 ProviderStatus(
                     name=provider.name,
                     available=await provider.is_available(),
-                    model=provider.model
+                    model=provider.model,
                 )
             )
         return statuses
+
 
 # Process-wide global singleton. Shared across all routes, streams, and background tasks.
 provider_manager = ProviderManager()
 
 
-async def restore_preferred_provider() -> Optional[str]:
+async def restore_preferred_provider() -> str | None:
     """Reads back the PREFERRED provider/model persisted by a manual
     /provider/switch (see api/routes.py) and reorders provider_manager the
     same way set_active_provider() does for a live switch - the restart
@@ -156,7 +165,9 @@ async def restore_preferred_provider() -> Optional[str]:
     from ..core.config import settings
     from ..core.database import get_setting
 
-    preferred_provider = await get_setting("preferred_provider", settings.PREFERRED_PROVIDER)
+    preferred_provider = await get_setting(
+        "preferred_provider", settings.PREFERRED_PROVIDER
+    )
     if not preferred_provider:
         return None
     preferred_model = await get_setting("preferred_model", settings.PREFERRED_MODEL)

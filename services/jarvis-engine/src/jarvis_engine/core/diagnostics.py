@@ -9,6 +9,7 @@ prepare_engine_data_dir/spawn_engine_sidecar), so it's discoverable at
 the same predictable, writable, per-install location regardless of
 platform or how the binary was launched.
 """
+
 import logging
 import traceback
 from logging.handlers import RotatingFileHandler
@@ -75,8 +76,10 @@ class RequestLoggingMiddleware:
             if message["type"] == "http.response.start":
                 status_holder["status"] = message["status"]
                 response_headers_holder.update(
-                    {k.decode("latin-1").lower(): v.decode("latin-1")
-                     for k, v in message.get("headers", [])}
+                    {
+                        k.decode("latin-1").lower(): v.decode("latin-1")
+                        for k, v in message.get("headers", [])
+                    }
                 )
             await send(message)
 
@@ -85,7 +88,10 @@ class RequestLoggingMiddleware:
         except Exception:
             diagnostics_logger.error(
                 "UNHANDLED EXCEPTION for %s %s | Origin: %s\n%s",
-                method, path, origin, traceback.format_exc(),
+                method,
+                path,
+                origin,
+                traceback.format_exc(),
             )
             raise
 
@@ -99,5 +105,9 @@ class RequestLoggingMiddleware:
 
         diagnostics_logger.info(
             "%s %s | Origin: %s | CORS: %s | Status: %s",
-            method, path, origin, cors_outcome, status_holder.get("status", "?"),
+            method,
+            path,
+            origin,
+            cors_outcome,
+            status_holder.get("status", "?"),
         )

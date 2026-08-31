@@ -4,14 +4,15 @@ no-break space, U+202F) turned a successful /voice/input request into an
 unhandled 500 via UnicodeEncodeError in print(). This must not depend on
 PYTHONIOENCODING being set externally - the fix must hold under a
 Windows-cp1252-like stdout with no such env var."""
+
 import io
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from starlette.testclient import TestClient
 
-from jarvis_engine.main import app
 from jarvis_engine.core.utils import safe_print
+from jarvis_engine.main import app
 
 NARROW_NO_BREAK_SPACE = " "
 
@@ -51,14 +52,14 @@ def test_voice_input_with_unicode_response_succeeds_without_pythonioencoding():
     response_text = f"Certainly, sir.{NARROW_NO_BREAK_SPACE}Right away."
     provider = _fake_provider(response_text)
 
-    with patch("jarvis_engine.api.routes.provider_manager") as mock_pm, \
-         patch("sys.stdout", Cp1252LikeStdout()):
+    with (
+        patch("jarvis_engine.api.routes.provider_manager") as mock_pm,
+        patch("sys.stdout", Cp1252LikeStdout()),
+    ):
         mock_pm.providers = [provider]
 
         with TestClient(app) as client:
-            res = client.post(
-                "/voice/input", json={"text": "what's the plan"}
-            )
+            res = client.post("/voice/input", json={"text": "what's the plan"})
 
     assert res.status_code == 200
     body = res.json()

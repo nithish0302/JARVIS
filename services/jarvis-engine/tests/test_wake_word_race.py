@@ -1,16 +1,18 @@
-import time
 import threading
-import numpy as np
-import pytest
+import time
 from unittest.mock import MagicMock
+
+import numpy as np
+
 from jarvis_engine.core.config import settings
 from jarvis_engine.voice.wake_word import WakeWordDetector
+
 
 def test_wake_word_toctou_race_prevented():
     """Simulate rapid, consecutive audio callbacks with high wake-word scores
     arriving in quick succession (every 80ms) while on_detected is executing.
     Confirms exactly 1 thread is dispatched, preventing duplicate spawns."""
-    
+
     detection_count = 0
     detection_lock = threading.Lock()
     is_listening = False
@@ -42,7 +44,10 @@ def test_wake_word_toctou_race_prevented():
     detector.set_is_listening = set_is_listening
     detector._detection_lock = threading.Lock()
     detector.tts_mute_buffer_seconds = 0.0  # mute gate not under test here
-    detector.get_tts_state = lambda: (False, 0.0)  # never muted; avoids importing the TTS singleton
+    detector.get_tts_state = lambda: (
+        False,
+        0.0,
+    )  # never muted; avoids importing the TTS singleton
     detector._muted = False
     detector._flushing = False
     detector.last_detection_time = 0.0
@@ -64,11 +69,12 @@ def test_wake_word_toctou_race_prevented():
 
     assert detection_count == 1, f"Expected exactly 1 detection, got {detection_count}"
 
+
 def test_wake_word_cooldown_rejection():
     """Verify that a second high-scoring audio chunk within the 2-second cooldown
     window is rejected, even if is_listening is False, and that after cooldown
     expires a new detection is allowed."""
-    
+
     detection_count = 0
     is_listening = False
 
@@ -87,7 +93,10 @@ def test_wake_word_cooldown_rejection():
     detector.set_is_listening = lambda val: None
     detector._detection_lock = threading.Lock()
     detector.tts_mute_buffer_seconds = 0.0  # mute gate not under test here
-    detector.get_tts_state = lambda: (False, 0.0)  # never muted; avoids importing the TTS singleton
+    detector.get_tts_state = lambda: (
+        False,
+        0.0,
+    )  # never muted; avoids importing the TTS singleton
     detector._muted = False
     detector._flushing = False
     detector.last_detection_time = 0.0
@@ -118,10 +127,11 @@ def test_wake_word_cooldown_rejection():
     time.sleep(0.05)
     assert detection_count == 2, "Third utterance after cooldown should trigger"
 
+
 def test_wake_word_10_sequential_utterances():
     """Simulate 10 consecutive wake word utterances with pauses between each,
     verifying exactly 1 detection per utterance and logging all timestamps."""
-    
+
     detection_logs = []
     detection_lock = threading.Lock()
     is_listening = False
@@ -154,7 +164,10 @@ def test_wake_word_10_sequential_utterances():
     detector.set_is_listening = set_is_listening
     detector._detection_lock = threading.Lock()
     detector.tts_mute_buffer_seconds = 0.0  # mute gate not under test here
-    detector.get_tts_state = lambda: (False, 0.0)  # never muted; avoids importing the TTS singleton
+    detector.get_tts_state = lambda: (
+        False,
+        0.0,
+    )  # never muted; avoids importing the TTS singleton
     detector._muted = False
     detector._flushing = False
     detector.last_detection_time = 0.0
@@ -173,7 +186,7 @@ def test_wake_word_10_sequential_utterances():
         # Simulate multiple audio chunks per utterance
         for _ in range(3):
             detector._audio_callback(fake_audio, 1280, {}, None)
-        
+
         # Natural pause between utterances (allows processing + cooldown)
         time.sleep(0.15)
 
@@ -184,4 +197,6 @@ def test_wake_word_10_sequential_utterances():
         rel_time = ts - start_time
         print(f"  Utterance #{idx:02d}: Detected at +{rel_time:.3f}s (epoch {ts:.3f})")
 
-    assert len(detection_logs) == 10, f"Expected exactly 10 detections, got {len(detection_logs)}"
+    assert len(detection_logs) == 10, (
+        f"Expected exactly 10 detections, got {len(detection_logs)}"
+    )

@@ -16,6 +16,7 @@ These tests point the credential store at a temporary database via
 settings.DB_PATH - they must never touch the real one, which holds live
 OAuth tokens.
 """
+
 import sqlite3
 
 import pytest
@@ -56,6 +57,7 @@ def _rows(db_path):
 # Namespace resolution
 # --------------------------------------------------------------------------
 
+
 def test_gmail_and_calendar_share_the_google_namespace():
     """The root cause: these two do NOT store under their own ids."""
     assert registry.resolve_namespace("gmail") == "google"
@@ -90,9 +92,8 @@ def test_is_configured_and_delete_agree_on_the_namespace():
 # Disconnect actually deletes
 # --------------------------------------------------------------------------
 
-def test_disconnecting_gmail_clears_the_shared_google_tokens(
-    api_client, temp_cred_db
-):
+
+def test_disconnecting_gmail_clears_the_shared_google_tokens(api_client, temp_cred_db):
     """THE REGRESSION TEST.
 
     Before the fix this deleted nothing and returned status ok.

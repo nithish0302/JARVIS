@@ -17,22 +17,22 @@ _level_queue: "queue.Queue[float]" = queue.Queue()
 
 
 def push_level(level: float) -> None:
-  """Non-blocking. Call from any audio thread with the RMS level for the
-  current frame/chunk."""
-  try:
-    _level_queue.put_nowait(float(level))
-  except Exception:
-    pass
+    """Non-blocking. Call from any audio thread with the RMS level for the
+    current frame/chunk."""
+    try:
+        _level_queue.put_nowait(float(level))
+    except Exception:
+        pass
 
 
 def get_latest_level():
-  """Drains the queue and returns the most recent level pushed since the
-  last call, or None if nothing new arrived. Intended to be polled at a
-  throttled rate by a single consumer (the broadcaster task in main.py)."""
-  latest = None
-  try:
-    while True:
-      latest = _level_queue.get_nowait()
-  except queue.Empty:
-    pass
-  return latest
+    """Drains the queue and returns the most recent level pushed since the
+    last call, or None if nothing new arrived. Intended to be polled at a
+    throttled rate by a single consumer (the broadcaster task in main.py)."""
+    latest = None
+    try:
+        while True:
+            latest = _level_queue.get_nowait()
+    except queue.Empty:
+        pass
+    return latest

@@ -18,10 +18,11 @@ for _stream in (sys.stdout, sys.stderr):
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+
 from .api.routes import router
+from .core.config import log_api_key_diagnostics, settings
 from .core.database import init_db
-from .core.config import settings, log_api_key_diagnostics
-from .core.diagnostics import diagnostics_logger, RequestLoggingMiddleware, LOG_PATH
+from .core.diagnostics import LOG_PATH, RequestLoggingMiddleware, diagnostics_logger
 
 # Runs at import time (before the lifespan/DB/model-loading work below) so
 # the masked key previews and any stale-system-env-var warning are the
@@ -30,14 +31,15 @@ from .core.diagnostics import diagnostics_logger, RequestLoggingMiddleware, LOG_
 log_api_key_diagnostics()
 diagnostics_logger.info("=== jarvis-engine starting up (debug.log: %s) ===", LOG_PATH)
 
+
 async def _broadcast_audio_levels():
     """Drains audio_level_bus at a throttled ~12Hz and broadcasts the
     latest mic level over the voice WebSocket. Runs as its own asyncio
     task so the real-time audio callbacks in wake_word.py / speech_recorder
     only ever do an O(1) queue push - no awaiting, no broadcasting, no
     contention with the wake-word detection lock."""
-    from .voice.audio_level_bus import get_latest_level
     from .api.routes import broadcast_voice_event, connected_clients
+    from .voice.audio_level_bus import get_latest_level
 
     while True:
         await asyncio.sleep(1 / 12)
@@ -47,10 +49,9 @@ async def _broadcast_audio_levels():
         if level is None:
             continue
         try:
-            await broadcast_voice_event({
-                "type": "audio_level",
-                "level": round(level, 4)
-            })
+            await broadcast_voice_event(
+                {"type": "audio_level", "level": round(level, 4)}
+            )
         except Exception:
             pass
 
@@ -61,10 +62,11 @@ async def lifespan(app: FastAPI):
     _t0 = time.time()
     await init_db()
     print(f"[TIMING] init_db: {time.time() - _t0:.2f}s")
-    
+
     _t1 = time.time()
-    from .plugins.placeholders import register_placeholders
     from .plugins.google_auth import init_google_oauth
+    from .plugins.placeholders import register_placeholders
+
     register_placeholders()
     init_google_oauth()
     print(f"[TIMING] init_plugins: {time.time() - _t1:.2f}s")
@@ -84,8 +86,10 @@ async def lifespan(app: FastAPI):
     if restored:
         print(f"[STARTUP] Restored preferred provider: {restored}")
 
-    from .core.database import get_setting, delete_setting
-    from .plugins.credential_store import get_credential as _get_cred, store_credential as _store_cred
+    from .core.database import delete_setting, get_setting
+    from .plugins.credential_store import get_credential as _get_cred
+    from .plugins.credential_store import store_credential as _store_cred
+
     for key in ["GEMINI_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY", "OLLAMA_HOST"]:
         # Prefer the encrypted credential store (new path); fall back to the
         # legacy plaintext settings table for installs that haven't re-entered
@@ -112,7 +116,9 @@ async def lifespan(app: FastAPI):
         _tp = time.time()
         available = await provider.is_available()
         any_available = any_available or available
-        print(f"Provider {provider.name}: {'available' if available else 'unavailable'} ({time.time() - _tp:.2f}s)")
+        print(
+            f"Provider {provider.name}: {'available' if available else 'unavailable'} ({time.time() - _tp:.2f}s)"
+        )
     print(f"[TIMING] provider availability checks total: {time.time() - _t1:.2f}s")
 
     if provider_manager.is_unconfigured():
@@ -150,7 +156,10 @@ async def lifespan(app: FastAPI):
     def _warm_transformers():
         try:
             from transformers import AlbertModel  # noqa: F401 - kokoro's import chain
-            from transformers.configuration_utils import PretrainedConfig  # noqa: F401 - sentence-transformers' import chain
+            from transformers.configuration_utils import (
+                PretrainedConfig,  # noqa: F401 - sentence-transformers' import chain
+            )
+
             print(f"[STARTUP] transformers warmed ({time.time() - _t_warm:.2f}s)")
         except Exception as e:
             print(f"[STARTUP] transformers warmup failed (non-fatal): {e}")
@@ -171,7 +180,6 @@ async def lifespan(app: FastAPI):
         """Imports tts_engine, which spawns its own background loader
         thread for Kokoro and returns immediately - see tts_engine.py."""
         try:
-            from .voice.tts_engine import tts_engine
             print("[STARTUP] TTS kicked off (Kokoro loading in background thread)")
         except Exception as e:
             print(f"[STARTUP] TTS init error: {e}")
@@ -181,10 +189,13 @@ async def lifespan(app: FastAPI):
         loader threads for Whisper + wake word and returns immediately -
         see voice_manager.py."""
         try:
-            from .voice.voice_manager import voice_manager
             from .voice.transcription_handler import handle_transcription
+            from .voice.voice_manager import voice_manager
+
             voice_manager.initialize(handle_transcription)
-            print("Voice detection kicked off (Whisper + wake word loading in background threads)")
+            print(
+                "Voice detection kicked off (Whisper + wake word loading in background threads)"
+            )
         except Exception as e:
             print(f"Voice init failed: {e}")
 
@@ -204,6 +215,7 @@ async def lifespan(app: FastAPI):
     async def _migrate_memory_embeddings():
         try:
             from .memory.memory_manager import memory_manager
+
             n = await memory_manager.migrate_embeddings()
             if n:
                 print(f"[STARTUP] Embedded {n} pre-existing memories into ChromaDB")
@@ -212,18 +224,18 @@ async def lifespan(app: FastAPI):
 
     asyncio.create_task(_migrate_memory_embeddings())
 
-    print(f"[TIMING] TOTAL lifespan startup (models still loading in background): {time.time() - _t0:.2f}s")
+    print(
+        f"[TIMING] TOTAL lifespan startup (models still loading in background): {time.time() - _t0:.2f}s"
+    )
     yield
     # Shutdown
     audio_level_task.cancel()
     from .voice.voice_manager import voice_manager
+
     voice_manager.shutdown()
 
-app = FastAPI(
-    title="JARVIS Engine",
-    version=settings.VERSION,
-    lifespan=lifespan
-)
+
+app = FastAPI(title="JARVIS Engine", version=settings.VERSION, lifespan=lifespan)
 
 # Single-user local desktop app (no API auth in v1 - see M1 security audit),
 # so CORS only needs to keep non-JARVIS web pages from calling this API, not
@@ -263,7 +275,8 @@ async def _log_unhandled_exception(request: Request, exc: Exception):
     as a generic client-side "unable to connect"."""
     diagnostics_logger.error(
         "UNHANDLED EXCEPTION in handler for %s %s\n%s",
-        request.method, request.url.path,
+        request.method,
+        request.url.path,
         "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
     )
     return JSONResponse(status_code=500, content={"detail": "Internal server error"})

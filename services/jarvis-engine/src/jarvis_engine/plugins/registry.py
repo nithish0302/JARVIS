@@ -1,5 +1,7 @@
 from dataclasses import dataclass, field
+
 from .credential_store import list_credential_keys
+
 
 @dataclass
 class PluginDefinition:
@@ -11,6 +13,7 @@ class PluginDefinition:
     capabilities: list[str] = field(default_factory=list)
     ui_actions: list[str] = field(default_factory=list)
     is_enabled: bool = True
+
 
 class PluginRegistry:
     def __init__(self):
@@ -49,7 +52,8 @@ class PluginRegistry:
         """Ids of every registered plugin whose credentials live under
         `namespace` - i.e. everything affected by clearing it."""
         return [
-            p.id for p in self.list_plugins()
+            p.id
+            for p in self.list_plugins()
             if self.resolve_namespace(p.id) == namespace
         ]
 
@@ -67,7 +71,7 @@ class PluginRegistry:
         configured = [p for p in self.list_plugins() if self.is_configured(p.id)]
         if not configured:
             return ""
-        
+
         lines = ["<PLUGIN_CAPABILITIES>"]
         for p in configured:
             lines.append(f"Plugin: {p.name}")
@@ -82,5 +86,6 @@ class PluginRegistry:
             lines.append("")
         lines.append("</PLUGIN_CAPABILITIES>")
         return "\n".join(lines)
+
 
 registry = PluginRegistry()
