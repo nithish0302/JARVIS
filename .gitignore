@@ -24,8 +24,7 @@ services/jarvis-engine/build/
 services/jarvis-engine/.env
 
 # Claude Code local configuration
-.claude/
-CLAUDE.md
+
 
 # Editor directories and files
 .vscode/*
